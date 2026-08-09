@@ -1,0 +1,96 @@
+# ============================================================
+# ASR — AI Software Runtime
+# .gitignore for open source release
+# ============================================================
+
+# ---- IDE & Editor ----
+.idea/
+.vscode/
+*.iml
+
+# ---- Python ----
+*__pycache__*
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.installed.cfg
+.eggs/
+build/
+dist/
+sdist/
+develop-eggs/
+downloads/
+wheels/
+parts/
+var/
+lib/
+lib64/
+
+# ---- Virtual Environments ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- Testing & Coverage ----
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.hypothesis/
+nosetests.xml
+coverage.xml
+*.cover
+
+# ---- macOS ----
+.DS_Store
+
+# ---- Logs & Temp ----
+*.log
+*.spec
+*.manifest
+pip-log.txt
+pip-delete-this-directory.txt
+celerybeat-schedule
+
+# ---- Environment / Secrets ----
+# .env 包含真实 API Key / 内网地址，不能提交
+# 请使用 .env.example 作为配置模板
+.env
+# 但 .env.example 是允许提交的（已脱敏）
+!.env.example
+
+# ---- ASR Runtime Generated Files ----
+# 运行时生成的目录（测试沙箱、事件日志等），不应提交
+.runtime/
+.asr_sandbox/
+.sisyphus/
+.workbuddy/
+
+# ---- Python Version ----
+.python-version
+
+# ---- Development / Private Data ----
+# demo_dev 是开发测试目录，包含私有测试案例
+demo_dev/
+# 比赛相关材料，不属于开源项目
+比赛*/
+*.zip
+
+# ---- Docs build ----
+docs/_build/
+/site
+
+# ---- Misc ----
+*.bin
+checkpoints
+extracted_files/
+task/
+data/
+bak/
