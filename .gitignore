@@ -66,10 +66,6 @@ celerybeat-schedule
 # 但 .env.example 是允许提交的（已脱敏）
 !.env.example
 
-# ---- ASR Runtime Generated Files ----
-# 运行时生成的目录（测试沙箱、事件日志等），不应提交
-.runtime/
-.asr_sandbox/
 .sisyphus/
 .workbuddy/
 
@@ -93,4 +89,7 @@ checkpoints
 extracted_files/
 task/
 data/
-bak/
+.claude/
+.omo/
+AGENT.md
+CLAUDE.md

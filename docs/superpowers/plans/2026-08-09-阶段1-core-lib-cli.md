@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 实现 WTH 的 core lib（存储 / CAS / schema 校验 / 状态机 / DAG / 投影闸门 / 全局归约）与规范入口 `board` CLI，产出可独立运行的裸兜底工具。
+**Goal:** 实现 OuSheng 的 core lib（存储 / CAS / schema 校验 / 状态机 / DAG / 投影闸门 / 全局归约）与规范入口 `board` CLI，产出可独立运行的裸兜底工具。
 
 **Architecture:** 单一 Go module。core 逻辑在 `internal/` 各包，`cmd/board` 是薄 CLI 前端。store = git 仓，一卡一 YAML 文件（`cards/<id>.yaml`）。校验手写（不拉 JSON Schema 库）。git 通过 `os/exec` 调用（不拉 go-git）。CAS 借 git 提交原子性 + 进程锁文件。
 
@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Go 1.22+；唯一外部依赖 `gopkg.in/yaml.v3`；git 走 `os/exec`；不引入其他外部库。
-- module 路径：`wth`。import 形如 `wth/internal/card`。
+- module 路径：`ousheng`。import 形如 `ousheng/internal/card`。
 - store 布局：board 是一个 git 仓，卡片文件在 `cards/<id>.yaml`。
 - 卡 id 正则：`^[a-z0-9][a-z0-9-]*$`。
 - 卡文件最大 8192 字节（投影闸门尺寸上限）。
@@ -41,7 +41,7 @@
 
 **Interfaces:**
 - Consumes: 无
-- Produces: 可运行二进制 `board`，`board version` 打印版本串 `wth board 0.1.0`。
+- Produces: 可运行二进制 `board`，`board version` 打印版本串 `ousheng board 0.1.0`。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -52,7 +52,7 @@ package main
 import "testing"
 
 func TestVersionString(t *testing.T) {
-	if got := versionString(); got != "wth board 0.1.0" {
+	if got := versionString(); got != "ousheng board 0.1.0" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -66,7 +66,7 @@ Expected: 编译失败（`versionString` 未定义）或 module 未初始化。
 - [ ] **Step 3: 最小实现**
 
 ```bash
-go mod init wth
+go mod init ousheng
 go get gopkg.in/yaml.v3
 ```
 
@@ -81,7 +81,7 @@ import (
 
 const version = "0.1.0"
 
-func versionString() string { return "wth board " + version }
+func versionString() string { return "ousheng board " + version }
 
 func main() {
 	if len(os.Args) < 2 {
@@ -415,7 +415,7 @@ package lifecycle
 import (
 	"testing"
 
-	"wth/internal/card"
+	"ousheng/internal/card"
 )
 
 func TestLegalTransitions(t *testing.T) {
@@ -456,7 +456,7 @@ Expected: 编译失败（`CanTransition` 未定义）。
 // internal/lifecycle/machine.go
 package lifecycle
 
-import "wth/internal/card"
+import "ousheng/internal/card"
 
 var edges = map[card.Status]map[card.Status]bool{
 	card.Proposed: {card.Agreed: true, card.Deprecated: true},
@@ -609,7 +609,7 @@ package store
 import (
 	"testing"
 
-	"wth/internal/card"
+	"ousheng/internal/card"
 )
 
 func newCard(id string) card.Card {
@@ -659,7 +659,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"wth/internal/card"
+	"ousheng/internal/card"
 )
 
 type Store struct{ Dir string }
@@ -689,7 +689,7 @@ func (s *Store) Init() error {
 		return err
 	}
 	// 本地身份，保证测试环境可提交
-	_, _ = gitRun(s.Dir, "config", "user.email", "board@wth.local")
+	_, _ = gitRun(s.Dir, "config", "user.email", "board@ousheng.local")
 	_, _ = gitRun(s.Dir, "config", "user.name", "board")
 	return nil
 }
@@ -905,7 +905,7 @@ package board
 import (
 	"testing"
 
-	"wth/internal/card"
+	"ousheng/internal/card"
 )
 
 func mk(id string) card.Card {
@@ -965,9 +965,9 @@ package board
 import (
 	"fmt"
 
-	"wth/internal/card"
-	"wth/internal/lifecycle"
-	"wth/internal/store"
+	"ousheng/internal/card"
+	"ousheng/internal/lifecycle"
+	"ousheng/internal/store"
 )
 
 type Board struct{ store *store.Store }
@@ -1062,7 +1062,7 @@ package board
 import (
 	"testing"
 
-	"wth/internal/card"
+	"ousheng/internal/card"
 )
 
 func verified(id string) card.Card {
@@ -1118,8 +1118,8 @@ Expected: 编译失败（`Converge` 未定义）。
 package board
 
 import (
-	"wth/internal/card"
-	"wth/internal/graph"
+	"ousheng/internal/card"
+	"ousheng/internal/graph"
 )
 
 type Convergence struct {
@@ -1273,13 +1273,13 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"wth/internal/board"
-	"wth/internal/card"
+	"ousheng/internal/board"
+	"ousheng/internal/card"
 )
 
 const version = "0.1.0"
 
-func versionString() string { return "wth board " + version }
+func versionString() string { return "ousheng board " + version }
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
