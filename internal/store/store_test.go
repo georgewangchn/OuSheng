@@ -17,9 +17,8 @@ func TestInitAndCommitAndList(t *testing.T) {
 		t.Fatalf("init: %v", err)
 	}
 	c := newCard("a")
-	raw, _ := card.Encode(c)
-	if err := s.commit("a", raw, "add a"); err != nil {
-		t.Fatalf("commit: %v", err)
+	if _, err := s.Write(c, 0, nil, "add a"); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 	got, err := s.List()
 	if err != nil {

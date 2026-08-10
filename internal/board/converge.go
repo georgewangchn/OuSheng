@@ -1,6 +1,9 @@
 package board
 
 import (
+	"fmt"
+	"time"
+
 	"ousheng/internal/card"
 	"ousheng/internal/graph"
 )
@@ -8,9 +11,9 @@ import (
 type ConvergenceStatus string
 
 const (
-	StatusConverged   ConvergenceStatus = "CONVERGED"
-	StatusInProgress  ConvergenceStatus = "IN_PROGRESS"
-	StatusStuck       ConvergenceStatus = "STUCK"
+	StatusConverged  ConvergenceStatus = "CONVERGED"
+	StatusInProgress ConvergenceStatus = "IN_PROGRESS"
+	StatusStuck      ConvergenceStatus = "STUCK"
 )
 
 type Convergence struct {
@@ -19,7 +22,15 @@ type Convergence struct {
 	Cycle    []string
 }
 
+type ConvergeOptions struct {
+	StuckAfter time.Duration // 0 = disabled
+}
+
 func (b *Board) Converge() (Convergence, error) {
+	return b.ConvergeWithOpts(ConvergeOptions{})
+}
+
+func (b *Board) ConvergeWithOpts(opts ConvergeOptions) (Convergence, error) {
 	cards, err := b.ReadBoard(Scope{})
 	if err != nil {
 		return Convergence{}, err
@@ -57,6 +68,12 @@ func (b *Board) Converge() (Convergence, error) {
 				if dep.Status == card.Deprecated {
 					blockers = append(blockers, c.ID+": broken, depends on deprecated "+d)
 				}
+			}
+		}
+		if opts.StuckAfter > 0 && c.Status != card.Verified && c.Status != card.Deprecated {
+			lastChange, err := b.store.LastCommitTime(c.ID)
+			if err == nil && lastChange.Before(time.Now().Add(-opts.StuckAfter)) {
+				blockers = append(blockers, fmt.Sprintf("stuck: %s in %s for %s", c.ID, c.Status, time.Since(lastChange).Round(time.Hour)))
 			}
 		}
 	}
