@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ var idRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 type Store struct {
 	Dir         string
 	SignCommits bool
+	mu          sync.Mutex
 }
 
 func Open(dir string) *Store {
@@ -151,6 +153,9 @@ func (s *Store) isStaleLock(path string) bool {
 }
 
 func (s *Store) Write(c card.Card, expectedVersion int, validate func(card.Card, []byte) error, msg string) (card.Card, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	unlock, err := s.lock()
 	if err != nil {
 		return card.Card{}, err
