@@ -45,6 +45,26 @@ type Card struct {
 	HumanAck  *HumanAck `yaml:"human_ack,omitempty"`
 }
 
+type Summary struct {
+	ID        string   `json:"id"`
+	Owner     string   `json:"owner"`
+	Task      string   `json:"task"`
+	Status    string   `json:"status"`
+	Version   int      `json:"version"`
+	DependsOn []string `json:"depends_on,omitempty"`
+}
+
+func (c Card) Summarize() Summary {
+	return Summary{
+		ID:        c.ID,
+		Owner:     c.Owner,
+		Task:      c.Task,
+		Status:    string(c.Status),
+		Version:   c.Version,
+		DependsOn: c.DependsOn,
+	}
+}
+
 func Decode(b []byte) (Card, error) {
 	var c Card
 	dec := yaml.NewDecoder(bytes.NewReader(b))

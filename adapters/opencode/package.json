@@ -1,0 +1,7 @@
+{
+  "name": "ousheng-adapters",
+  "private": true,
+  "devDependencies": {
+    "@opencode-ai/plugin": "latest"
+  }
+}

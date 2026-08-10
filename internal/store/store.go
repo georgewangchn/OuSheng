@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"ousheng/internal/card"
 )
@@ -16,9 +17,18 @@ var ErrConflict = errors.New("version conflict")
 
 var idRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
-type Store struct{ Dir string }
+type Store struct {
+	Dir         string
+	SignCommits bool
+}
 
-func Open(dir string) *Store { return &Store{Dir: dir} }
+func Open(dir string) *Store {
+	s := &Store{Dir: dir}
+	if os.Getenv("OUSHENG_SIGN_COMMITS") == "1" {
+		s.SignCommits = true
+	}
+	return s
+}
 
 func gitRun(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
@@ -98,21 +108,6 @@ func (s *Store) Get(id string) (card.Card, []byte, bool, error) {
 	return c, b, true, nil
 }
 
-func (s *Store) commit(id string, raw []byte, msg string) error {
-	p, err := s.path(id)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(p, raw, 0o644); err != nil {
-		return err
-	}
-	if _, err := gitRun(s.Dir, "add", filepath.Join("cards", id+".yaml")); err != nil {
-		return err
-	}
-	_, err = gitRun(s.Dir, "commit", "-m", msg)
-	return err
-}
-
 func (s *Store) lock() (func(), error) {
 	lp := filepath.Join(s.Dir, ".board.lock")
 	f, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
@@ -150,8 +145,74 @@ func (s *Store) Write(c card.Card, expectedVersion int, validate func(card.Card,
 			return card.Card{}, err
 		}
 	}
-	if err := s.commit(c.ID, out, msg); err != nil {
+	commitArgs := []string{"commit", "-m", msg}
+	if s.SignCommits {
+		commitArgs = append(commitArgs, "-S")
+	}
+	if err := s.commitRaw(c.ID, out, commitArgs); err != nil {
 		return card.Card{}, err
 	}
 	return c, nil
+}
+
+func (s *Store) commitRaw(id string, raw []byte, commitArgs []string) error {
+	p, err := s.path(id)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(p, raw, 0o644); err != nil {
+		return err
+	}
+	if _, err := gitRun(s.Dir, "add", filepath.Join("cards", id+".yaml")); err != nil {
+		return err
+	}
+	_, err = gitRun(s.Dir, commitArgs...)
+	return err
+}
+
+func (s *Store) LastCommitTime(id string) (time.Time, error) {
+	out, err := gitRun(s.Dir, "log", "-1", "--format=%ci", filepath.Join("cards", id+".yaml"))
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Parse("2006-01-02 15:04:05 -0700", strings.TrimSpace(out))
+}
+
+func (s *Store) VerifySignatures() ([]string, error) {
+	out, err := gitRun(s.Dir, "log", "--all", "--pretty=format:%H %G?", "--", "cards/")
+	if err != nil {
+		return nil, err
+	}
+	var problems []string
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		hash, sig := parts[0], parts[1]
+		switch sig {
+		case "G", "U":
+		case "N", "":
+			problems = append(problems, hash+": unsigned commit")
+		case "B":
+			problems = append(problems, hash+": bad signature")
+		case "X":
+			problems = append(problems, hash+": expired signature")
+		case "Y":
+			problems = append(problems, hash+": signature by expired key")
+		case "R":
+			problems = append(problems, hash+": REVOKED signature")
+		default:
+			problems = append(problems, hash+": signature issue ("+sig+")")
+		}
+	}
+	return problems, nil
+}
+
+func (s *Store) GitLog(id string, n int) (string, error) {
+	count := fmt.Sprintf("-%d", n)
+	return gitRun(s.Dir, "log", count, "--oneline", "--", filepath.Join("cards", id+".yaml"))
 }
