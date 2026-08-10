@@ -29,8 +29,8 @@ func TestWatchConvergeCancelsOnContext(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit code 0 on cancel, got %d err=%s", code, errb.String())
 	}
-	if !bytes.Contains(out.Bytes(), []byte("IN_PROGRESS")) {
-		t.Fatalf("expected output to contain IN_PROGRESS, got: %s", out.String())
+	if !bytes.Contains(out.Bytes(), []byte("CONVERGED")) {
+		t.Fatalf("expected output to contain CONVERGED (empty board), got: %s", out.String())
 	}
 }
 

@@ -55,10 +55,10 @@ func (b *Board) ConvergeWithOpts(opts ConvergeOptions) (Convergence, error) {
 		if c.Status != card.Verified {
 			allVerified = false
 		}
-		if c.Status == card.Verified {
-			if c.Evidence == nil {
-				blockers = append(blockers, c.ID+": verified without evidence")
-			}
+		if c.Status == card.Verified && c.Evidence == nil {
+			blockers = append(blockers, c.ID+": verified without evidence")
+		}
+		if c.Status != card.Deprecated {
 			for _, d := range c.DependsOn {
 				dep, ok := byID[d]
 				if !ok {
@@ -80,7 +80,7 @@ func (b *Board) ConvergeWithOpts(opts ConvergeOptions) (Convergence, error) {
 	if len(blockers) > 0 {
 		return Convergence{Status: StatusStuck, Blockers: blockers}, nil
 	}
-	if len(cards) > 0 && allVerified && !hasProposed {
+	if allVerified && !hasProposed {
 		return Convergence{Status: StatusConverged}, nil
 	}
 	return Convergence{Status: StatusInProgress}, nil

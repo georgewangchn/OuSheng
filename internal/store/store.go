@@ -7,7 +7,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"ousheng/internal/card"
@@ -112,9 +115,39 @@ func (s *Store) lock() (func(), error) {
 	lp := filepath.Join(s.Dir, ".board.lock")
 	f, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("board locked: %w", err)
+		if s.isStaleLock(lp) {
+			os.Remove(lp)
+			f, err = os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("board locked: %w", err)
+		}
 	}
-	return func() { f.Close(); os.Remove(lp) }, nil
+	fmt.Fprintf(f, "%d", os.Getpid())
+	f.Close()
+	return func() { os.Remove(lp) }, nil
+}
+
+func (s *Store) isStaleLock(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return true
+	}
+	if runtime.GOOS == "windows" {
+		return false
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return true
+	}
+	if err := p.Signal(syscall.Signal(0)); err != nil {
+		return true
+	}
+	return false
 }
 
 func (s *Store) Write(c card.Card, expectedVersion int, validate func(card.Card, []byte) error, msg string) (card.Card, error) {
@@ -213,6 +246,9 @@ func (s *Store) VerifySignatures() ([]string, error) {
 }
 
 func (s *Store) GitLog(id string, n int) (string, error) {
+	if n <= 0 {
+		return "", nil
+	}
 	count := fmt.Sprintf("-%d", n)
 	return gitRun(s.Dir, "log", count, "--oneline", "--", filepath.Join("cards", id+".yaml"))
 }

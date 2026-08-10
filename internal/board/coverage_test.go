@@ -130,8 +130,8 @@ func TestConvergeEmptyBoard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("converge empty: %v", err)
 	}
-	if res.Status != StatusInProgress {
-		t.Fatalf("empty board should be IN_PROGRESS, got %s", res.Status)
+	if res.Status != StatusConverged {
+		t.Fatalf("empty board should be CONVERGED, got %s", res.Status)
 	}
 }
 
