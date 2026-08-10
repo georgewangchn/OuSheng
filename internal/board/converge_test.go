@@ -45,3 +45,24 @@ func TestConvergeInProgressWhenProposed(t *testing.T) {
 		t.Fatalf("want IN_PROGRESS, got %s", got.Status)
 	}
 }
+
+func TestConvergeStuckOnDanglingDep(t *testing.T) {
+	b := New(t.TempDir())
+	_ = b.Init()
+	c := mk("a")
+	c, _ = b.WriteBoard(c, 0)
+	c.Status = card.Agreed
+	c, _ = b.WriteBoard(c, c.Version)
+	c.Status = card.Live
+	c, _ = b.WriteBoard(c, c.Version)
+	c.Status = card.Verified
+	c.DependsOn = []string{"ghost"}
+	c.Evidence = &card.Evidence{Probe: "p", PassedAtCommit: "x", By: "frontend"}
+	if _, err := b.WriteBoard(c, c.Version); err != nil {
+		t.Fatalf("to verified: %v", err)
+	}
+	got, _ := b.Converge()
+	if got.Status != "STUCK" {
+		t.Fatalf("want STUCK for dangling dep, got %s", got.Status)
+	}
+}

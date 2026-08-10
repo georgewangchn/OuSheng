@@ -5,8 +5,16 @@ import (
 	"ousheng/internal/graph"
 )
 
+type ConvergenceStatus string
+
+const (
+	StatusConverged   ConvergenceStatus = "CONVERGED"
+	StatusInProgress  ConvergenceStatus = "IN_PROGRESS"
+	StatusStuck       ConvergenceStatus = "STUCK"
+)
+
 type Convergence struct {
-	Status   string
+	Status   ConvergenceStatus
 	Blockers []string
 	Cycle    []string
 }
@@ -23,7 +31,7 @@ func (b *Board) Converge() (Convergence, error) {
 		deps[c.ID] = c.DependsOn
 	}
 	if cyc := graph.FindCycle(deps); cyc != nil {
-		return Convergence{Status: "STUCK", Cycle: cyc}, nil
+		return Convergence{Status: StatusStuck, Cycle: cyc}, nil
 	}
 
 	var blockers []string
@@ -41,17 +49,22 @@ func (b *Board) Converge() (Convergence, error) {
 				blockers = append(blockers, c.ID+": verified without evidence")
 			}
 			for _, d := range c.DependsOn {
-				if dep, ok := byID[d]; ok && dep.Status == card.Deprecated {
+				dep, ok := byID[d]
+				if !ok {
+					blockers = append(blockers, c.ID+": dangling dependency "+d)
+					continue
+				}
+				if dep.Status == card.Deprecated {
 					blockers = append(blockers, c.ID+": broken, depends on deprecated "+d)
 				}
 			}
 		}
 	}
 	if len(blockers) > 0 {
-		return Convergence{Status: "STUCK", Blockers: blockers}, nil
+		return Convergence{Status: StatusStuck, Blockers: blockers}, nil
 	}
 	if len(cards) > 0 && allVerified && !hasProposed {
-		return Convergence{Status: "CONVERGED"}, nil
+		return Convergence{Status: StatusConverged}, nil
 	}
-	return Convergence{Status: "IN_PROGRESS"}, nil
+	return Convergence{Status: StatusInProgress}, nil
 }
