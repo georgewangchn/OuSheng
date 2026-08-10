@@ -236,9 +236,9 @@ func TestSystemConvergenceMatrix(t *testing.T) {
 		want    ConvergenceStatus
 	}{
 		{
-			name:  "empty board in progress",
+			name:  "empty board converged",
 			setup: func(t *testing.T, b *Board) {},
-			want:  StatusInProgress,
+			want:  StatusConverged,
 		},
 		{
 			name: "proposed in progress",
