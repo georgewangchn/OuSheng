@@ -41,6 +41,15 @@ func TestValidateBreakingNeedsHumanAck(t *testing.T) {
 	}
 }
 
+func TestValidateBreakingNeedsCompleteHumanAck(t *testing.T) {
+	c := base()
+	c.Contract.Breaking = true
+	c.HumanAck = &HumanAck{Approver: "", AtVersion: 1} // empty approver
+	if err := Validate(c, []byte("x")); err == nil {
+		t.Fatal("expected human_ack.approver required")
+	}
+}
+
 func TestValidateRejectsCodeBlock(t *testing.T) {
 	c := base()
 	raw := []byte("task: |\n  " + strings.Repeat("`", 3) + "go\n  leak\n")

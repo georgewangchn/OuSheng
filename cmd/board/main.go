@@ -51,7 +51,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, c := range cards {
-			b, _ := card.Encode(c)
+			b, err := card.Encode(c)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
 			fmt.Fprintf(stdout, "---\n%s", b)
 		}
 		return 0
@@ -91,7 +95,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		out, _ := yaml.Marshal(res)
+		out, err := yaml.Marshal(res)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 		fmt.Fprint(stdout, string(out))
 		return 0
 	default:

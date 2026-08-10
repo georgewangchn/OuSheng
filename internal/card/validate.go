@@ -40,8 +40,8 @@ func Validate(c Card, raw []byte) error {
 			return fmt.Errorf("status=verified requires complete evidence")
 		}
 	}
-	if c.Contract.Breaking && c.HumanAck == nil {
-		return fmt.Errorf("contract.breaking=true requires human_ack")
+	if c.Contract.Breaking && (c.HumanAck == nil || strings.TrimSpace(c.HumanAck.Approver) == "") {
+		return fmt.Errorf("contract.breaking=true requires human_ack with non-empty approver")
 	}
 	if len(raw) > MaxCardBytes {
 		return fmt.Errorf("card exceeds %d bytes", MaxCardBytes)

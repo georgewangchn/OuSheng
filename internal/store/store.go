@@ -6,12 +6,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"ousheng/internal/card"
 )
 
 var ErrConflict = errors.New("version conflict")
+
+var idRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 type Store struct{ Dir string }
 
@@ -28,20 +31,28 @@ func gitRun(dir string, args ...string) (string, error) {
 }
 
 func (s *Store) cardsDir() string { return filepath.Join(s.Dir, "cards") }
-func (s *Store) path(id string) string {
-	return filepath.Join(s.cardsDir(), id+".yaml")
+func (s *Store) path(id string) (string, error) {
+	if !idRe.MatchString(id) {
+		return "", fmt.Errorf("invalid card id %q", id)
+	}
+	return filepath.Join(s.cardsDir(), id+".yaml"), nil
 }
 
 func (s *Store) Init() error {
 	if err := os.MkdirAll(s.cardsDir(), 0o755); err != nil {
 		return err
 	}
-	if _, err := gitRun(s.Dir, "init"); err != nil {
-		return err
+	if _, err := gitRun(s.Dir, "init", "-b", "main"); err != nil {
+		if _, err2 := gitRun(s.Dir, "init"); err2 != nil {
+			return err
+		}
 	}
-	// 本地身份，保证测试环境可提交
-	_, _ = gitRun(s.Dir, "config", "user.email", "board@ousheng.local")
-	_, _ = gitRun(s.Dir, "config", "user.name", "board")
+	if _, err := gitRun(s.Dir, "config", "user.email", "board@ousheng.local"); err != nil {
+		return fmt.Errorf("set user.email: %w", err)
+	}
+	if _, err := gitRun(s.Dir, "config", "user.name", "board"); err != nil {
+		return fmt.Errorf("set user.name: %w", err)
+	}
 	return nil
 }
 
@@ -69,7 +80,11 @@ func (s *Store) List() ([]card.Card, error) {
 }
 
 func (s *Store) Get(id string) (card.Card, []byte, bool, error) {
-	b, err := os.ReadFile(s.path(id))
+	p, err := s.path(id)
+	if err != nil {
+		return card.Card{}, nil, false, err
+	}
+	b, err := os.ReadFile(p)
 	if os.IsNotExist(err) {
 		return card.Card{}, nil, false, nil
 	}
@@ -84,13 +99,17 @@ func (s *Store) Get(id string) (card.Card, []byte, bool, error) {
 }
 
 func (s *Store) commit(id string, raw []byte, msg string) error {
-	if err := os.WriteFile(s.path(id), raw, 0o644); err != nil {
+	p, err := s.path(id)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(p, raw, 0o644); err != nil {
 		return err
 	}
 	if _, err := gitRun(s.Dir, "add", filepath.Join("cards", id+".yaml")); err != nil {
 		return err
 	}
-	_, err := gitRun(s.Dir, "commit", "-m", msg)
+	_, err = gitRun(s.Dir, "commit", "-m", msg)
 	return err
 }
 
