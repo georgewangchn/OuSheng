@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +10,8 @@ import (
 
 	"ousheng/internal/card"
 )
+
+var ErrConflict = errors.New("version conflict")
 
 type Store struct{ Dir string }
 
@@ -89,4 +92,47 @@ func (s *Store) commit(id string, raw []byte, msg string) error {
 	}
 	_, err := gitRun(s.Dir, "commit", "-m", msg)
 	return err
+}
+
+func (s *Store) lock() (func(), error) {
+	lp := filepath.Join(s.Dir, ".board.lock")
+	f, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("board locked: %w", err)
+	}
+	return func() { f.Close(); os.Remove(lp) }, nil
+}
+
+func (s *Store) Write(c card.Card, expectedVersion int, validate func(card.Card, []byte) error, msg string) (card.Card, error) {
+	unlock, err := s.lock()
+	if err != nil {
+		return card.Card{}, err
+	}
+	defer unlock()
+
+	cur, _, ok, err := s.Get(c.ID)
+	if err != nil {
+		return card.Card{}, err
+	}
+	curVer := 0
+	if ok {
+		curVer = cur.Version
+	}
+	if expectedVersion != curVer {
+		return card.Card{}, ErrConflict
+	}
+	c.Version = curVer + 1
+	out, err := card.Encode(c)
+	if err != nil {
+		return card.Card{}, err
+	}
+	if validate != nil {
+		if err := validate(c, out); err != nil {
+			return card.Card{}, err
+		}
+	}
+	if err := s.commit(c.ID, out, msg); err != nil {
+		return card.Card{}, err
+	}
+	return c, nil
 }
