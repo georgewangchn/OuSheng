@@ -198,7 +198,24 @@ func (s *Store) commitRaw(id string, raw []byte, commitArgs []string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(p, raw, 0o644); err != nil {
+	// Atomic write: temp file + rename, so a concurrent reader never observes
+	// a partially-written card (which would fail YAML decode).
+	tmp, err := os.CreateTemp(s.cardsDir(), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() { tmp.Close(); os.Remove(tmpName) }
+	if _, err := tmp.Write(raw); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, p); err != nil {
+		os.Remove(tmpName)
 		return err
 	}
 	if _, err := gitRun(s.Dir, "add", filepath.Join("cards", id+".yaml")); err != nil {

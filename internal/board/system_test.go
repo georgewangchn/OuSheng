@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ousheng/internal/card"
+	"ousheng/internal/store"
 )
 
 func realisticCard(id string) card.Card {
@@ -157,8 +158,12 @@ func TestSystemCASConcurrency(t *testing.T) {
 	_ = b.Init()
 
 	c := realisticCard("cas-race")
-	if _, err := b.WriteBoard(c, 0); err != nil {
+	initial, err := b.WriteBoard(c, 0)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if initial.Version != 1 {
+		t.Fatalf("want initial version 1, got %d", initial.Version)
 	}
 
 	const N = 10
@@ -166,39 +171,60 @@ func TestSystemCASConcurrency(t *testing.T) {
 	wg.Add(N)
 	wins := make(chan int, N)
 	losers := make(chan int, N)
+	readFails := make(chan int, N)
+	unexpected := make(chan error, N)
 
 	for i := 0; i < N; i++ {
 		go func() {
 			defer wg.Done()
-			got, _ := b.ReadBoard(Scope{ID: "cas-race"})
-			if len(got) != 1 {
-				losers <- 1
+			got, err := b.ReadBoard(Scope{ID: "cas-race"})
+			if err != nil || len(got) != 1 {
+				readFails <- 1
 				return
 			}
 			updated := got[0]
 			updated.Task = "updated by goroutine"
-			_, err := b.WriteBoard(updated, got[0].Version)
-			if err == nil {
+			_, err = b.WriteBoard(updated, got[0].Version)
+			switch {
+			case err == nil:
 				wins <- 1
-			} else {
-				// Version conflict (ErrConflict) and lock contention are both
-				// valid non-winner outcomes under concurrent CAS. The key
-				// invariant: at most 1 winner.
+			case errors.Is(err, store.ErrConflict):
 				losers <- 1
+			default:
+				unexpected <- err
 			}
 		}()
 	}
 	wg.Wait()
 	close(wins)
 	close(losers)
+	close(readFails)
+	close(unexpected)
 
+	if n := len(readFails); n != 0 {
+		t.Fatalf("want 0 read failures, got %d", n)
+	}
+	if n := len(unexpected); n != 0 {
+		t.Fatalf("want 0 unexpected errors, got %d: %v", n, <-unexpected)
+	}
 	winCount := len(wins)
 	loserCount := len(losers)
-	if winCount != 1 {
-		t.Fatalf("want exactly 1 winner, got %d (losers=%d)", winCount, loserCount)
+	if winCount < 1 {
+		t.Fatalf("want at least 1 winner, got %d", winCount)
 	}
 	if winCount+loserCount != N {
 		t.Fatalf("want %d total outcomes, got %d", N, winCount+loserCount)
+	}
+
+	// CAS invariant: no lost updates. Reads happen while writes are in flight,
+	// so later goroutines may legitimately win on a newer version; what must
+	// hold is that every win bumped the version exactly once.
+	final, err := b.ReadBoard(Scope{ID: "cas-race"})
+	if err != nil || len(final) != 1 {
+		t.Fatalf("read final: %v", err)
+	}
+	if want := initial.Version + winCount; final[0].Version != want {
+		t.Fatalf("no-lost-update violated: want final version %d, got %d", want, final[0].Version)
 	}
 }
 
