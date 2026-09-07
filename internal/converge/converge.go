@@ -56,14 +56,13 @@ func Check(idx index.Index) Result {
 			blockers = append(blockers, fmt.Sprintf("%s: blocked", w.ID))
 		}
 
-		// 未解除依赖（open 项才算阻塞；done/cancelled 项的历史依赖不再阻塞）
+		// 未解除依赖：只算硬阻塞（悬空）。依赖存在且未完成 = 正常依赖链，
+		// 属于 IN_PROGRESS 的常态，不是 BLOCKED（反事实：若 waiting 算 BLOCKED，
+		// 任何有依赖的并行工作都永远 BLOCKED，收敛信号失去分辨力）。
 		if open {
 			for _, b := range idx.BlockersOf(w.ID) {
-				switch b.Reason {
-				case "missing":
+				if b.Reason == "missing" {
 					blockers = append(blockers, fmt.Sprintf("%s: dangling dependency %s", w.ID, b.DepID))
-				case "not-done":
-					blockers = append(blockers, fmt.Sprintf("%s: waiting on %s", w.ID, b.DepID))
 				}
 			}
 		}
