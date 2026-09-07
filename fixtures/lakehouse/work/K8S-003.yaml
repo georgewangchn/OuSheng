@@ -1,0 +1,9 @@
+schema_version: 2
+id: K8S-003
+type: task
+title: K8s Runtime 升级阻塞排查
+system: lakehouse-k8s
+target_version: v2.0
+accountable_human: wangwu
+status: backlog
+revision: 1

@@ -1,0 +1,21 @@
+schema_version: 2
+id: BUG-017
+type: bug
+title: CDC checkpoint 恢复失败
+system: datax-backend
+target_version: v2.0
+assignee: backend-agent
+acting_role: backend
+accountable_human: zhangsan
+detected_by: test-agent
+status: doing
+revision: 7
+depends_on:
+  - K8S-003
+related_to:
+  - FEAT-CDC-001
+progress:
+  value: 0.3
+  actor: backend-agent
+  reported_at: 2026-09-07T14:00:00+08:00
+  basis: manual

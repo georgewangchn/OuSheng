@@ -1,0 +1,24 @@
+schema_version: 1
+systems:
+  - id: data-platform
+    name: 数据平台
+  - id: lakehouse-k8s
+    name: Lakehouse K8s Runtime
+    parent: data-platform
+  - id: datax-backend
+    name: DataX Backend
+    parent: data-platform
+    repositories:
+      - github.com/example/datax-backend
+  - id: datax-ui
+    name: DataX UI
+    parent: data-platform
+  - id: datax-mcp
+    name: DataX MCP
+    parent: data-platform
+  - id: aidp-cp
+    name: AIDP CP
+    parent: data-platform
+  - id: lakehouse-data
+    name: Lakehouse Data
+    parent: data-platform

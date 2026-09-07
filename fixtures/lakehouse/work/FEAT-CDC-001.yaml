@@ -1,0 +1,35 @@
+schema_version: 2
+id: FEAT-CDC-001
+type: feature
+title: CDC 增量同步
+system: datax-backend
+target_version: v2.0
+assignee: backend-agent
+acting_role: backend
+accountable_human: zhangsan
+status: doing
+revision: 3
+depends_on:
+  - K8S-003
+contract:
+  kind: http
+  status: live
+  breaking: false
+  interface:
+    method: POST
+    path: /v2/sync/cdc
+progress:
+  value: 0.7
+  actor: backend-agent
+  reported_at: 2026-09-07T10:30:00+08:00
+  basis: implementation-checklist
+evidence:
+  - type: git_commit
+    source: git
+    locator: abc123
+    observed_at: 2026-09-07T11:00:00+08:00
+  - type: test_result
+    source: pytest
+    locator: CDC-001
+    result: passed
+    observed_at: 2026-09-07T11:15:00+08:00

@@ -1,0 +1,16 @@
+schema_version: 1
+roles:
+  - id: pm
+    name: 项目经理
+  - id: product
+    name: 产品经理
+  - id: ui
+    name: UI开发
+  - id: backend
+    name: Java后端开发
+  - id: data
+    name: 湖仓数据开发
+  - id: ops
+    name: K8s/湖仓运维部署开发
+  - id: tester
+    name: 测试

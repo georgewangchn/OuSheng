@@ -1,0 +1,11 @@
+schema_version: 1
+actor:
+  id: backend-agent
+  type: agent
+  display_name: Backend Agent
+  responsible_human: zhangsan
+manifest:
+  default_role: backend
+  systems:
+    - datax-backend
+  target_version: v2.0

@@ -1,0 +1,37 @@
+schema_version: 1
+assignments:
+  - actor: zhangsan
+    role: backend
+    system: datax-backend
+    responsibility: accountable
+    active: true
+  - actor: backend-agent
+    role: backend
+    system: datax-backend
+    responsibility: executor
+    active: true
+  - actor: lisi
+    role: tester
+    system: datax-backend
+    responsibility: accountable
+    active: true
+  - actor: test-agent
+    role: tester
+    system: datax-backend
+    responsibility: executor
+    active: true
+  - actor: wangwu
+    role: ui
+    system: datax-ui
+    responsibility: accountable
+    active: true
+  - actor: ui-agent
+    role: ui
+    system: datax-ui
+    responsibility: executor
+    active: true
+  - actor: wangwu
+    role: ops
+    system: lakehouse-k8s
+    responsibility: accountable
+    active: true

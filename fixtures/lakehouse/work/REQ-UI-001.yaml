@@ -1,0 +1,11 @@
+schema_version: 2
+id: REQ-UI-001
+type: requirement
+title: DataX UI 增加任务配置页面
+system: datax-ui
+target_version: v2.0
+assignee: ui-agent
+acting_role: ui
+accountable_human: wangwu
+status: ready
+revision: 1
