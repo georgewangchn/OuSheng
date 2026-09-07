@@ -82,7 +82,7 @@ func TestValidateCardNearSizeLimit(t *testing.T) {
 	}
 	c := Card{
 		ID: "large", Owner: "o", Status: Proposed, Version: 1,
-		Task: string(task),
+		Task:     string(task),
 		Contract: Contract{Kind: "http", Breaking: false, Interface: []any{}},
 	}
 	err := Validate(c, mustEncode(t, c))

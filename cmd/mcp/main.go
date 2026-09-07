@@ -39,7 +39,7 @@ type WriteBoardOutput struct {
 }
 
 type ConvergeInput struct {
-	Path      string `json:"path" jsonschema:"path to the board store"`
+	Path       string `json:"path" jsonschema:"path to the board store"`
 	StuckAfter string `json:"stuck_after,omitempty" jsonschema:"time-based stuck threshold (e.g. 24h, empty=disabled)"`
 }
 

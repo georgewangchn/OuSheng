@@ -186,17 +186,17 @@ type WorkWriteOutput struct {
 func createWorkItem(_ context.Context, _ *mcp.CallToolRequest, in CreateWorkInput) (*mcp.CallToolResult, WorkWriteOutput, error) {
 	svc := workspace.New(gityaml.Open(in.Path))
 	w, err := svc.Create(model.WorkItem{
-		SchemaVersion: 2,
-		ID:            in.ID,
-		Type:          model.WorkItemType(in.Type),
-		Title:         in.Title,
-		System:        in.System,
-		TargetVersion: in.TargetVersion,
-		Assignee:      in.Assignee,
-		ActingRole:    in.ActingRole,
+		SchemaVersion:    2,
+		ID:               in.ID,
+		Type:             model.WorkItemType(in.Type),
+		Title:            in.Title,
+		System:           in.System,
+		TargetVersion:    in.TargetVersion,
+		Assignee:         in.Assignee,
+		ActingRole:       in.ActingRole,
 		AccountableHuman: in.AccountableHuman,
-		DetectedBy:    in.DetectedBy,
-		DependsOn:     in.DependsOn,
+		DetectedBy:       in.DetectedBy,
+		DependsOn:        in.DependsOn,
 	}, in.Actor)
 	if err != nil {
 		return nil, WorkWriteOutput{}, err
@@ -207,17 +207,17 @@ func createWorkItem(_ context.Context, _ *mcp.CallToolRequest, in CreateWorkInpu
 func reportBug(_ context.Context, _ *mcp.CallToolRequest, in CreateWorkInput) (*mcp.CallToolResult, WorkWriteOutput, error) {
 	svc := workspace.New(gityaml.Open(in.Path))
 	w, err := svc.Create(model.WorkItem{
-		SchemaVersion: 2,
-		ID:            in.ID,
-		Type:          model.TypeBug,
-		Title:         in.Title,
-		System:        in.System,
-		TargetVersion: in.TargetVersion,
-		Assignee:      in.Assignee,
-		ActingRole:    in.ActingRole,
+		SchemaVersion:    2,
+		ID:               in.ID,
+		Type:             model.TypeBug,
+		Title:            in.Title,
+		System:           in.System,
+		TargetVersion:    in.TargetVersion,
+		Assignee:         in.Assignee,
+		ActingRole:       in.ActingRole,
 		AccountableHuman: in.AccountableHuman,
-		DetectedBy:    in.DetectedBy,
-		DependsOn:     in.DependsOn,
+		DetectedBy:       in.DetectedBy,
+		DependsOn:        in.DependsOn,
 	}, in.Actor)
 	if err != nil {
 		return nil, WorkWriteOutput{}, err
@@ -280,12 +280,12 @@ func assignWorkItem(_ context.Context, _ *mcp.CallToolRequest, in AssignWorkInpu
 }
 
 type ProgressInput struct {
-	Path   string `json:"path" jsonschema:"workspace root"`
-	ID     string `json:"id" jsonschema:"work item id"`
+	Path   string  `json:"path" jsonschema:"workspace root"`
+	ID     string  `json:"id" jsonschema:"work item id"`
 	Value  float64 `json:"value" jsonschema:"progress 0..1 (reported, not fact)"`
-	Actor  string `json:"actor" jsonschema:"reporting actor id"`
-	Basis  string `json:"basis,omitempty" jsonschema:"manual|implementation-checklist|test-cases|subtasks|story-points|milestone"`
-	Expect int    `json:"expect" jsonschema:"expected revision (CAS); -1 = use current"`
+	Actor  string  `json:"actor" jsonschema:"reporting actor id"`
+	Basis  string  `json:"basis,omitempty" jsonschema:"manual|implementation-checklist|test-cases|subtasks|story-points|milestone"`
+	Expect int     `json:"expect" jsonschema:"expected revision (CAS); -1 = use current"`
 }
 
 func reportProgress(_ context.Context, _ *mcp.CallToolRequest, in ProgressInput) (*mcp.CallToolResult, WorkWriteOutput, error) {
@@ -314,15 +314,15 @@ func reportProgress(_ context.Context, _ *mcp.CallToolRequest, in ProgressInput)
 }
 
 type AddEvidenceInput struct {
-	Path     string `json:"path" jsonschema:"workspace root"`
-	WorkID   string `json:"work_id" jsonschema:"work item id"`
-	Type     string `json:"type" jsonschema:"git_commit|pull_request|test_result|ci_run|deployment|log|manual_check|document"`
-	Locator  string `json:"locator" jsonschema:"external locator (commit hash, run id, ...)"`
-	Source   string `json:"source,omitempty" jsonschema:"source system, e.g. git, github-actions, pytest"`
-	Result   string `json:"result,omitempty" jsonschema:"passed|failed|..."`
-	Note     string `json:"note,omitempty" jsonschema:"free note"`
-	Expect   int    `json:"expect" jsonschema:"expected revision (CAS); -1 = use current"`
-	Actor    string `json:"actor,omitempty" jsonschema:"who adds the evidence"`
+	Path    string `json:"path" jsonschema:"workspace root"`
+	WorkID  string `json:"work_id" jsonschema:"work item id"`
+	Type    string `json:"type" jsonschema:"git_commit|pull_request|test_result|ci_run|deployment|log|manual_check|document"`
+	Locator string `json:"locator" jsonschema:"external locator (commit hash, run id, ...)"`
+	Source  string `json:"source,omitempty" jsonschema:"source system, e.g. git, github-actions, pytest"`
+	Result  string `json:"result,omitempty" jsonschema:"passed|failed|..."`
+	Note    string `json:"note,omitempty" jsonschema:"free note"`
+	Expect  int    `json:"expect" jsonschema:"expected revision (CAS); -1 = use current"`
+	Actor   string `json:"actor,omitempty" jsonschema:"who adds the evidence"`
 }
 
 func addEvidence(_ context.Context, _ *mcp.CallToolRequest, in AddEvidenceInput) (*mcp.CallToolResult, WorkWriteOutput, error) {

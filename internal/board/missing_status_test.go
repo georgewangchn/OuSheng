@@ -18,8 +18,8 @@ func TestWriteBoardMissingStatusGivesClearError(t *testing.T) {
 		Task:    "t",
 		Version: 0,
 		Contract: card.Contract{
-			Kind:     "http",
-			Breaking: false,
+			Kind:      "http",
+			Breaking:  false,
 			Interface: []any{},
 		},
 	}

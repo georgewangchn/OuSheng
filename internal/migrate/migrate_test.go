@@ -34,8 +34,7 @@ func setupV1Board(t *testing.T) string {
 		{
 			ID: "legacy-queue", Owner: "infra", Task: "旧队列下线",
 			Status: card.Proposed, Version: 1,
-			Contract: card.Contract{Kind: "event", Breaking: true, Interface: map[string]any{"topic": "q1"},
-			},
+			Contract: card.Contract{Kind: "event", Breaking: true, Interface: map[string]any{"topic": "q1"}},
 			HumanAck: &card.HumanAck{Approver: "zhangsan", AtVersion: 1},
 		},
 	}

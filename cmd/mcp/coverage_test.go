@@ -9,7 +9,7 @@ import (
 func TestConvergeHandlerWithStuckAfter(t *testing.T) {
 	dir := setupTestBoard(t)
 	_, out, err := converge(context.Background(), nil, ConvergeInput{
-		Path:      dir,
+		Path:       dir,
 		StuckAfter: "1ns",
 	})
 	if err != nil {
@@ -33,7 +33,7 @@ func TestConvergeHandlerWithStuckAfter(t *testing.T) {
 func TestConvergeHandlerInvalidStuckAfter(t *testing.T) {
 	dir := setupTestBoard(t)
 	_, _, err := converge(context.Background(), nil, ConvergeInput{
-		Path:      dir,
+		Path:       dir,
 		StuckAfter: "not-a-duration",
 	})
 	if err == nil {

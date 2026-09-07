@@ -93,10 +93,10 @@ func TestSystemC2BreakingChangeLimiter(t *testing.T) {
 	_ = b.Init()
 
 	cases := []struct {
-		name    string
+		name     string
 		breaking bool
-		ack     *card.HumanAck
-		wantErr bool
+		ack      *card.HumanAck
+		wantErr  bool
 	}{
 		{"breaking without ack", true, nil, true},
 		{"breaking with empty approver", true, &card.HumanAck{Approver: "", AtVersion: 1}, true},
@@ -257,9 +257,9 @@ func TestSystemPersistenceAcrossReopen(t *testing.T) {
 
 func TestSystemConvergenceMatrix(t *testing.T) {
 	cases := []struct {
-		name    string
-		setup   func(t *testing.T, b *Board)
-		want    ConvergenceStatus
+		name  string
+		setup func(t *testing.T, b *Board)
+		want  ConvergenceStatus
 	}{
 		{
 			name:  "empty board converged",
@@ -302,9 +302,9 @@ func TestSystemConvergenceMatrix(t *testing.T) {
 				dep := realisticCard("dep-ok")
 				dep, _ = b.WriteBoard(dep, 0)
 				dep, _ = transitionTo(b, "dep-ok", card.Agreed, dep.Version)
-			dep, _ = transitionTo(b, "dep-ok", card.Live, dep.Version)
-			dep, _ = transitionTo(b, "dep-ok", card.Verified, dep.Version)
-			_, _ = transitionTo(b, "dep-ok", card.Deprecated, dep.Version)
+				dep, _ = transitionTo(b, "dep-ok", card.Live, dep.Version)
+				dep, _ = transitionTo(b, "dep-ok", card.Verified, dep.Version)
+				_, _ = transitionTo(b, "dep-ok", card.Deprecated, dep.Version)
 
 				consumer := realisticCard("cons-broken")
 				consumer.DependsOn = []string{"dep-ok"}

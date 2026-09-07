@@ -20,16 +20,16 @@ func openFixtures(t *testing.T) *Service {
 
 func newBug() model.WorkItem {
 	return model.WorkItem{
-		SchemaVersion: 2,
-		ID:            "BUG-100",
-		Type:          model.TypeBug,
-		Title:         "新 bug",
-		System:        "datax-backend",
-		TargetVersion: "v2.0",
-		Assignee:      "backend-agent",
-		ActingRole:    "backend",
+		SchemaVersion:    2,
+		ID:               "BUG-100",
+		Type:             model.TypeBug,
+		Title:            "新 bug",
+		System:           "datax-backend",
+		TargetVersion:    "v2.0",
+		Assignee:         "backend-agent",
+		ActingRole:       "backend",
 		AccountableHuman: "zhangsan",
-		DetectedBy:    "test-agent",
+		DetectedBy:       "test-agent",
 	}
 }
 
