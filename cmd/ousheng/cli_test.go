@@ -224,6 +224,30 @@ func TestCLIIndexStatus(t *testing.T) {
 	}
 }
 
+func TestCLIIndexRebuildWritesSQLite(t *testing.T) {
+	dir := testfix.Setup(t)
+	out := runCLI(t, dir, "index", "rebuild")
+	if !strings.Contains(out, "index rebuilt: 4 work items") {
+		t.Fatalf("rebuild wrong:\n%s", out)
+	}
+	db := filepath.Join(dir, ".ousheng", "cache", "index.db")
+	if _, err := os.Stat(db); err != nil {
+		t.Fatalf("index.db not written: %v", err)
+	}
+	out = runCLI(t, dir, "index", "status")
+	if !strings.Contains(out, "sqlite index: ") || strings.Contains(out, "none") {
+		t.Fatalf("status should show sqlite index:\n%s", out)
+	}
+	// rm + rebuild（S5 验收命令序列）
+	if err := os.Remove(db); err != nil {
+		t.Fatal(err)
+	}
+	runCLI(t, dir, "index", "rebuild")
+	if _, err := os.Stat(db); err != nil {
+		t.Fatalf("index.db not rebuilt after rm: %v", err)
+	}
+}
+
 func TestCLICASConflictSurfaces(t *testing.T) {
 	dir := testfix.Setup(t)
 	// 两次同 expect 的 update，第二次必须冲突

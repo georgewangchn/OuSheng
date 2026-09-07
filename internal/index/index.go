@@ -55,29 +55,30 @@ type Blocker struct {
 }
 
 // Index 是查询接口。实现必须可从 Snapshot 无损重建。
+// 查询带 error：SQLite 实现可能失败；memory 实现恒返回 nil。
 type Index interface {
 	Rebuild(s Snapshot) error
 
 	// WorkItem 查询
-	Get(id string) (model.WorkItem, bool)
-	All() []model.WorkItem
-	ByAssignee(actor string) []model.WorkItem
-	ByAccountable(human string) []model.WorkItem
-	BySystem(system string) []model.WorkItem
-	ByVersion(version string) []model.WorkItem
-	ByStatus(status model.WorkStatus) []model.WorkItem
-	ByType(t model.WorkItemType) []model.WorkItem
+	Get(id string) (model.WorkItem, bool, error)
+	All() ([]model.WorkItem, error)
+	ByAssignee(actor string) ([]model.WorkItem, error)
+	ByAccountable(human string) ([]model.WorkItem, error)
+	BySystem(system string) ([]model.WorkItem, error)
+	ByVersion(version string) ([]model.WorkItem, error)
+	ByStatus(status model.WorkStatus) ([]model.WorkItem, error)
+	ByType(t model.WorkItemType) ([]model.WorkItem, error)
 	// ActiveByActor：actor 执行中（doing/testing/blocked）的 work。
-	ActiveByActor(actor string) []model.WorkItem
+	ActiveByActor(actor string) ([]model.WorkItem, error)
 	// BlockersOf：直接依赖中未完成（非 done/cancelled）或缺失的项。
-	BlockersOf(id string) []Blocker
+	BlockersOf(id string) ([]Blocker, error)
 
 	// Registry 查询
-	Actor(id string) (model.ActorFile, bool)
-	Actors() []model.ActorFile
-	System(id string) (model.System, bool)
-	Systems() []model.System
-	AssignmentsByActor(actor string) []model.Assignment
-	AssignmentsBySystem(system string) []model.Assignment
-	Roles() []model.Role
+	Actor(id string) (model.ActorFile, bool, error)
+	Actors() ([]model.ActorFile, error)
+	System(id string) (model.System, bool, error)
+	Systems() ([]model.System, error)
+	AssignmentsByActor(actor string) ([]model.Assignment, error)
+	AssignmentsBySystem(system string) ([]model.Assignment, error)
+	Roles() ([]model.Role, error)
 }

@@ -147,7 +147,11 @@ func cmdConverge(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	res := converge.Check(idx)
+	res, err := converge.Check(idx)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	fmt.Fprintln(stdout, res.Status)
 	for _, b := range res.Blockers {
 		fmt.Fprintf(stdout, "  - %s\n", b)
@@ -185,7 +189,12 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	p := projection.New(c)
-	projection.RenderProjectSummary(stdout, p.ProjectSummary())
+	sum, err := p.ProjectSummary()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	projection.RenderProjectSummary(stdout, sum)
 	if *actor != "" {
 		fmt.Fprintln(stdout, "--- my context ---")
 		mc, err := c.GetMyContext(*actor)

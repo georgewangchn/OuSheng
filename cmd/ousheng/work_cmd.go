@@ -55,7 +55,11 @@ func workList(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	items := c.Idx.All()
+	items, err := c.Idx.All()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	fmt.Fprintln(stdout, "ID               STATUS     SYSTEM             ASSIGNEE         TITLE")
 	for _, w := range items {
 		if *system != "" && w.System != *system {

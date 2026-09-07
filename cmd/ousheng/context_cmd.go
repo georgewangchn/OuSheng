@@ -210,7 +210,12 @@ func cmdActor(args []string, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "list":
-		for _, af := range c.Idx.Actors() {
+		actors, err := c.Idx.Actors()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		for _, af := range actors {
 			line := fmt.Sprintf("%-16s %-6s %s", af.Actor.ID, af.Actor.Type, af.Actor.DisplayName)
 			if af.Actor.ResponsibleHuman != "" {
 				line += "  → " + af.Actor.ResponsibleHuman
@@ -251,7 +256,12 @@ func cmdSystem(args []string, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "list":
-		for _, s := range c.Idx.Systems() {
+		systems, err := c.Idx.Systems()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		for _, s := range systems {
 			line := fmt.Sprintf("%-18s %s", s.ID, s.Name)
 			if s.Parent != "" {
 				line += "  (parent: " + s.Parent + ")"
@@ -286,10 +296,6 @@ func cmdAssignment(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	for _, a := range c.Idx.AssignmentsByActor("") {
-		_ = a
-	}
-	// AssignmentsByActor("") 为空映射；直接从快照遍历
 	for _, a := range assignmentsOf(c) {
 		mark := " "
 		if a.Active {
@@ -301,9 +307,17 @@ func cmdAssignment(args []string, stdout, stderr io.Writer) int {
 }
 
 func assignmentsOf(c *context.Service) []model.Assignment {
+	actors, err := c.Idx.Actors()
+	if err != nil {
+		return nil
+	}
 	var out []model.Assignment
-	for _, actor := range c.Idx.Actors() {
-		out = append(out, c.Idx.AssignmentsByActor(actor.Actor.ID)...)
+	for _, actor := range actors {
+		as, err := c.Idx.AssignmentsByActor(actor.Actor.ID)
+		if err != nil {
+			return nil
+		}
+		out = append(out, as...)
 	}
 	return out
 }
@@ -328,17 +342,32 @@ func cmdView(args []string, stdout, stderr io.Writer) int {
 	p := projection.New(c)
 	switch args[0] {
 	case "kanban":
-		projection.RenderKanban(stdout, p.Kanban())
+		cols, err := p.Kanban()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		projection.RenderKanban(stdout, cols)
 		return 0
 	case "project":
-		projection.RenderProjectSummary(stdout, p.ProjectSummary())
+		sum, err := p.ProjectSummary()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		projection.RenderProjectSummary(stdout, sum)
 		return 0
 	case "version":
 		if *version == "" {
 			fmt.Fprintln(stderr, "--version required")
 			return 2
 		}
-		projection.RenderVersionView(stdout, p.VersionView(*version))
+		blocks, err := p.VersionView(*version)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		projection.RenderVersionView(stdout, blocks)
 		return 0
 	case "system":
 		if fs.NArg() < 1 {
