@@ -62,7 +62,10 @@ type WorkBrief struct {
 }
 
 func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
-	af, ok := s.Idx.Actor(actorID)
+	af, ok, err := s.Idx.Actor(actorID)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, fmt.Errorf("unknown actor %q (try: ousheng actor list)", actorID)
 	}
@@ -87,7 +90,11 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 		}
 		ctx.TargetVersion = af.Manifest.TargetVersion
 	}
-	for _, as := range s.Idx.AssignmentsByActor(actorID) {
+	assigns, err := s.Idx.AssignmentsByActor(actorID)
+	if err != nil {
+		return nil, err
+	}
+	for _, as := range assigns {
 		if !as.Active {
 			continue
 		}
@@ -99,13 +106,21 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 
 	// active work：assignee 视角（agent/human 执行中的工作）
 	blockerSet := map[string]bool{}
-	for _, w := range s.Idx.ActiveByActor(actorID) {
+	active, err := s.Idx.ActiveByActor(actorID)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range active {
 		brief := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System}
 		if w.Progress != nil {
 			brief.ProgressValue = w.Progress.Value
 		}
 		ctx.ActiveWork = append(ctx.ActiveWork, brief)
-		for _, b := range s.Idx.BlockersOf(w.ID) {
+		bs, err := s.Idx.BlockersOf(w.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range bs {
 			blockerSet[b.DepID] = true
 		}
 	}
@@ -136,12 +151,20 @@ func (s *Service) GetActorContext(actorID string) (*ActorView, error) {
 	if base.ActorType == string(model.ActorHuman) {
 		agentSet := map[string]bool{}
 		sysSet := map[string]bool{}
-		for _, af := range s.Idx.Actors() {
+		allActors, err := s.Idx.Actors()
+		if err != nil {
+			return nil, err
+		}
+		for _, af := range allActors {
 			if af.Actor.Type == model.ActorAgent && af.Actor.ResponsibleHuman == actorID {
 				agentSet[af.Actor.ID] = true
 			}
 		}
-		for _, as := range s.Idx.AssignmentsByActor(actorID) {
+		assigns, err := s.Idx.AssignmentsByActor(actorID)
+		if err != nil {
+			return nil, err
+		}
+		for _, as := range assigns {
 			if as.Active && as.Responsibility == model.ResponsibilityAccountable {
 				sysSet[as.System] = true
 			}
@@ -150,7 +173,11 @@ func (s *Service) GetActorContext(actorID string) (*ActorView, error) {
 		v.ResponsibleSystems = sortedKeys(sysSet)
 	}
 
-	for _, w := range s.Idx.ByAccountable(actorID) {
+	acc, err := s.Idx.ByAccountable(actorID)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range acc {
 		if !model.WorkItemActive(w.Status) {
 			continue
 		}
@@ -185,13 +212,20 @@ type ActorInRole struct {
 }
 
 func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
-	sys, ok := s.Idx.System(systemID)
+	sys, ok, err := s.Idx.System(systemID)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, fmt.Errorf("unknown system %q (try: ousheng system list)", systemID)
 	}
 	v := &SystemView{System: sys.ID, Name: sys.Name, Parent: sys.Parent}
 
-	for _, as := range s.Idx.AssignmentsBySystem(systemID) {
+	sysAssigns, err := s.Idx.AssignmentsBySystem(systemID)
+	if err != nil {
+		return nil, err
+	}
+	for _, as := range sysAssigns {
 		if !as.Active {
 			continue
 		}
@@ -204,7 +238,11 @@ func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
 	}
 
 	blockerSet := map[string]bool{}
-	for _, w := range s.Idx.BySystem(systemID) {
+	sysWork, err := s.Idx.BySystem(systemID)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range sysWork {
 		if !model.WorkItemActive(w.Status) {
 			continue
 		}
@@ -216,7 +254,11 @@ func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
 		if w.Type == model.TypeBug && model.WorkItemOpen(w.Status) {
 			v.OpenBugs++
 		}
-		for _, b := range s.Idx.BlockersOf(w.ID) {
+		bs, err := s.Idx.BlockersOf(w.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range bs {
 			blockerSet[b.DepID] = true
 		}
 	}
@@ -232,13 +274,19 @@ type WorkItemDetail struct {
 }
 
 func (s *Service) GetWorkItem(id string) (*WorkItemDetail, error) {
-	w, ok := s.Idx.Get(id)
+	w, ok, err := s.Idx.Get(id)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, fmt.Errorf("work item %q: %w", id, state.ErrNotFound)
 	}
 	d := &WorkItemDetail{WorkItem: w}
 	for _, dep := range w.DependsOn {
-		dw, ok := s.Idx.Get(dep)
+		dw, ok, err := s.Idx.Get(dep)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			d.Deps = append(d.Deps, WorkBrief{ID: dep, Status: "missing"})
 			continue
@@ -251,7 +299,10 @@ func (s *Service) GetWorkItem(id string) (*WorkItemDetail, error) {
 // --- 第三层：Evidence ---
 
 func (s *Service) GetEvidence(workID string) ([]model.Evidence, error) {
-	w, ok := s.Idx.Get(workID)
+	w, ok, err := s.Idx.Get(workID)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, fmt.Errorf("work item %q: %w", workID, state.ErrNotFound)
 	}
