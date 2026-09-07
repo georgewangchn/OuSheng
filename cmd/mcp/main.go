@@ -138,8 +138,72 @@ func main() {
 		Description: "Run convergence check on the board. Returns CONVERGED (all verified), IN_PROGRESS (still working), or STUCK (cycle/broken dependency).",
 	}, converge)
 
+	registerV03Tools(server)
+
 	log.Println("ousheng-mcp: serving over stdio")
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func registerV03Tools(server *mcp.Server) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_my_context",
+		Description: "Minimal engineering context for an actor: identity, accountable human, roles, systems, target version, active work, blockers. " + timingHint,
+	}, getMyContext)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_actor_context",
+		Description: "Actor view: adds agents (for humans), responsible systems, accountable-for work, blocked work.",
+	}, getActorContext)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_system_context",
+		Description: "System view: responsible humans, executors, active work, open bugs, blockers.",
+	}, getSystemContext)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_work_item",
+		Description: "Full work item detail with dependency briefs (progressive disclosure layer 2).",
+	}, getWorkItem)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "query_work_items",
+		Description: "Query work items by system/status/assignee/version/type/open filters.",
+	}, queryWorkItems)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "create_work_item",
+		Description: "Create a work item (starts at backlog). Respect CAS: new item revision=1.",
+	}, createWorkItem)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "update_work_item",
+		Description: "Update a work item (status transition; CAS on revision). After finishing a task, update status then re-read context.",
+	}, updateWorkItem)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "assign_work_item",
+		Description: "Assign a work item to an actor with optional acting role.",
+	}, assignWorkItem)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "report_bug",
+		Description: "Report a bug work item (type forced to bug; supports detected_by).",
+	}, reportBug)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "report_progress",
+		Description: "Report progress (reported state, not fact): value 0..1, actor, basis.",
+	}, reportProgress)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "add_evidence",
+		Description: "Append typed evidence to a work item. git_commit evidence is verified against the repo.",
+	}, addEvidence)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_evidence",
+		Description: "List evidence for a work item (progressive disclosure layer 3).",
+	}, getEvidence)
 }
