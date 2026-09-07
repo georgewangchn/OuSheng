@@ -40,26 +40,26 @@ func WorkItemOpen(s WorkStatus) bool {
 
 // WorkSummary 是 WorkItem 的最小投影，用于 Board / Context 第一层（Progressive Disclosure）。
 type WorkSummary struct {
-	ID            string     `json:"id"`
-	Type          string     `json:"type"`
-	Title         string     `json:"title"`
-	System        string     `json:"system,omitempty"`
-	TargetVersion string     `json:"target_version,omitempty"`
-	Status        string     `json:"status"`
-	Assignee      string     `json:"assignee,omitempty"`
-	Revision      int        `json:"revision"`
+	ID            string `json:"id"`
+	Type          string `json:"type"`
+	Title         string `json:"title"`
+	System        string `json:"system,omitempty"`
+	TargetVersion string `json:"target_version,omitempty"`
+	Status        string `json:"status"`
+	Assignee      string `json:"assignee,omitempty"`
+	Revision      int    `json:"revision"`
 }
 
 // WorkItem 是 v0.3 canonical 工程工作概念（schema_version=2）。
 // Card 保留为兼容投影；二者不得混写（v0.3 §11）。
 type WorkItem struct {
-	SchemaVersion int    `yaml:"schema_version"`
-	ID            string `yaml:"id"`
+	SchemaVersion int          `yaml:"schema_version"`
+	ID            string       `yaml:"id"`
 	Type          WorkItemType `yaml:"type"`
-	Title         string `yaml:"title"`
-	System        string `yaml:"system,omitempty"`
-	TargetVersion string `yaml:"target_version,omitempty"`
-	TargetRelease string `yaml:"target_release,omitempty"`
+	Title         string       `yaml:"title"`
+	System        string       `yaml:"system,omitempty"`
+	TargetVersion string       `yaml:"target_version,omitempty"`
+	TargetRelease string       `yaml:"target_release,omitempty"`
 
 	Assignee         string `yaml:"assignee,omitempty"`
 	ActingRole       string `yaml:"acting_role,omitempty"`
@@ -72,13 +72,13 @@ type WorkItem struct {
 	DependsOn []string `yaml:"depends_on,omitempty"`
 	RelatedTo []string `yaml:"related_to,omitempty"`
 
-	Contract *Contract        `yaml:"contract,omitempty"`
+	Contract *Contract       `yaml:"contract,omitempty"`
 	Progress *ProgressReport `yaml:"progress,omitempty"`
-	Evidence []Evidence       `yaml:"evidence,omitempty"`
-	HumanAck *HumanAck        `yaml:"human_ack,omitempty"`
+	Evidence []Evidence      `yaml:"evidence,omitempty"`
+	HumanAck *HumanAck       `yaml:"human_ack,omitempty"`
 
 	// 迁移辅助字段（v0.3 §36）：owner 无法解析时保留原值，等人工 resolve。
-	LegacyOwner    string `yaml:"legacy_owner,omitempty"`
+	LegacyOwner     string `yaml:"legacy_owner,omitempty"`
 	MigrationStatus string `yaml:"migration_status,omitempty"`
 }
 

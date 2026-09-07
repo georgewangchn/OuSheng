@@ -161,16 +161,16 @@ func workCreate(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		w = model.WorkItem{
-			SchemaVersion: 2,
-			ID:            *id,
-			Type:          model.WorkItemType(*wtype),
-			Title:         *title,
-			System:        *system,
-			TargetVersion: *version,
-			Assignee:      *assignee,
-			ActingRole:    *role,
+			SchemaVersion:    2,
+			ID:               *id,
+			Type:             model.WorkItemType(*wtype),
+			Title:            *title,
+			System:           *system,
+			TargetVersion:    *version,
+			Assignee:         *assignee,
+			ActingRole:       *role,
 			AccountableHuman: *accountable,
-			DetectedBy:    *detectedBy,
+			DetectedBy:       *detectedBy,
 		}
 		if *dependsOn != "" {
 			for _, d := range strings.Split(*dependsOn, ",") {

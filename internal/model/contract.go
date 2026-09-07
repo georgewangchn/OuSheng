@@ -5,10 +5,10 @@ package model
 type ContractStatus string
 
 const (
-	ContractProposed  ContractStatus = "proposed"
-	ContractAgreed    ContractStatus = "agreed"
-	ContractLive      ContractStatus = "live"
-	ContractVerified  ContractStatus = "verified"
+	ContractProposed   ContractStatus = "proposed"
+	ContractAgreed     ContractStatus = "agreed"
+	ContractLive       ContractStatus = "live"
+	ContractVerified   ContractStatus = "verified"
 	ContractDeprecated ContractStatus = "deprecated"
 )
 
@@ -24,7 +24,7 @@ type Contract struct {
 // 关键动作（breaking 等）必须由 human 确认，防止 AI 生成→AI 验收闭环幻觉。
 type HumanAck struct {
 	Approver   string `yaml:"approver"`
-	At         string `yaml:"at,omitempty"`         // RFC3339
+	At         string `yaml:"at,omitempty"`          // RFC3339
 	AtRevision int    `yaml:"at_revision,omitempty"` // v1 迁移携带：ack 时的 CAS revision
 	Note       string `yaml:"note,omitempty"`
 }

@@ -32,7 +32,7 @@ func TestWriteRejectsIllegalTransition(t *testing.T) {
 	b := New(t.TempDir())
 	_ = b.Init()
 	a, _ := b.WriteBoard(mk("a"), 0) // proposed v1
-	a.Status = card.Verified          // proposed->verified illegal
+	a.Status = card.Verified         // proposed->verified illegal
 	if _, err := b.WriteBoard(a, 1); err == nil {
 		t.Fatal("expected illegal transition error")
 	}

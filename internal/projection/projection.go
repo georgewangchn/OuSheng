@@ -71,11 +71,11 @@ func (s *Service) Kanban() ([]KanbanColumn, error) {
 			ID: w.ID, Title: w.Title,
 			System: w.System, SystemName: sysName(w.System),
 			TargetVersion: w.TargetVersion,
-			Role:    w.ActingRole,
-			Actor:   w.Assignee,
-			Human:   w.AccountableHuman,
-			Status:  string(w.Status),
-			Blockers: blockers,
+			Role:          w.ActingRole,
+			Actor:         w.Assignee,
+			Human:         w.AccountableHuman,
+			Status:        string(w.Status),
+			Blockers:      blockers,
 		}
 		if w.Progress != nil {
 			card.Progress = fmt.Sprintf("%d%% reported (%s)", int(w.Progress.Value*100), w.Progress.Basis)

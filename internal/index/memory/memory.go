@@ -12,37 +12,37 @@ import (
 type MemIndex struct {
 	snap index.Snapshot
 
-	byID        map[string]model.WorkItem
-	byAssignee  map[string][]model.WorkItem
-	byAccount   map[string][]model.WorkItem
-	bySystem    map[string][]model.WorkItem
-	byVersion   map[string][]model.WorkItem
-	byStatus    map[model.WorkStatus][]model.WorkItem
-	byType      map[model.WorkItemType][]model.WorkItem
-	active      map[string][]model.WorkItem
-	blockers    map[string][]index.Blocker
-	actorsByID  map[string]model.ActorFile
-	systemsByID map[string]model.System
-	assignByActor   map[string][]model.Assignment
-	assignBySystem  map[string][]model.Assignment
+	byID           map[string]model.WorkItem
+	byAssignee     map[string][]model.WorkItem
+	byAccount      map[string][]model.WorkItem
+	bySystem       map[string][]model.WorkItem
+	byVersion      map[string][]model.WorkItem
+	byStatus       map[model.WorkStatus][]model.WorkItem
+	byType         map[model.WorkItemType][]model.WorkItem
+	active         map[string][]model.WorkItem
+	blockers       map[string][]index.Blocker
+	actorsByID     map[string]model.ActorFile
+	systemsByID    map[string]model.System
+	assignByActor  map[string][]model.Assignment
+	assignBySystem map[string][]model.Assignment
 }
 
 var _ index.Index = (*MemIndex)(nil)
 
 func New() *MemIndex {
 	return &MemIndex{
-		byID: map[string]model.WorkItem{},
-		byAssignee: map[string][]model.WorkItem{},
-		byAccount: map[string][]model.WorkItem{},
-		bySystem: map[string][]model.WorkItem{},
-		byVersion: map[string][]model.WorkItem{},
-		byStatus: map[model.WorkStatus][]model.WorkItem{},
-		byType: map[model.WorkItemType][]model.WorkItem{},
-		active: map[string][]model.WorkItem{},
-		blockers: map[string][]index.Blocker{},
-		actorsByID: map[string]model.ActorFile{},
-		systemsByID: map[string]model.System{},
-		assignByActor: map[string][]model.Assignment{},
+		byID:           map[string]model.WorkItem{},
+		byAssignee:     map[string][]model.WorkItem{},
+		byAccount:      map[string][]model.WorkItem{},
+		bySystem:       map[string][]model.WorkItem{},
+		byVersion:      map[string][]model.WorkItem{},
+		byStatus:       map[model.WorkStatus][]model.WorkItem{},
+		byType:         map[model.WorkItemType][]model.WorkItem{},
+		active:         map[string][]model.WorkItem{},
+		blockers:       map[string][]index.Blocker{},
+		actorsByID:     map[string]model.ActorFile{},
+		systemsByID:    map[string]model.System{},
+		assignByActor:  map[string][]model.Assignment{},
 		assignBySystem: map[string][]model.Assignment{},
 	}
 }

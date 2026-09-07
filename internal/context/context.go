@@ -41,15 +41,15 @@ func New(repo state.Repository) (*Service, error) {
 
 // MyContext 是 get_my_context 的返回（§26 示例形状）。
 type MyContext struct {
-	Actor            string        `json:"actor"`
-	ActorType        string        `json:"actor_type"`
-	DisplayName      string        `json:"display_name,omitempty"`
-	ResponsibleHuman string        `json:"responsible_human,omitempty"`
-	Roles            []string      `json:"roles,omitempty"`
-	Systems          []string      `json:"systems,omitempty"`
-	TargetVersion    string        `json:"target_version,omitempty"`
-	ActiveWork       []WorkBrief   `json:"active_work,omitempty"`
-	Blockers         []string      `json:"blockers,omitempty"`
+	Actor            string      `json:"actor"`
+	ActorType        string      `json:"actor_type"`
+	DisplayName      string      `json:"display_name,omitempty"`
+	ResponsibleHuman string      `json:"responsible_human,omitempty"`
+	Roles            []string    `json:"roles,omitempty"`
+	Systems          []string    `json:"systems,omitempty"`
+	TargetVersion    string      `json:"target_version,omitempty"`
+	ActiveWork       []WorkBrief `json:"active_work,omitempty"`
+	Blockers         []string    `json:"blockers,omitempty"`
 }
 
 // WorkBrief 是 active work 的最小条目；progress 标注 reported（§19/§21）。
@@ -135,10 +135,10 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 
 type ActorView struct {
 	MyContext
-	Agents            []string    `json:"agents,omitempty"`             // human：负责的 agents
-	ResponsibleSystems []string   `json:"responsible_systems,omitempty"` // human：accountable 的 systems
-	AccountableFor    []WorkBrief `json:"accountable_for,omitempty"`    // 问责中的工作
-	BlockedWork       []WorkBrief `json:"blocked_work,omitempty"`       // 状态=blocked 的工作
+	Agents             []string    `json:"agents,omitempty"`              // human：负责的 agents
+	ResponsibleSystems []string    `json:"responsible_systems,omitempty"` // human：accountable 的 systems
+	AccountableFor     []WorkBrief `json:"accountable_for,omitempty"`     // 问责中的工作
+	BlockedWork        []WorkBrief `json:"blocked_work,omitempty"`        // 状态=blocked 的工作
 }
 
 func (s *Service) GetActorContext(actorID string) (*ActorView, error) {
@@ -196,14 +196,14 @@ func (s *Service) GetActorContext(actorID string) (*ActorView, error) {
 // --- System View（§23）---
 
 type SystemView struct {
-	System        string           `json:"system"`
-	Name          string           `json:"name,omitempty"`
-	Parent        string           `json:"parent,omitempty"`
-	Responsible   []ActorInRole    `json:"responsible,omitempty"`  // accountable humans
-	Executors     []ActorInRole    `json:"executors,omitempty"`    // 执行者（多为 agent）
-	ActiveWork    []WorkBrief      `json:"active_work,omitempty"`
-	OpenBugs      int              `json:"open_bugs"`
-	Blockers      []string         `json:"blockers,omitempty"`     // 系统内未解除阻塞（去重）
+	System      string        `json:"system"`
+	Name        string        `json:"name,omitempty"`
+	Parent      string        `json:"parent,omitempty"`
+	Responsible []ActorInRole `json:"responsible,omitempty"` // accountable humans
+	Executors   []ActorInRole `json:"executors,omitempty"`   // 执行者（多为 agent）
+	ActiveWork  []WorkBrief   `json:"active_work,omitempty"`
+	OpenBugs    int           `json:"open_bugs"`
+	Blockers    []string      `json:"blockers,omitempty"` // 系统内未解除阻塞（去重）
 }
 
 type ActorInRole struct {

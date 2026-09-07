@@ -106,8 +106,8 @@ func TestC3AdditiveSelfAbsorption(t *testing.T) {
 			"path":     "/login",
 			"behavior": "有效凭证返回 token；无效返回 401",
 			"response": map[string]any{
-				"200":       map[string]any{"token": "string", "expires_in": "int"},
-				"optional":  map[string]any{"refresh_token": "string"},
+				"200":      map[string]any{"token": "string", "expires_in": "int"},
+				"optional": map[string]any{"refresh_token": "string"},
 			},
 		},
 	}

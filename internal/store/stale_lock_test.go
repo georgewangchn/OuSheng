@@ -29,8 +29,8 @@ func TestStoreWriteRecoversFromStaleLock(t *testing.T) {
 		Status:  card.Proposed,
 		Version: 0,
 		Contract: card.Contract{
-			Kind:     "http",
-			Breaking: false,
+			Kind:      "http",
+			Breaking:  false,
 			Interface: []any{},
 		},
 	}

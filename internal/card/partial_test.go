@@ -7,9 +7,9 @@ func TestValidatePartialEvidenceRejected(t *testing.T) {
 		ID: "partial-ev", Owner: "o", Task: "t", Status: Verified, Version: 1,
 		Contract: Contract{Kind: "http", Breaking: false, Interface: []any{}},
 		Evidence: &Evidence{
-			Probe:           "test ran",
-			PassedAtCommit:  "abc123",
-			By:              "",
+			Probe:          "test ran",
+			PassedAtCommit: "abc123",
+			By:             "",
 		},
 	}
 	if err := Validate(c, mustEncode(t, c)); err == nil {
