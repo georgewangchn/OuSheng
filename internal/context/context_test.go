@@ -1,0 +1,163 @@
+package context
+
+import (
+	"encoding/json"
+	"testing"
+
+	"ousheng/internal/state/gityaml"
+	"ousheng/internal/testfix"
+)
+
+func svc(t *testing.T) *Service {
+	t.Helper()
+	dir := testfix.Setup(t)
+	s, err := New(gityaml.Open(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// §47 验收：backend-agent 无需扫描整个项目即可知道：
+// 我是谁 / 最终负责人 / 角色 / 系统 / 版本 / 正在做什么 / 阻塞来自哪里。
+func TestGetMyContext_AgentScenario(t *testing.T) {
+	s := svc(t)
+	c, err := s.GetMyContext("backend-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Actor != "backend-agent" || c.ActorType != "agent" {
+		t.Fatalf("identity wrong: %+v", c)
+	}
+	if c.ResponsibleHuman != "zhangsan" {
+		t.Fatalf("responsible human wrong: %q", c.ResponsibleHuman)
+	}
+	if len(c.Roles) != 1 || c.Roles[0] != "backend" {
+		t.Fatalf("roles wrong: %v", c.Roles)
+	}
+	if len(c.Systems) != 1 || c.Systems[0] != "datax-backend" {
+		t.Fatalf("systems wrong: %v", c.Systems)
+	}
+	if c.TargetVersion != "v2.0" {
+		t.Fatalf("target version wrong: %q", c.TargetVersion)
+	}
+	ids := map[string]bool{}
+	for _, w := range c.ActiveWork {
+		ids[w.ID] = true
+	}
+	if !ids["FEAT-CDC-001"] || !ids["BUG-017"] {
+		t.Fatalf("active work wrong: %+v", c.ActiveWork)
+	}
+	if len(c.Blockers) != 1 || c.Blockers[0] != "K8S-003" {
+		t.Fatalf("blockers wrong: %v", c.Blockers)
+	}
+}
+
+// Progressive Disclosure 第一层：不含 evidence / 依赖明细 / 其他 actor 任务。
+func TestGetMyContext_Layer1Minimal(t *testing.T) {
+	s := svc(t)
+	c, err := s.GetMyContext("backend-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"evidence", "contract", "depends_on", "human_ack"} {
+		if _, ok := m[forbidden]; ok {
+			t.Fatalf("layer 1 must not contain %q: %s", forbidden, b)
+		}
+	}
+	if len(b) > 1500 {
+		t.Fatalf("layer 1 context too large: %d bytes", len(b))
+	}
+}
+
+func TestGetMyContext_UnknownActor(t *testing.T) {
+	s := svc(t)
+	if _, err := s.GetMyContext("nobody"); err == nil {
+		t.Fatal("unknown actor must error")
+	}
+}
+
+func TestGetActorContext_HumanScenario(t *testing.T) {
+	s := svc(t)
+	v, err := s.GetActorContext("zhangsan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.ActorType != "human" {
+		t.Fatalf("type wrong: %s", v.ActorType)
+	}
+	if len(v.Agents) != 1 || v.Agents[0] != "backend-agent" {
+		t.Fatalf("agents wrong: %v", v.Agents)
+	}
+	if len(v.ResponsibleSystems) != 1 || v.ResponsibleSystems[0] != "datax-backend" {
+		t.Fatalf("responsible systems wrong: %v", v.ResponsibleSystems)
+	}
+	// zhangsan 问责中的工作（BUG-017 / FEAT-CDC-001）
+	if len(v.AccountableFor) != 2 {
+		t.Fatalf("accountable for wrong: %+v", v.AccountableFor)
+	}
+}
+
+func TestGetSystemContext(t *testing.T) {
+	s := svc(t)
+	v, err := s.GetSystemContext("datax-backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Responsible) != 2 { // zhangsan(backend) + lisi(tester) accountable
+		t.Fatalf("responsible wrong: %+v", v.Responsible)
+	}
+	if len(v.Executors) != 2 { // backend-agent + test-agent
+		t.Fatalf("executors wrong: %+v", v.Executors)
+	}
+	if len(v.ActiveWork) != 2 {
+		t.Fatalf("active work wrong: %+v", v.ActiveWork)
+	}
+	if v.OpenBugs != 1 {
+		t.Fatalf("open bugs wrong: %d", v.OpenBugs)
+	}
+	if len(v.Blockers) != 1 || v.Blockers[0] != "K8S-003" {
+		t.Fatalf("blockers wrong: %v", v.Blockers)
+	}
+}
+
+func TestGetWorkItem_Layer2(t *testing.T) {
+	s := svc(t)
+	d, err := s.GetWorkItem("BUG-017")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Deps) != 1 || d.Deps[0].ID != "K8S-003" || d.Deps[0].Status != "backlog" {
+		t.Fatalf("deps wrong: %+v", d.Deps)
+	}
+	if d.Assignee != "backend-agent" || d.DetectedBy != "test-agent" {
+		t.Fatalf("detail wrong: %+v", d.WorkItem)
+	}
+}
+
+func TestGetEvidence_Layer3(t *testing.T) {
+	s := svc(t)
+	evs, err := s.GetEvidence("FEAT-CDC-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 || evs[0].Type != "git_commit" || evs[1].Type != "test_result" {
+		t.Fatalf("evidence wrong: %+v", evs)
+	}
+}
+
+func TestGetWorkItem_MissingDepVisible(t *testing.T) {
+	s := svc(t)
+	// K8S-003 无依赖；BUG-017 的依赖存在。构造缺失：直接查不存在 id。
+	if _, err := s.GetWorkItem("GHOST-1"); err == nil {
+		t.Fatal("missing work item must error")
+	}
+}
