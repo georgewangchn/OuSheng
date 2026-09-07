@@ -93,4 +93,5 @@ data/
 .omo/
 AGENT.md
 CLAUDE.md
-AGENTS.md
+# OuSheng v0.3 workspace (state lives in target projects, not this repo)
+.ousheng/

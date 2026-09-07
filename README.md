@@ -4,6 +4,48 @@
 
 多人 AI Coding 协作工具。一块小看板 + 一套接口标准，协调多个"人 + AI"协作，无需共享 Memory、无需中心验证、无需 Ontology。机制与具体 AI Coding 工具（Claude Code / opencode / Codex / Pi / 人）解耦。
 
+**v0.3：轻量工程上下文运行时（Engineering Context Runtime）** —— 在 v1 协作绳之上新增工程语义层：Actor（人/Agent 统一身份）、System、Assignment（Actor × Role × System）、WorkItem（Card 的语义升级）、typed Evidence、Progress（reported，非 fact）。Git + YAML 仍是唯一事实源；SQLite 仅作可重建的派生索引。
+
+---
+
+## v0.3 五分钟上手
+
+```bash
+go build -o ousheng ./cmd/ousheng
+
+# 1. 初始化工程工作区（.ousheng/ + git 仓）
+./ousheng init . --project-id smart-lakehouse --project-name 智能湖仓
+
+# 2. 声明工程身份（人工编辑 YAML + git commit，工具不代写）
+#    .ousheng/systems.yaml / roles.yaml / assignments.yaml / actors/*.yaml
+#    完整示例见 fixtures/lakehouse/
+
+# 3. Agent 每日启动（查看时机①）：拉取 + 刷新 + 我的上下文
+./ousheng sync --actor backend-agent
+
+# 4. 建工作 / 报 bug / 汇报进度 / 补证据
+./ousheng work create --id FEAT-200 --type feature --title "CDC 增量同步" \
+  --system datax-backend --version v2.0 --assignee backend-agent --role backend --accountable zhangsan
+./ousheng bug report --id BUG-017 --title "checkpoint 恢复失败" --detected-by test-agent
+./ousheng progress report FEAT-200 --value 0.7 --actor backend-agent --basis implementation-checklist
+./ousheng evidence add BUG-017 --type git_commit --locator abc123
+
+# 5. 视图与收敛
+./ousheng view kanban
+./ousheng converge          # CONVERGED | IN_PROGRESS | BLOCKED
+
+# 6. v1 看板迁移（幂等，cards/ 不动）
+./ousheng migrate schema
+```
+
+多机协作：`git push/pull` + `ousheng sync`，第二台机器零基础设施进入同一状态；
+跨机旧 revision 写入触发 CAS conflict。SQLite 索引可随时
+`rm .ousheng/cache/index.db && ousheng index rebuild` 恢复（S5 硬约束）。
+
+v0.3 文档：[engineering-model](docs/engineering-model.md) ·
+[state-store](docs/state-store.md) ·
+[context-protocol（含查看时机协议）](docs/context-protocol.md)
+
 ---
 
 ## 为什么需要它
@@ -33,11 +75,12 @@ OuSheng 不做合约自动生成、不做语义合并、不做 Ontology 推理�
 | 件 | 形态 | 职责 |
 |---|---|---|
 | core lib | `internal/` Go 包 | 全部业务逻辑：schema、CAS、状态机、DAG、收敛 |
-| `board` CLI | `cmd/board/` 单二进制 | 通用入口，任何工具/脚本可 shell 调用 |
-| MCP server | `cmd/mcp/` 单二进制 | opencode 等原生调用，import 同 core |
-| Claude hook | `adapters/claude/` | SessionStart/Stop 自动采样 |
-| opencode plugin | `adapters/opencode/` | session 事件触发采样 + MCP 注册 |
-| board-protocol | `docs/board-protocol.md` | 跨工具软纪律 markdown |
+| `board` CLI | `cmd/board/` 单二进制 | v1 兼容入口（cards/ 工作流不变） |
+| `ousheng` CLI | `cmd/ousheng/` 单二进制 | v0.3 Engineering Context Runtime 入口 |
+| MCP server | `cmd/mcp/` 单二进制 | 15 个工具（v1×3 + v0.3×12），import 同 core |
+| Claude hook | `adapters/claude/` | 三时机协议：SessionStart=sync / Stop=converge |
+| opencode plugin | `adapters/opencode/` | session 事件 + MCP 注册 + git evidence adapter |
+| 协议文档 | `docs/*-protocol.md` | 跨工具软纪律（查看时机 / 采样 / 存储） |
 
 ---
 

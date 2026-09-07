@@ -6,6 +6,23 @@
 
 ---
 
+## v0.3 重要更新：查看时机协议取代逐 loop 采样
+
+v0.3 起，工程工作（`.ousheng/work/` WorkItem）的协作遵循**三时机协议**
+（详见 [`context-protocol.md`](context-protocol.md)）：
+
+1. **session 启动** → `ousheng sync`（pull + 刷新 + 我的上下文）
+2. **遇到问题** → `ousheng context me` / `query_work_items`
+3. **任务结束** → `work update` / `progress report` / `evidence add`，再看板
+
+不再要求每个控制周期 read→write。看板查看是低频、事件驱动的——
+按人的思路：早上开工看一眼、出事看一眼、干完活更新再看一眼。
+
+本文其余章节继续适用于 **v1 Card 协作**（`cards/`，契约生命周期）；
+两套工作流可共存（`ousheng migrate schema` 迁移）。
+
+---
+
 ## 0. 角色与心智模型
 
 你是协作环中的一个节点。你的本地工作（写代码、跑测试、改实现）是**plant 内部闭环**——那是你的事，OuSheng 不介入。
