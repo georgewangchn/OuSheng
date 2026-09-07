@@ -11,7 +11,9 @@ import (
 const MaxWorkItemBytes = 8192
 
 var (
-	workIDRe  = regexp.MustCompile(`^[A-Z0-9][A-Z0-9-]*$`)
+	// workIDRe 兼容大小写：v1 Card id 原样迁入 v2 WorkItem（§35 card.id → work_item.id，
+	// 不做大小写改写）。新建 WorkItem 推荐 UPPER-xxx 风格（BUG-017 / FEAT-CDC-001）。
+	workIDRe  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)
 	lowerIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 )
 
@@ -52,7 +54,7 @@ func ValidateWorkItem(w WorkItem, raw []byte) error {
 		return fmt.Errorf("schema_version must be 2, got %d", w.SchemaVersion)
 	}
 	if !workIDRe.MatchString(w.ID) {
-		return fmt.Errorf("invalid work item id %q (want ^[A-Z0-9][A-Z0-9-]*$)", w.ID)
+		return fmt.Errorf("invalid work item id %q (want ^[a-zA-Z0-9][a-zA-Z0-9-]*$)", w.ID)
 	}
 	if !workTypes[w.Type] {
 		return fmt.Errorf("invalid type %q", w.Type)
