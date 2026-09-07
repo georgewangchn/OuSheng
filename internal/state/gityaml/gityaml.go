@@ -35,7 +35,7 @@ import (
 	"ousheng/internal/state"
 )
 
-var workIDRe = regexp.MustCompile(`^[A-Z0-9][A-Z0-9-]*$`)
+var workIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)
 
 const schemaV2 = 2
 
@@ -349,6 +349,40 @@ func (r *Repo) UpdateWorkItem(w model.WorkItem, expectRevision int, acts []model
 	}
 	w.SchemaVersion = schemaV2
 	w.Revision = cur.Revision + 1
+	raw, err := model.EncodeWorkItem(w)
+	if err != nil {
+		return model.WorkItem{}, err
+	}
+	if err := model.ValidateWorkItem(w, raw); err != nil {
+		return model.WorkItem{}, err
+	}
+	if err := r.commitWork(w, acts, raw, msg); err != nil {
+		return model.WorkItem{}, err
+	}
+	return w, nil
+}
+
+// ImportWorkItem 迁移专用：以给定 revision 原样落盘（§35 card.version → revision）。
+// 只允许尚不存在的 id；字段校验照常执行。
+func (r *Repo) ImportWorkItem(w model.WorkItem, acts []model.Activity, msg string) (model.WorkItem, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	unlock, err := r.lock()
+	if err != nil {
+		return model.WorkItem{}, err
+	}
+	defer unlock()
+
+	if _, err := r.GetWorkItem(w.ID); err == nil {
+		return model.WorkItem{}, fmt.Errorf("work item %q: %w", w.ID, state.ErrExists)
+	} else if !errors.Is(err, state.ErrNotFound) {
+		return model.WorkItem{}, err
+	}
+	w.SchemaVersion = schemaV2
+	if w.Revision < 1 {
+		w.Revision = 1
+	}
 	raw, err := model.EncodeWorkItem(w)
 	if err != nil {
 		return model.WorkItem{}, err

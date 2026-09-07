@@ -34,6 +34,8 @@ type Repository interface {
 	ListWorkItems() ([]model.WorkItem, error)
 	CreateWorkItem(w model.WorkItem, acts []model.Activity, msg string) (model.WorkItem, error)
 	UpdateWorkItem(w model.WorkItem, expectRevision int, acts []model.Activity, msg string) (model.WorkItem, error)
+	// ImportWorkItem 迁移路径：以给定 revision 原样导入（仅限不存在的 id）。
+	ImportWorkItem(w model.WorkItem, acts []model.Activity, msg string) (model.WorkItem, error)
 
 	// Registries（读为主；人工编辑 + git 提交，工具不代写）。
 	ListActors() ([]model.ActorFile, error)

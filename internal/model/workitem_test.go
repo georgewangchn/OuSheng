@@ -77,7 +77,7 @@ func TestValidateWorkItemRules(t *testing.T) {
 	}{
 		{"schema_version", func(w *WorkItem) { w.SchemaVersion = 1 }},
 		{"bad id", func(w *WorkItem) { w.ID = "bad id!" }},
-		{"lowercase id", func(w *WorkItem) { w.ID = "bug-017" }},
+		{"id with underscore", func(w *WorkItem) { w.ID = "BUG_017" }},
 		{"bad type", func(w *WorkItem) { w.Type = WorkItemType("epic") }},
 		{"empty title", func(w *WorkItem) { w.Title = " " }},
 		{"bad status", func(w *WorkItem) { w.Status = WorkStatus("deploying") }},

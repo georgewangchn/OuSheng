@@ -23,9 +23,10 @@ type Contract struct {
 // HumanAck 是 human accountability 载体（v0.3 §42）。
 // 关键动作（breaking 等）必须由 human 确认，防止 AI 生成→AI 验收闭环幻觉。
 type HumanAck struct {
-	Approver string `yaml:"approver"`
-	At       string `yaml:"at,omitempty"` // RFC3339
-	Note     string `yaml:"note,omitempty"`
+	Approver   string `yaml:"approver"`
+	At         string `yaml:"at,omitempty"`         // RFC3339
+	AtRevision int    `yaml:"at_revision,omitempty"` // v1 迁移携带：ack 时的 CAS revision
+	Note       string `yaml:"note,omitempty"`
 }
 
 // CanContractTransition 报告 Contract 状态迁移合法性。
