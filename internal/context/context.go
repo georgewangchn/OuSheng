@@ -19,8 +19,9 @@ import (
 )
 
 type Service struct {
-	Repo state.Repository
-	Idx  index.Index
+	Repo    state.Repository
+	Idx     index.Index
+	Project model.Project
 }
 
 // New 装载 snapshot 并构建内存索引（小规模零基础设施，§30）。
@@ -33,7 +34,7 @@ func New(repo state.Repository) (*Service, error) {
 	if err := idx.Rebuild(snap); err != nil {
 		return nil, err
 	}
-	return &Service{Repo: repo, Idx: idx}, nil
+	return &Service{Repo: repo, Idx: idx, Project: snap.Project}, nil
 }
 
 // --- 第一层：最小上下文 ---
