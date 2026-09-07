@@ -128,13 +128,20 @@ func queryWorkItems(_ context.Context, _ *mcp.CallToolRequest, in QueryWorkInput
 	var items []model.WorkItem
 	switch {
 	case in.Assignee != "":
-		items = c.Idx.ByAssignee(in.Assignee)
+		items, err = c.Idx.ByAssignee(in.Assignee)
 	case in.System != "":
-		items = c.Idx.BySystem(in.System)
+		items, err = c.Idx.BySystem(in.System)
 	case in.Version != "":
-		items = c.Idx.ByVersion(in.Version)
+		items, err = c.Idx.ByVersion(in.Version)
 	default:
-		items = c.Idx.All()
+		var err error
+		items, err = c.Idx.All()
+		if err != nil {
+			return nil, QueryWorkOutput{}, err
+		}
+	}
+	if err != nil {
+		return nil, QueryWorkOutput{}, err
 	}
 	out := QueryWorkOutput{Work: []model.WorkSummary{}}
 	for _, w := range items {

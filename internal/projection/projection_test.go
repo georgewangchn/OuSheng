@@ -22,7 +22,10 @@ func proj(t *testing.T) *Service {
 
 func TestKanban(t *testing.T) {
 	p := proj(t)
-	cols := p.Kanban()
+	cols, err := p.Kanban()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var statuses []string
 	for _, c := range cols {
 		statuses = append(statuses, string(c.Status))
@@ -64,8 +67,12 @@ func TestKanbanEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := New(c)
+	kcols, err := p.Kanban()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var buf bytes.Buffer
-	RenderKanban(&buf, p.Kanban())
+	RenderKanban(&buf, kcols)
 	if !strings.Contains(buf.String(), "(no work items)") {
 		t.Fatalf("empty kanban wrong: %q", buf.String())
 	}
@@ -73,7 +80,10 @@ func TestKanbanEmpty(t *testing.T) {
 
 func TestVersionView(t *testing.T) {
 	p := proj(t)
-	blocks := p.VersionView("v2.0")
+	blocks, err := p.VersionView("v2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(blocks) != 3 {
 		t.Fatalf("expected 3 system blocks, got %d", len(blocks))
 	}
@@ -102,7 +112,10 @@ func TestVersionView(t *testing.T) {
 
 func TestProjectSummary(t *testing.T) {
 	p := proj(t)
-	sum := p.ProjectSummary()
+	sum, err := p.ProjectSummary()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if sum.Project != "smart-lakehouse" || sum.Name != "智能湖仓" {
 		t.Fatalf("project wrong: %+v", sum)
 	}

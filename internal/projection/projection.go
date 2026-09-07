@@ -46,17 +46,25 @@ var kanbanOrder = []model.WorkStatus{
 	model.StatusBlocked, model.StatusTesting, model.StatusDone, model.StatusCancelled,
 }
 
-func (s *Service) Kanban() []KanbanColumn {
+func (s *Service) Kanban() ([]KanbanColumn, error) {
 	sysName := func(id string) string {
-		if sys, ok := s.Ctx.Idx.System(id); ok {
+		if sys, ok, err := s.Ctx.Idx.System(id); err == nil && ok {
 			return sys.Name
 		}
 		return ""
 	}
 	cols := map[model.WorkStatus][]KanbanCard{}
-	for _, w := range s.Ctx.Idx.All() {
+	all, err := s.Ctx.Idx.All()
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range all {
 		var blockers []string
-		for _, b := range s.Ctx.Idx.BlockersOf(w.ID) {
+		bs, err := s.Ctx.Idx.BlockersOf(w.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range bs {
 			blockers = append(blockers, b.DepID)
 		}
 		card := KanbanCard{
@@ -80,7 +88,7 @@ func (s *Service) Kanban() []KanbanColumn {
 			out = append(out, KanbanColumn{Status: st, Cards: cards})
 		}
 	}
-	return out
+	return out, nil
 }
 
 // RenderKanban 输出文本看板。Progress 明确标注 reported（§21）。
@@ -139,10 +147,14 @@ type ProgressLine struct {
 	Value string // "70% (implementation-checklist)"
 }
 
-func (s *Service) VersionView(version string) []SystemVersionBlock {
+func (s *Service) VersionView(version string) ([]SystemVersionBlock, error) {
 	bySystem := map[string]*SystemVersionBlock{}
 	var order []string
-	for _, w := range s.Ctx.Idx.ByVersion(version) {
+	versionWork, err := s.Ctx.Idx.ByVersion(version)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range versionWork {
 		key := w.System
 		if key == "" {
 			key = "(unassigned)"
@@ -160,7 +172,11 @@ func (s *Service) VersionView(version string) []SystemVersionBlock {
 				Value: fmt.Sprintf("%d%% (%s)", int(w.Progress.Value*100), w.Progress.Basis),
 			})
 		}
-		for _, b := range s.Ctx.Idx.BlockersOf(w.ID) {
+		bs, err := s.Ctx.Idx.BlockersOf(w.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range bs {
 			blk.Blockers = appendUnique(blk.Blockers, b.DepID)
 		}
 	}
@@ -169,7 +185,7 @@ func (s *Service) VersionView(version string) []SystemVersionBlock {
 	for _, k := range order {
 		out = append(out, *bySystem[k])
 	}
-	return out
+	return out, nil
 }
 
 func RenderVersionView(w io.Writer, blocks []SystemVersionBlock) {
@@ -200,7 +216,7 @@ type ProjectSummary struct {
 	Blockers []string
 }
 
-func (s *Service) ProjectSummary() ProjectSummary {
+func (s *Service) ProjectSummary() (ProjectSummary, error) {
 	sum := ProjectSummary{
 		Project:  s.Ctx.Project.ID,
 		Name:     s.Ctx.Project.Name,
@@ -208,7 +224,11 @@ func (s *Service) ProjectSummary() ProjectSummary {
 		BySystem: map[string]map[string]int{},
 	}
 	blockerSet := map[string]bool{}
-	for _, w := range s.Ctx.Idx.All() {
+	all, err := s.Ctx.Idx.All()
+	if err != nil {
+		return sum, err
+	}
+	for _, w := range all {
 		sum.Total++
 		sum.Counts[string(w.Status)]++
 		sys := w.System
@@ -219,12 +239,16 @@ func (s *Service) ProjectSummary() ProjectSummary {
 			sum.BySystem[sys] = map[string]int{}
 		}
 		sum.BySystem[sys][string(w.Status)]++
-		for _, b := range s.Ctx.Idx.BlockersOf(w.ID) {
+		bs, err := s.Ctx.Idx.BlockersOf(w.ID)
+		if err != nil {
+			return sum, err
+		}
+		for _, b := range bs {
 			blockerSet[b.DepID] = true
 		}
 	}
 	sum.Blockers = sortedStrings(blockerSet)
-	return sum
+	return sum, nil
 }
 
 func RenderProjectSummary(w io.Writer, sum ProjectSummary) {

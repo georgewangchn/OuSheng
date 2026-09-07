@@ -32,20 +32,24 @@ type Result struct {
 }
 
 // Check 只依赖索引：memory 与 sqlite 实现结果必须一致（S5）。
-func Check(idx index.Index) Result {
+func Check(idx index.Index) (Result, error) {
 	// 1. 依赖环
+	all, err := idx.All()
+	if err != nil {
+		return Result{}, err
+	}
 	deps := map[string][]string{}
-	for _, w := range idx.All() {
+	for _, w := range all {
 		deps[w.ID] = w.DependsOn
 	}
 	if cyc := graph.FindCycle(deps); cyc != nil {
-		return Result{Status: Blocked, Cycle: cyc, Blockers: []string{"dependency cycle: " + fmt.Sprint(cyc)}}
+		return Result{Status: Blocked, Cycle: cyc, Blockers: []string{"dependency cycle: " + fmt.Sprint(cyc)}}, nil
 	}
 
 	var blockers []string
 	hasOpen := false
 
-	for _, w := range idx.All() {
+	for _, w := range all {
 		open := model.WorkItemOpen(w.Status)
 		if open {
 			hasOpen = true
@@ -60,7 +64,11 @@ func Check(idx index.Index) Result {
 		// 属于 IN_PROGRESS 的常态，不是 BLOCKED（反事实：若 waiting 算 BLOCKED，
 		// 任何有依赖的并行工作都永远 BLOCKED，收敛信号失去分辨力）。
 		if open {
-			for _, b := range idx.BlockersOf(w.ID) {
+			bs, err := idx.BlockersOf(w.ID)
+			if err != nil {
+				return Result{}, err
+			}
+			for _, b := range bs {
 				if b.Reason == "missing" {
 					blockers = append(blockers, fmt.Sprintf("%s: dangling dependency %s", w.ID, b.DepID))
 				}
@@ -78,10 +86,10 @@ func Check(idx index.Index) Result {
 	}
 
 	if len(blockers) > 0 {
-		return Result{Status: Blocked, Blockers: blockers}
+		return Result{Status: Blocked, Blockers: blockers}, nil
 	}
 	if hasOpen {
-		return Result{Status: InProgress}
+		return Result{Status: InProgress}, nil
 	}
-	return Result{Status: Converged}
+	return Result{Status: Converged}, nil
 }

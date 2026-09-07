@@ -95,3 +95,9 @@ AGENT.md
 CLAUDE.md
 # OuSheng v0.3 workspace (state lives in target projects, not this repo)
 .ousheng/
+
+# go build artifacts
+/board
+/ousheng
+/mcp
+/ousheng-mcp
