@@ -1,0 +1,11 @@
+schema_version: 1
+actor:
+  id: test-agent
+  type: agent
+  display_name: Test Agent
+  responsible_human: lisi
+manifest:
+  default_role: tester
+  systems:
+    - datax-backend
+  target_version: v2.0

@@ -1,0 +1,5 @@
+schema_version: 1
+actor:
+  id: wangwu
+  type: human
+  display_name: 王五

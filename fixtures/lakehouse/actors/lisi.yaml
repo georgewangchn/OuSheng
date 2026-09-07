@@ -1,0 +1,5 @@
+schema_version: 1
+actor:
+  id: lisi
+  type: human
+  display_name: 李四
