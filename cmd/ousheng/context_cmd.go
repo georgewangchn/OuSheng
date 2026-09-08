@@ -326,8 +326,30 @@ func assignmentsOf(c *context.Service) []model.Assignment {
 
 func cmdView(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "usage: ousheng view <kanban|system|version|project>")
+		fmt.Fprintln(stderr, "usage: ousheng view <kanban|actor|system|version|project> [args]")
 		return 2
+	}
+	if args[0] == "actor" {
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "usage: ousheng view actor <id>")
+			return 2
+		}
+		fs := newFS("view actor")
+		if err := parseLoose(fs.FlagSet, args[2:]); err != nil {
+			return usageErr(stderr, err)
+		}
+		c, err := ctxService(fs.Dir())
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		v, err := c.GetActorContext(args[1])
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		renderActorView(stdout, v)
+		return 0
 	}
 	fs := newFS("view " + args[0])
 	version := fs.String("version", "", "target version filter")
