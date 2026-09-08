@@ -29,8 +29,10 @@ type KanbanCard struct {
 	SystemName    string
 	TargetVersion string
 	Role          string
+	RoleName      string
 	Actor         string
 	Human         string
+	HumanName     string
 	Progress      string // "70% reported (implementation-checklist)"；空=未报告
 	Status        string
 	Blockers      []string
@@ -53,6 +55,24 @@ func (s *Service) Kanban() ([]KanbanColumn, error) {
 		}
 		return ""
 	}
+	roleName := func(id string) string {
+		roles, err := s.Ctx.Idx.Roles()
+		if err != nil {
+			return ""
+		}
+		for _, r := range roles {
+			if r.ID == id {
+				return r.Name
+			}
+		}
+		return ""
+	}
+	humanName := func(id string) string {
+		if a, ok, err := s.Ctx.Idx.Actor(id); err == nil && ok && a.Actor.DisplayName != "" {
+			return a.Actor.DisplayName
+		}
+		return ""
+	}
 	cols := map[model.WorkStatus][]KanbanCard{}
 	all, err := s.Ctx.Idx.All()
 	if err != nil {
@@ -71,11 +91,11 @@ func (s *Service) Kanban() ([]KanbanColumn, error) {
 			ID: w.ID, Title: w.Title,
 			System: w.System, SystemName: sysName(w.System),
 			TargetVersion: w.TargetVersion,
-			Role:          w.ActingRole,
-			Actor:         w.Assignee,
-			Human:         w.AccountableHuman,
-			Status:        string(w.Status),
-			Blockers:      blockers,
+			Role:          w.ActingRole, RoleName: roleName(w.ActingRole),
+			Actor: w.Assignee,
+			Human: w.AccountableHuman, HumanName: humanName(w.AccountableHuman),
+			Status:   string(w.Status),
+			Blockers: blockers,
 		}
 		if w.Progress != nil {
 			card.Progress = fmt.Sprintf("%d%% reported (%s)", int(w.Progress.Value*100), w.Progress.Basis)
@@ -112,13 +132,21 @@ func RenderKanban(w io.Writer, cols []KanbanColumn) {
 				fmt.Fprintf(w, "  Version   %s\n", c.TargetVersion)
 			}
 			if c.Role != "" {
-				fmt.Fprintf(w, "  Role      %s\n", c.Role)
+				line := "  Role      " + c.Role
+				if c.RoleName != "" {
+					line += " (" + c.RoleName + ")"
+				}
+				fmt.Fprintln(w, line)
 			}
 			if c.Actor != "" {
 				fmt.Fprintf(w, "  Actor     %s\n", c.Actor)
 			}
 			if c.Human != "" {
-				fmt.Fprintf(w, "  Human     %s\n", c.Human)
+				line := "  Human     " + c.Human
+				if c.HumanName != "" {
+					line += " (" + c.HumanName + ")"
+				}
+				fmt.Fprintln(w, line)
 			}
 			if c.Progress != "" {
 				fmt.Fprintf(w, "  Progress  %s\n", c.Progress)

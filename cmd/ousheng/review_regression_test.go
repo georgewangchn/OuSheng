@@ -154,3 +154,19 @@ func TestReviewSandwichedFlags(t *testing.T) {
 		t.Fatalf("--type bug filter lost:\n%s", out)
 	}
 }
+
+// 方案 §37：view actor 子命令必须存在；§21：看板 Role/Human 显示名。
+func TestReviewViewActorAndDisplayNames(t *testing.T) {
+	dir := testfix.Setup(t)
+	out := runCLI(t, dir, "view", "actor", "zhangsan")
+	if !strings.Contains(out, "zhangsan") || !strings.Contains(out, "张三") {
+		t.Fatalf("view actor output missing actor info:\n%s", out)
+	}
+	kb := runCLI(t, dir, "view", "kanban")
+	if !strings.Contains(kb, "Role      backend (Java后端开发)") {
+		t.Fatalf("kanban card must show role display name (§21):\n%s", kb)
+	}
+	if !strings.Contains(kb, "Human     zhangsan (张三)") {
+		t.Fatalf("kanban card must show human display name (§21):\n%s", kb)
+	}
+}
