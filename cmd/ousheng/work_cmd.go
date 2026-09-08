@@ -241,7 +241,7 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 	updated, err := updateWithAutoExpect(svc, id, *expect, func(cur model.WorkItem) model.WorkItem {
 		cur.Status = model.WorkStatus(*status)
 		return cur
-	}, "default", *actor)
+	}, *actor)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -270,7 +270,7 @@ func workAssign(args []string, stdout, stderr io.Writer) int {
 			cur.ActingRole = *role
 		}
 		return cur
-	}, "assign", *actor)
+	}, *actor)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

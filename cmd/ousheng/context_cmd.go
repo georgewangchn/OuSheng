@@ -454,10 +454,15 @@ func cmdEvidence(args []string, stdout, stderr io.Writer) int {
 				ev.Source = "git"
 			}
 		}
-		w, err := updateWithAutoExpect(svc, fs.Arg(0), *expect, func(cur model.WorkItem) model.WorkItem {
-			cur.Evidence = append(cur.Evidence, ev)
-			return cur
-		}, "evidence", *actor)
+		cur, err := svc.Repo.GetWorkItem(fs.Arg(0))
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if *expect < 0 {
+			*expect = cur.Revision
+		}
+		w, err := svc.AddEvidence(fs.Arg(0), ev, *expect, *actor)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -505,7 +510,8 @@ func cmdEvidence(args []string, stdout, stderr io.Writer) int {
 }
 
 // updateWithAutoExpect: expect<0 时自动取当前 revision（读-改-写，竞争仍触发 CAS 冲突）。
-func updateWithAutoExpect(svc *workspace.Service, id string, expect int, mutate func(model.WorkItem) model.WorkItem, kind string, actor string) (model.WorkItem, error) {
+// 仅用于字段级更新（status/assignee）；evidence 走 workspace.AddEvidence 单一路径。
+func updateWithAutoExpect(svc *workspace.Service, id string, expect int, mutate func(model.WorkItem) model.WorkItem, actor string) (model.WorkItem, error) {
 	cur, err := svc.Repo.GetWorkItem(id)
 	if err != nil {
 		return model.WorkItem{}, err
@@ -514,20 +520,5 @@ func updateWithAutoExpect(svc *workspace.Service, id string, expect int, mutate 
 		expect = cur.Revision
 	}
 	next := mutate(cur)
-	switch kind {
-	case "evidence":
-		if len(next.Evidence) > 0 {
-			last := next.Evidence[len(next.Evidence)-1]
-			acts := []model.Activity{{
-				TS: model.Now(), Actor: actor, Action: "evidence_added", WorkItem: id,
-				Detail: fmt.Sprintf("%s %s", last.Type, last.Locator),
-			}}
-			return svc.Repo.UpdateWorkItem(next, expect, acts, fmt.Sprintf("work: evidence %s %s", id, last.Type))
-		}
-	case "assign":
-		return svc.Update(next, expect, actor)
-	default:
-		return svc.Update(next, expect, actor)
-	}
-	return model.WorkItem{}, fmt.Errorf("unreachable")
+	return svc.Update(next, expect, actor)
 }

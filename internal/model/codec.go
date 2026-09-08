@@ -109,10 +109,18 @@ func DecodeAssignmentsFile(b []byte) (AssignmentsFile, error) {
 	if f.SchemaVersion != 1 {
 		return AssignmentsFile{}, fmt.Errorf("assignments schema_version must be 1, got %d", f.SchemaVersion)
 	}
+	seen := map[string]bool{}
 	for i, a := range f.Assignments {
 		if err := ValidateAssignment(a); err != nil {
 			return AssignmentsFile{}, fmt.Errorf("assignments[%d]: %w", i, err)
 		}
+		// 完全重复行拒绝：memory 与 sqlite 对重复行的处理不同（双记 vs 忽略），
+		// canonical 层拒绝保证两实现一致（S5）
+		key := a.Actor + "\x00" + a.Role + "\x00" + a.System + "\x00" + a.Responsibility
+		if seen[key] {
+			return AssignmentsFile{}, fmt.Errorf("assignments[%d]: duplicate assignment %s×%s×%s×%s", i, a.Actor, a.Role, a.System, a.Responsibility)
+		}
+		seen[key] = true
 	}
 	return f, nil
 }

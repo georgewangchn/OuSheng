@@ -134,11 +134,7 @@ func queryWorkItems(_ context.Context, _ *mcp.CallToolRequest, in QueryWorkInput
 	case in.Version != "":
 		items, err = c.Idx.ByVersion(in.Version)
 	default:
-		var err error
 		items, err = c.Idx.All()
-		if err != nil {
-			return nil, QueryWorkOutput{}, err
-		}
 	}
 	if err != nil {
 		return nil, QueryWorkOutput{}, err
