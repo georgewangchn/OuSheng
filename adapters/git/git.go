@@ -13,10 +13,18 @@ import (
 )
 
 // CommitExists 验证 commit 可解析（rev-parse <sha>^{commit}）。
+// 区分两类失败：rev-parse 非零退出（commit 不存在）→ false,nil；
+// git 不可执行 / 目录异常 → 返回错误，不伪装成"不存在"。
 func CommitExists(repoDir, commit string) (bool, error) {
 	cmd := exec.Command("git", "rev-parse", "--verify", commit+"^{commit}")
 	cmd.Dir = repoDir
-	return cmd.Run() == nil, nil
+	if err := cmd.Run(); err != nil {
+		if _, ok := err.(*exec.ExitError); ok {
+			return false, nil
+		}
+		return false, fmt.Errorf("git rev-parse in %s: %w", repoDir, err)
+	}
+	return true, nil
 }
 
 // Subject 返回 commit 的第一行描述。

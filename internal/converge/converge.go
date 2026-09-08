@@ -33,14 +33,18 @@ type Result struct {
 
 // Check 只依赖索引：memory 与 sqlite 实现结果必须一致（S5）。
 func Check(idx index.Index) (Result, error) {
-	// 1. 依赖环
 	all, err := idx.All()
 	if err != nil {
 		return Result{}, err
 	}
+	// 1. 依赖环——只看 open 项发出的边。
+	// 已关闭项（done/cancelled）的依赖是历史残留，不应永久阻塞收敛
+	// （与"done 项的 stale dep 不阻塞"同一语义）。
 	deps := map[string][]string{}
 	for _, w := range all {
-		deps[w.ID] = w.DependsOn
+		if model.WorkItemOpen(w.Status) {
+			deps[w.ID] = w.DependsOn
+		}
 	}
 	if cyc := graph.FindCycle(deps); cyc != nil {
 		return Result{Status: Blocked, Cycle: cyc, Blockers: []string{"dependency cycle: " + fmt.Sprint(cyc)}}, nil

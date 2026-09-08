@@ -56,12 +56,9 @@ func (m *MemIndex) Rebuild(s index.Snapshot) error {
 		m.byID[w.ID] = w
 		m.byAssignee[w.Assignee] = append(m.byAssignee[w.Assignee], w)
 		m.byAccount[w.AccountableHuman] = append(m.byAccount[w.AccountableHuman], w)
-		if w.System != "" {
-			m.bySystem[w.System] = append(m.bySystem[w.System], w)
-		}
-		if w.TargetVersion != "" {
-			m.byVersion[w.TargetVersion] = append(m.byVersion[w.TargetVersion], w)
-		}
+		// 空键也索引（system/version 缺省 = unassigned），与 sqlite 列默认 '' 对齐（S5）
+		m.bySystem[w.System] = append(m.bySystem[w.System], w)
+		m.byVersion[w.TargetVersion] = append(m.byVersion[w.TargetVersion], w)
 		m.byStatus[w.Status] = append(m.byStatus[w.Status], w)
 		m.byType[w.Type] = append(m.byType[w.Type], w)
 		if model.WorkItemActive(w.Status) {

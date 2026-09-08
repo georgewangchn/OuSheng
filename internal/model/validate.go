@@ -124,6 +124,16 @@ func ValidateWorkItem(w WorkItem, raw []byte) error {
 		if !evidenceTypes[ev.Type] {
 			return fmt.Errorf("evidence[%d]: invalid type %q", i, ev.Type)
 		}
+		if ev.ObservedAt != "" {
+			if _, err := time.Parse(time.RFC3339, ev.ObservedAt); err != nil {
+				return fmt.Errorf("evidence[%d]: observed_at must be RFC3339: %w", i, err)
+			}
+		}
+	}
+	if w.HumanAck != nil && w.HumanAck.At != "" {
+		if _, err := time.Parse(time.RFC3339, w.HumanAck.At); err != nil {
+			return fmt.Errorf("human_ack.at must be RFC3339: %w", err)
+		}
 	}
 	if len(raw) > MaxWorkItemBytes {
 		return fmt.Errorf("work item exceeds %d bytes", MaxWorkItemBytes)

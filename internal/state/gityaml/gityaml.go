@@ -239,7 +239,12 @@ func (r *Repo) ListActors() ([]model.ActorFile, error) {
 	return out, nil
 }
 
+var actorIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
 func (r *Repo) GetActor(id string) (model.ActorFile, error) {
+	if !actorIDRe.MatchString(id) {
+		return model.ActorFile{}, fmt.Errorf("invalid actor id %q: %w", id, state.ErrNotFound)
+	}
 	b, err := os.ReadFile(r.actorPath(id))
 	if os.IsNotExist(err) {
 		return model.ActorFile{}, fmt.Errorf("actor %q: %w", id, state.ErrNotFound)

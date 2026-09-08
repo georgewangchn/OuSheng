@@ -45,7 +45,7 @@ func MigrateSchema(repo state.Repository, cards []card.Card) (Result, error) {
 			continue
 		}
 
-		w := CardToWorkItem(c, actors, roles)
+		w := CardToWorkItem(c)
 
 		if _, ok := actors[c.Owner]; ok {
 			w.Assignee = c.Owner
@@ -73,7 +73,7 @@ func MigrateSchema(repo state.Repository, cards []card.Card) (Result, error) {
 }
 
 // CardToWorkItem 执行字段映射（不含 owner 解析）。
-func CardToWorkItem(c card.Card, actors map[string]model.Actor, roles map[string]model.Role) model.WorkItem {
+func CardToWorkItem(c card.Card) model.WorkItem {
 	// WorkItem 执行状态从契约状态推导（可解释映射）：
 	// proposed→backlog agreed→ready live→doing verified→done deprecated→cancelled
 	workStatus := map[card.Status]model.WorkStatus{
