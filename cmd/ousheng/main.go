@@ -4,6 +4,8 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -124,16 +126,34 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
+	dirFlagSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "dir" {
+			dirFlagSet = true
+		}
+	})
 	if *projectID == "" {
 		fmt.Fprintln(stderr, "--project-id required")
 		return 2
 	}
-	repo := gityaml.Open(fs.Dir())
+	dir := fs.Dir()
+	if fs.NArg() > 1 {
+		fmt.Fprintf(stderr, "init: unexpected argument %q\n", fs.Arg(1))
+		return 2
+	}
+	if fs.NArg() == 1 {
+		if dirFlagSet {
+			fmt.Fprintln(stderr, "init: pass either positional dir or --dir, not both")
+			return 2
+		}
+		dir = fs.Arg(0)
+	}
+	repo := gityaml.Open(dir)
 	if err := repo.InitWorkspace(projectModel(*projectID, *projectName)); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "initialized workspace at %s/.ousheng (project %s)\n", fs.Dir(), *projectID)
+	fmt.Fprintf(stdout, "initialized workspace at %s/.ousheng (project %s)\n", dir, *projectID)
 	return 0
 }
 
@@ -141,6 +161,9 @@ func cmdConverge(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("converge")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
+	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
 	}
 	idx, err := loadIndex(fs.Dir())
 	if err != nil {
@@ -174,10 +197,17 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
+	}
 	dir := fs.Dir()
 	// 1. git pull（无 remote 则跳过——单机也成立）
 	if out, err := gitPull(dir); err != nil {
-		fmt.Fprintf(stdout, "pull skipped (%v)\n", err)
+		if errors.Is(err, errNoRemote) {
+			fmt.Fprintln(stdout, "pull skipped (no remote configured)")
+		} else {
+			fmt.Fprintf(stdout, "pull skipped (%v)\n", err)
+		}
 	} else {
 		fmt.Fprintf(stdout, "%s", out)
 	}

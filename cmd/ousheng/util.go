@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -60,14 +61,34 @@ func projectModel(id, name string) model.Project {
 	return model.Project{ID: id, Name: name}
 }
 
+// errNoRemote：git pull 无 remote / 无 tracking——单机常态，非故障。
+var errNoRemote = errors.New("no remote configured")
+
 func gitPull(dir string) (string, error) {
 	cmd := exec.Command("git", "pull", "--ff-only")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		s := string(out)
+		// 无 remote / 无 tracking 的典型输出：归一为友好语义，不刷裸 git 报错
+		for _, p := range []string{"no remote repository", "no tracking information", "no upstream"} {
+			if strings.Contains(s, p) {
+				return "", errNoRemote
+			}
+		}
+		return "", fmt.Errorf("%s", strings.TrimSpace(s))
 	}
 	return string(out), nil
+}
+
+// rejectExtra 拒绝多余位置参数。静默吞掉（如忘写 --system 的过滤值）比报错更危险：
+// 用户会基于错误的全量结果做决策（场景测试实锤）。
+func rejectExtra(fs *flagSetWithDir, stderr io.Writer) int {
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "%s: unexpected argument %q\n", fs.Name(), fs.Arg(0))
+		return 2
+	}
+	return 0
 }
 
 func printJSON(w io.Writer, v any) {

@@ -29,6 +29,9 @@ func cmdContext(args []string, stdout, stderr io.Writer) int {
 		if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 			return usageErr(stderr, err)
 		}
+		if code := rejectExtra(fs, stderr); code != 0 {
+			return code
+		}
 		if *actor == "" {
 			fmt.Fprintln(stderr, "--actor required (or set OUSHENG_ACTOR)")
 			return 2
@@ -56,7 +59,7 @@ func cmdContext(args []string, stdout, stderr io.Writer) int {
 		if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 			return usageErr(stderr, err)
 		}
-		if fs.NArg() < 1 {
+		if fs.NArg() != 1 {
 			fmt.Fprintln(stderr, "usage: ousheng context actor <id>")
 			return 2
 		}
@@ -83,7 +86,7 @@ func cmdContext(args []string, stdout, stderr io.Writer) int {
 		if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 			return usageErr(stderr, err)
 		}
-		if fs.NArg() < 1 {
+		if fs.NArg() != 1 {
 			fmt.Fprintln(stderr, "usage: ousheng context system <id>")
 			return 2
 		}
@@ -210,6 +213,9 @@ func cmdActor(args []string, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "list":
+		if code := rejectExtra(fs, stderr); code != 0 {
+			return code
+		}
 		actors, err := c.Idx.Actors()
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -224,7 +230,7 @@ func cmdActor(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	case "show":
-		if fs.NArg() < 1 {
+		if fs.NArg() != 1 {
 			fmt.Fprintln(stderr, "usage: ousheng actor show <id>")
 			return 2
 		}
@@ -256,6 +262,9 @@ func cmdSystem(args []string, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "list":
+		if code := rejectExtra(fs, stderr); code != 0 {
+			return code
+		}
 		systems, err := c.Idx.Systems()
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -270,7 +279,7 @@ func cmdSystem(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	case "show":
-		if fs.NArg() < 1 {
+		if fs.NArg() != 1 {
 			fmt.Fprintln(stderr, "usage: ousheng system show <id>")
 			return 2
 		}
@@ -287,9 +296,16 @@ func cmdSystem(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdAssignment(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 || args[0] != "list" {
+		fmt.Fprintln(stderr, "usage: ousheng assignment list")
+		return 2
+	}
 	fs := newFS("assignment list")
-	if err := parseLoose(fs.FlagSet, args); err != nil {
+	if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 		return usageErr(stderr, err)
+	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
 	}
 	c, err := ctxService(fs.Dir())
 	if err != nil {
@@ -330,20 +346,20 @@ func cmdView(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if args[0] == "actor" {
-		if len(args) < 2 {
+		fs := newFS("view actor")
+		if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
+			return usageErr(stderr, err)
+		}
+		if fs.NArg() != 1 {
 			fmt.Fprintln(stderr, "usage: ousheng view actor <id>")
 			return 2
-		}
-		fs := newFS("view actor")
-		if err := parseLoose(fs.FlagSet, args[2:]); err != nil {
-			return usageErr(stderr, err)
 		}
 		c, err := ctxService(fs.Dir())
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		v, err := c.GetActorContext(args[1])
+		v, err := c.GetActorContext(fs.Arg(0))
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -364,6 +380,9 @@ func cmdView(args []string, stdout, stderr io.Writer) int {
 	p := projection.New(c)
 	switch args[0] {
 	case "kanban":
+		if code := rejectExtra(fs, stderr); code != 0 {
+			return code
+		}
 		cols, err := p.Kanban()
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -372,6 +391,9 @@ func cmdView(args []string, stdout, stderr io.Writer) int {
 		projection.RenderKanban(stdout, cols)
 		return 0
 	case "project":
+		if code := rejectExtra(fs, stderr); code != 0 {
+			return code
+		}
 		sum, err := p.ProjectSummary()
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -380,6 +402,9 @@ func cmdView(args []string, stdout, stderr io.Writer) int {
 		projection.RenderProjectSummary(stdout, sum)
 		return 0
 	case "version":
+		if code := rejectExtra(fs, stderr); code != 0 {
+			return code
+		}
 		if *version == "" {
 			fmt.Fprintln(stderr, "--version required")
 			return 2
@@ -392,7 +417,7 @@ func cmdView(args []string, stdout, stderr io.Writer) int {
 		projection.RenderVersionView(stdout, blocks)
 		return 0
 	case "system":
-		if fs.NArg() < 1 {
+		if fs.NArg() != 1 {
 			fmt.Fprintln(stderr, "usage: ousheng view system <id>")
 			return 2
 		}
@@ -411,10 +436,17 @@ func cmdView(args []string, stdout, stderr io.Writer) int {
 // --- activity ---
 
 func cmdActivity(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 || args[0] != "list" {
+		fmt.Fprintln(stderr, "usage: ousheng activity list [--limit N]")
+		return 2
+	}
 	fs := newFS("activity list")
 	limit := fs.Int("limit", 50, "max entries")
-	if err := parseLoose(fs.FlagSet, args); err != nil {
+	if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 		return usageErr(stderr, err)
+	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
 	}
 	repo := gityaml.Open(fs.Dir())
 	acts, err := repo.ListActivity()
@@ -452,7 +484,7 @@ func cmdEvidence(args []string, stdout, stderr io.Writer) int {
 		if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 			return usageErr(stderr, err)
 		}
-		if fs.NArg() < 1 || *evType == "" || *locator == "" {
+		if fs.NArg() != 1 || *evType == "" || *locator == "" {
 			fmt.Fprintln(stderr, "usage: ousheng evidence add <work-id> --type T --locator L [...]")
 			return 2
 		}
@@ -497,7 +529,7 @@ func cmdEvidence(args []string, stdout, stderr io.Writer) int {
 		if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 			return usageErr(stderr, err)
 		}
-		if fs.NArg() < 1 {
+		if fs.NArg() != 1 {
 			fmt.Fprintln(stderr, "usage: ousheng evidence list <work-id>")
 			return 2
 		}

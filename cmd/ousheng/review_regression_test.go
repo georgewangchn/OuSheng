@@ -3,6 +3,9 @@ package main
 // 回归测试：code review 发现的缺陷逐项锁定。
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -142,16 +145,47 @@ func TestReviewEvidenceActivityFormat(t *testing.T) {
 }
 
 // Fix 1: 位置参数夹在 flag 中间不再丢失后半 flag（三明治解析）。
+// 注：work list 不收位置参数（多余即报错），过滤值必须带 --system。
 func TestReviewSandwichedFlags(t *testing.T) {
 	dir := testfix.Setup(t)
-	// --open 在前、位置参数 datax-backend 夹中间、--type 在后：两个过滤器都要生效
-	out := runCLI(t, dir, "work", "list", "--open", "datax-backend", "--type", "bug")
+	// --open 在前、--system 的值夹中间、--type 在后：两个过滤器都要生效
+	out := runCLI(t, dir, "work", "list", "--open", "--system", "datax-backend", "--type", "bug")
 	// BUG-017 是 datax-backend 的 open bug，必须出现；FEAT-CDC-001 是 feature 必须被过滤
 	if !strings.Contains(out, "BUG-017") {
 		t.Fatalf("sandwiched flags lost filter — BUG-017 missing:\n%s", out)
 	}
 	if strings.Contains(out, "FEAT-CDC-001") {
 		t.Fatalf("--type bug filter lost:\n%s", out)
+	}
+}
+
+// 场景测试实锤：静默吞位置参数会让用户基于错误数据决策。
+// 1) init <dir> 位置参数必须生效；2) list/view 类命令多余位置参数必须报错。
+func TestReviewRejectsStrayPositionals(t *testing.T) {
+	base := t.TempDir()
+	sub := filepath.Join(base, "sub")
+	full := append([]string{}, "init", sub, "--project-id", "p1", "--project-name", "P")
+	var stdout, stderr bytes.Buffer
+	if code := run(full, &stdout, &stderr); code != 0 {
+		t.Fatalf("init with positional dir failed: %s", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(sub, ".ousheng", "project.yaml")); err != nil {
+		t.Fatalf("workspace must be created in positional dir: %v", err)
+	}
+
+	dir := testfix.Setup(t)
+	for _, bad := range [][]string{
+		{"work", "list", "datax-backend", "--dir", dir}, // 忘写 --system
+		{"view", "kanban", "extra", "--dir", dir},       // 多余参数
+		{"activity", "list", "junk", "--dir", dir},
+		{"actor", "list", "junk", "--dir", dir},
+		{"converge", "junk", "--dir", dir},
+		{"work", "show", "BUG-017", "extra", "--dir", dir}, // 多写一个 id
+	} {
+		var so, se bytes.Buffer
+		if code := run(bad, &so, &se); code == 0 {
+			t.Fatalf("cli %v must reject stray positional, got success:\n%s", bad[:len(bad)-2], so.String())
+		}
 	}
 }
 
