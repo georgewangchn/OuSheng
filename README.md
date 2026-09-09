@@ -1,406 +1,151 @@
 # OuSheng · 㸸绳
 
-> 套在 AI Coding 这头㸸鼻子上的牵引绳 —— 最小接触点，只给方向，绝不替㸸使劲。
+> 多人 + 多 AI 编码窗口协作时，**互相不知道对方在干什么** —— 这件事的解药。
 
-多人 AI Coding 协作工具。一块小看板 + 一套接口标准，协调多个"人 + AI"协作，无需共享 Memory、无需中心验证、无需 Ontology。机制与具体 AI Coding 工具（Claude Code / opencode / Codex / Pi / 人）解耦。
+一个人开 4 个 AI 窗口开发 4 个系统，或一个团队里人和 AI 混合干活，很快会撞上：
 
-**v0.3：轻量工程上下文运行时（Engineering Context Runtime）** —— 在 v1 协作绳之上新增工程语义层：Actor（人/Agent 统一身份）、System、Assignment（Actor × Role × System）、WorkItem（Card 的语义升级）、typed Evidence、Progress（reported，非 fact）。Git + YAML 仍是唯一事实源；SQLite 仅作可重建的派生索引。
+- 窗口 A 改了接口，窗口 B 还在按旧接口写 —— **契约漂移**
+- 任务卡在谁的依赖上、为什么阻塞，全靠脑子记 —— **状态失明**
+- 说"做完了"，但没有测试、没有 commit、没有验收 —— **完工无凭**
+
+OuSheng 把"谁 / 在哪个系统 / 干什么 / 到哪一步 / 卡在哪 / 有什么证据"钉在 **Git + YAML** 上。一个独立小仓（上下文仓）就是全部基础设施：看板、任务、契约、审计都在里面，`git push/pull` 就是协作通讯。无服务器、无中心验证、无共享 Memory、与具体 AI 工具（Claude Code / opencode / Codex / 人）解耦。
+
+"㸸"（òu）是河南方言里对牛的叫法，"绳"是牵引绳：套在 AI Coding 这头㸸鼻子上的绳 —— 最小接触点，只给方向，绝不替㸸使劲。
 
 ---
 
-## v0.3 五分钟上手
+## 快速开始（3 分钟）
+
+前置：Go 1.25+、系统 `git`。
 
 ```bash
-go build -o ousheng ./cmd/ousheng
+git clone git@github.com:georgewangchn/OuSheng.git && cd OuSheng
+go build -o /usr/local/bin/ousheng ./cmd/ousheng
 
 mkdir myproj && cd myproj
-ousheng setup                 # 交互式：项目名 / 你的名字 / 系统列表
-ousheng todo "第一个任务"       # 自动 ID + 全默认值（单系统免 --system）
+ousheng setup                    # 交互式向导：项目名 / 你的名字 / 系统列表
+ousheng todo "第一个任务"          # 自动 ID + 全默认值
 ousheng work update T-001 --status doing
-ousheng view kanban           # 看板
-ousheng converge              # 收敛检查
+ousheng view kanban              # 看板
+ousheng converge                 # 收敛检查
 ```
 
-之后日常只有 3 个动作：**开工 `context me` 看队列 → 干活 `work update`/`progress report` → 收工 `converge` + 看板**。加人/加 AI 窗口/契约门详见 **[docs/quick-start.md](docs/quick-start.md)**。
----
-
-# v0.3 完整上手（多系统/多 Actor 场景）
+手动路径（看清每一步）：
 
 ```bash
-# 1. 立项（默认名=目录名；registry 也可用命令声明：ousheng me / ousheng system add）
-./ousheng init . --project-id smart-lakehouse --project-name 智能湖仓
-
-# 2. 声明身份与系统（或人工编辑 .ousheng/*.yaml，效果等价）
-./ousheng me zhangsan --name 张三
-./ousheng system add datax-backend --name "DataX Backend"
-
-# 3. Agent 每日启动（查看时机①）：拉取 + 刷新 + 我的上下文
-./ousheng sync --actor backend-agent
-
-# 4. 建工作 / 报 bug / 汇报进度 / 补证据
-./ousheng work create --id FEAT-200 --type feature --title "CDC 增量同步" \
-  --system datax-backend --version v2.0 --assignee backend-agent --role backend --accountable zhangsan
-./ousheng bug report --id BUG-017 --title "checkpoint 恢复失败" --detected-by test-agent
-./ousheng progress report FEAT-200 --value 0.7 --actor backend-agent --basis implementation-checklist
-./ousheng evidence add BUG-017 --type git_commit --locator abc123
-
-# 5. 视图与收敛
-./ousheng view kanban
-./ousheng converge          # CONVERGED | IN_PROGRESS | BLOCKED
-
-# 6. v1 看板迁移（幂等，cards/ 不动）
-./ousheng migrate schema
+ousheng init myproj && cd myproj  # 立项（名字默认=目录名）
+ousheng me george --name George   # 我是谁 → 此后所有命令免 --actor
+ousheng system add datax-ui       # 有哪些系统
+ousheng todo "首页改版"             # 开工
 ```
 
-多机协作：`git push/pull` + `ousheng sync`，第二台机器零基础设施进入同一状态；
-跨机旧 revision 写入触发 CAS conflict。SQLite 索引可随时
-`rm .ousheng/cache/index.db && ousheng index rebuild` 恢复（S5 硬约束）。
+日常只有三个动作：**开工 `context me` 看队列和阻塞 → 干活 `work update` / `progress report` / `evidence add` → 收工 `converge` + 看板**。
 
-v0.3 文档：[engineering-model](docs/engineering-model.md) ·
-[state-store](docs/state-store.md) ·
-[context-protocol（含查看时机协议）](docs/context-protocol.md)
+完整指南（加人、加 AI 窗口、契约门、多仓拓扑）：**[docs/quick-start.md](docs/quick-start.md)**
 
 ---
 
-## 为什么需要它
+## 它是怎么工作的
 
-AI Coding 是一头力气巨大的㸸。力气越大，越需要一根轻的绳——绳越简单、越不抢㸸的活，系统越成功。
+**没有消息通讯，只有共享状态。** 看板住在一个独立的"上下文仓"里（第三个 git 仓），所有人 / AI 窗口各自克隆、读写它：
 
-OuSheng 不做合约自动生成、不做语义合并、不做 Ontology 推理、不做中心验证。它只做一件事：**让每个 worker 知道当前合约状态，并强制破坏性变更必须人工背书**。
+```
+  你的代码仓 repo-a          同事的代码仓 repo-b        （各系统独立 git 仓，OuSheng 零侵入）
+          │                         │
+          │ 代码提交（照旧）           │
+          ▼                         ▼
+  ┌─────────────────── 上下文仓（看板在这里）───────────────────┐
+  │  .ousheng/work/*.yaml    任务/状态/依赖/契约/证据  ← 通讯内容  │
+  │  .ousheng/activity/      审计流（谁在何时改了什么）            │
+  │  .ousheng/{systems,actors,assignments}  关系表               │
+  └──────────────┬──────────────────────────────┬──────────────┘
+        git push │                    git pull   │ git pull
+                 ▼                               ▼
+          A 的窗口（opencode）              B 的窗口 / 你
+     session 启动自动 sync：拉取 + 索引 + "我的队列 + 阻塞"注入
+```
 
-"㸸"（òu）是河南方言里对牛的叫法，"绳"是牵引绳。放㸸、牤㸸、㸸娃儿——农村人都懂。
+- **单人多窗口**：4 个窗口 `--dir` 指向同一个上下文仓目录即可，连 remote 都不用
+- **跨机多人**：上下文仓 push 到 GitHub / 公司裸仓，每人 clone + `ousheng sync`
+- **代码仓与上下文仓的连接**：`ousheng repo set <system> <本地代码仓路径>` —— `git_commit` 证据会到正确的代码仓里验证
+- **冲突不会写坏**：本机 `.ousheng.lock` 写串行 → CAS revision 拒绝逻辑并发 → git rebase 处理传输并发；每次变更一个 commit，`git log` 即审计
+
+---
+
+## 多人 / 多 AI 窗口
+
+```bash
+ousheng team add lisi --name 李四 --role ui --system datax-ui      # 加同事
+ousheng team add ui-dev --type agent --role ui --system datax-ui   # 加 AI 窗口（自动绑负责 human）
+```
+
+AI 窗口挂上 adapter（[`adapters/`](adapters/README.md)）后遵守**三时机协议**：session 启动自动 sync（时机①）、开发中按需查上下文（时机②，MCP 15 工具）、session 结束 converge 收尾提醒（时机③）——低频事件驱动，不做每轮轮询。
+
+**契约门（防漂移的核心）**：跨系统接口任务挂 `contract: breaking: true` 时，**必须 human `human_ack` 才能落盘** —— 两个 AI 窗口不可能互相改接口改出幻觉闭环；`verified` 契约必须有 typed evidence（C1）。两道门在写入路径和收敛检查上双层强制。
+
+---
+
+## 命令速查
+
+```
+立项/身份   setup · init · me · team add · system add · repo set · todo
+日常       context me · work list/show/create/update/assign · bug report · progress report
+证据/审计  evidence add/list · activity list
+看板/收敛  view kanban|actor|system|version|project · converge · sync
+索引       index rebuild/status（SQLite 派生索引，可随时删除重建）
+```
+
+收敛 `converge` 返回三态：`CONVERGED`（全部完成）/ `IN_PROGRESS`（正常推进）/ `BLOCKED`（显式阻塞、依赖环、悬空依赖、违反 C1/C2），另附警告（如 done 项进度未满）。
+
+---
+
+## 设计哲学：不做什么
+
+AI Coding 是一头力气巨大的㸸。力气越大，越需要一根轻的绳。OuSheng **只做**：让每个 worker 知道当前合约状态，强制破坏性变更人工背书。它**刻意不做**：
+
+- ✗ 合约自动生成（AI 写的合约 AI 自己验收 = 幻觉闭环）
+- ✗ 语义合并（自然语言歧义交给机器裁决 = 黑盒）
+- ✗ Ontology 推理、共享 Memory（引入中心化状态 = 要运维、要信任）
+- ✗ 中心验证管线（git 本身已带审计 / 冲突解决 / 分布式同步）
+
+五条设计原则与控制论映射见[设计基石](docs/多人AI协作机制_方案基石.md)。
 
 ---
 
 ## 架构
 
-```
-        ┌──────────────── core lib (Go) ────────────────┐
-        │ 存储 · CAS · schema 校验 · 状态机 ·             │
-        │ 全局归约 · DAG 检测 · 投影闸门 · 签名验证       │
-        └───┬────────┬──────────┬───────────┬────────────┘
-        board CLI  MCP server  Claude hook   opencode
-       (通用/脚本)  (opencode等) 适配器        plugin 适配器
-                    └── 全是薄壳，零重复业务逻辑 ──┘
-
-        store = git 仓（cards/<id>.yaml，version / 历史 / 签名白送）
-```
-
 | 件 | 形态 | 职责 |
 |---|---|---|
-| core lib | `internal/` Go 包 | 全部业务逻辑：schema、CAS、状态机、DAG、收敛 |
-| `board` CLI | `cmd/board/` 单二进制 | v1 兼容入口（cards/ 工作流不变） |
-| `ousheng` CLI | `cmd/ousheng/` 单二进制 | v0.3 Engineering Context Runtime 入口 |
-| MCP server | `cmd/mcp/` 单二进制 | 15 个工具（v1×3 + v0.3×12），import 同 core |
-| Claude hook | `adapters/claude/` | 三时机协议：SessionStart=sync / Stop=converge |
-| opencode plugin | `adapters/opencode/` | session 事件 + MCP 注册 + git evidence adapter |
-| 协议文档 | `docs/*-protocol.md` | 跨工具软纪律（查看时机 / 采样 / 存储） |
+| core lib | `internal/` Go 包 | 全部业务逻辑：手写 schema 校验、CAS、双状态机、收敛、投影 |
+| `ousheng` CLI | `cmd/ousheng/` | v0.3 主入口（onboarding + 日常 + 看板） |
+| MCP server | `cmd/mcp/` | 15 工具（v0.3×12 + v1×3），import 同 core |
+| `board` CLI | `cmd/board/` | v1 协作绳入口（cards/ 工作流，继续可用） |
+| adapters | `adapters/` | Claude Code hook / opencode plugin / git evidence |
+| 协议文档 | `docs/*-protocol.md` | 三时机、采样纪律、存储约定 |
+
+铁律：**Git + YAML 是唯一事实源**；SQLite 仅派生索引（memory 与 sqlite 查询深度相等为硬约束，删库可重建）；WorkItem 七态执行状态机与 Contract 五态契约状态机分离；`revision`（CAS）≠ `target_version`（产品版本）。
 
 ---
 
-## 安装
+## v1 协作绳（历史层，仍可用）
 
-前置：Go 1.25+、系统 `git`。
-
-```bash
-git clone git@github.com:georgewangchn/OuSheng.git
-cd OuSheng
-go build -o board ./cmd/board      # CLI
-go build -o ousheng-mcp ./cmd/mcp   # MCP server
-./board version
-# ousheng board 0.1.0
-```
+v0.3 之前的核心：一张卡一个契约（`cards/<id>.yaml`），五态状态机（proposed→agreed→live→verified→deprecated），`board write` CAS 写入。v0.3 的 WorkItem 内嵌 Contract 为子对象，`ousheng migrate schema` 可从 cards/ 幂等迁移（原文件不动）。v1 命令参考 / Card 模型 / 协作示例见 **[docs/v1-board.md](docs/v1-board.md)**。
 
 ---
 
-## 五分钟上手
-
-```bash
-# 1. 初始化看板（创建独立 git 仓 + cards/ 目录）
-./board init .ousheng
-
-# 2. 写一张卡：提出接口契约
-cat > login.yaml <<'EOF'
-id: user-auth-api
-owner: backend
-task: 提供用户登录鉴权接口
-status: proposed
-version: 0
-contract:
-  kind: http
-  breaking: false
-  interface:
-    - method: POST
-      path: /login
-      behavior: "有效凭证返回 token；无效返回 401"
-EOF
-./board write -file login.yaml -expect 0 -dir .ousheng
-# written user-auth-api version 1
-
-# 3. 读回
-./board read -id user-auth-api -dir .ousheng
-
-# 4. 收敛判定
-./board converge -dir .ousheng
-# status: IN_PROGRESS
-```
-
-看板是一个独立 git 仓。每张卡是 `cards/<id>.yaml` 一个文件，每次 `write` 自动产生一次 git commit。多人协作通过 `git push/pull` 同步。
-
----
-
-## CLI 命令
-
-### `board version`
-
-打印版本号。
-
-### `board init [dir]`
-
-初始化看板（幂等）。默认 `dir=.`。
-
-### `board read` — 读取卡片
-
-```bash
-board read [-dir D] [-id ID] [-owner O] [-status S] [-kind K]
-```
-
-返回匹配卡片（YAML，`---` 分隔）。任一过滤器留空即不限制。
-
-### `board write` — 写入卡片（CAS）
-
-```bash
-board write -file <path.yaml> -expect <version> [-dir D]
-```
-
-- 新卡 `-expect 0`，更新传上一次 `read` 返回的 `version`
-- 版本不匹配 → `version conflict`
-- 环境变量 `OUSHENG_SIGN_COMMITS=1` → git commit 带 GPG 签名
-
-### `board converge` — 收敛判定
-
-```bash
-board converge [-dir D] [--watch] [--interval N] [--stuck-after DUR]
-```
-
-```yaml
-status: CONVERGED | IN_PROGRESS | STUCK
-blockers: []
-cycle: []
-```
-
-| status | 含义 |
-|---|---|
-| `CONVERGED` | 所有卡 `verified`，无 `proposed`，无 blocker |
-| `IN_PROGRESS` | 有卡未到 `verified`，无致命阻塞 |
-| `STUCK` | 依赖环（`cycle`）或 broken/dangling 依赖（`blockers`）|
-
-- `--watch` — 轮询模式，状态变化时打印
-- `--stuck-after 24h` — 时基 stuck 检测：卡在非 verified/deprecated 状态超过阈值 → STUCK
-- `--interval 5` — watch 轮询间隔（秒）
-
-### `board deprecate` — 废弃卡片 + 迁移清单
-
-```bash
-board deprecate -expect <version> [-dir D] <id>
-```
-
-将卡片转为 `deprecated`，输出依赖它的卡（需迁移）。
-
-```bash
-$ board deprecate -expect 3 -dir .ousheng auth-api
-deprecated auth-api version 4
-cards needing migration:
-  - frontend-app
-```
-
-### `board context` — 拉取卡片上下文（F1 按需通道）
-
-```bash
-board context [-dir D] <id>
-```
-
-返回卡片内容 + 最近 10 条 git commit 历史。原始透传——不加摘要、不合并——消费方 agent 自己读，绝不落板。
-
-### `board verify` — 签名验证（F2 信任层）
-
-```bash
-board verify [-dir D]
-```
-
-检查看板所有 commit 的 GPG 签名。全签 → `all commits signed`，有未签 → 逐条列出。
-
----
-
-## MCP Server
-
-`ousheng-mcp` 是 stdio MCP server，暴露 3 个工具给 AI agent：
-
-| 工具 | 输入 | 输出 |
-|---|---|---|
-| `read_board` | path + 可选过滤器（id/owner/status/kind）| 卡片摘要列表 |
-| `write_board` | path + card YAML + expected_version | 新版本号 + 状态 |
-| `converge` | path | 收敛状态 + blockers + cycle |
-
-opencode 注册（`opencode.json`）：
-```json
-{
-  "mcp": {
-    "ousheng": { "type": "local", "command": ["ousheng-mcp"], "enabled": true }
-  }
-}
-```
-
----
-
-## Card 模型
-
-```yaml
-id: user-auth-api              # ^[a-z0-9][a-z0-9-]*$
-owner: backend                 # 负责方
-task: 提供用户登录鉴权接口       # 一句话任务描述
-status: proposed               # proposed|agreed|live|verified|deprecated
-version: 0                     # write 时自动 +1，初始传 0
-depends_on: [user-db]          # 依赖的卡 id（可选）
-contract:
-  kind: http                   # http|cli|lib|event
-  breaking: false              # 是否破坏性变更
-  interface:                   # 自由结构，由 kind 决定语义
-    - method: POST
-      path: /login
-      behavior: "有效凭证返回 token；无效返回 401"
-evidence:                      # status=verified 时必填
-  probe: "test/auth_integration: POST /login 200 + token 可用"
-  passed_at_commit: abc123
-  by: frontend
-human_ack:                     # contract.breaking=true 时必填
-  approver: alice
-  at_version: 1
-```
-
-### 四条硬约束
-
-| 约束 | 触发条件 | 要求 |
-|---|---|---|
-| 体积门 | 所有卡 | YAML ≤ 8192 字节 |
-| 内容门 | 所有卡 | `task` 禁含代码块或 traceback |
-| C1 行为传感器 | `status=verified` | 完整 `evidence`（probe + passed_at_commit + by 非空）|
-| C2 破坏性限制器 | `breaking=true` | `human_ack.approver` 非空 |
-
----
-
-## 状态机
-
-```
-proposed ──→ agreed ──→ live ──→ verified
-   │           │          │          │
-   └───────────┴──────────┴──────────┴──→ deprecated
-```
-
-- 同状态原地踏步允许（幂等重写）
-- `verified → live` 允许（回滚）
-- 任何状态 → `deprecated` 允许
-- `verified` 是收敛终点
-
----
-
-## 采样纪律
-
-不同工具的采样硬度：
-
-| 工具 | 硬度 | 机制 |
-|---|---|---|
-| Claude Code | 硬 | SessionStart/Stop hook 自动注入 board 状态 |
-| opencode | 半硬 | plugin 事件触发 + MCP 工具 |
-| pi / codex / 人 | 软 | `docs/board-protocol.md` 作为 skill |
-
-详见 [`docs/board-protocol.md`](docs/board-protocol.md) — 跨工具可移植的采样律 + 投影律 + 冲突处理协议。
-
-适配器安装见 [`adapters/README.md`](adapters/README.md)。
-
----
-
-## 协作示例
-
-```bash
-# 后端：提出契约
-./board write -file auth.yaml -expect 0 -dir .ousheng
-git -C .ousheng push
-
-# 前端：pull 后约定（proposed → agreed）
-git -C .ousheng pull
-./board read -id user-auth-api -dir .ousheng   # version 1
-# 编辑 auth.yaml: status: agreed, version: 1
-./board write -file auth.yaml -expect 1 -dir .ousheng
-git -C .ousheng push
-
-# 后端：上线（agreed → live）
-# ... version 2 → 3 ...
-
-# 前端：集成测试通过，带 evidence 推到 verified
-cat > auth.yaml <<'EOF'
-id: user-auth-api
-owner: backend
-task: 提供用户登录鉴权接口
-status: verified
-version: 3
-evidence:
-  probe: "test/auth_integration: POST /login 200 + token 可用"
-  passed_at_commit: abc123
-  by: frontend
-contract:
-  kind: http
-  breaking: false
-  interface:
-    - method: POST
-      path: /login
-      behavior: "有效凭证返回 token；无效返回 401"
-EOF
-./board write -file auth.yaml -expect 3 -dir .ousheng
-
-# 收敛
-./board converge -dir .ousheng
-# status: CONVERGED
-```
-
-CAS 冲突：两 worker 同时基于 v1 写卡，先写者赢，后写者 `write -expect 1` 失败 → 重新 `read` 再改。
-
----
-
-## 设计文档
+## 文档
 
 | 文档 | 内容 |
 |---|---|
-| [设计基石](docs/多人AI协作机制_方案基石.md) | 五条原则、控制论映射、C1/C2/C3 边界 |
-| [完整设计方案](docs/superpowers/specs/2026-08-09-OuSheng-完整设计方案.md) | 数据模型、接口、协议、前瞻层 |
-| [阶段1实现计划](docs/superpowers/plans/2026-08-09-阶段1-core-lib-cli.md) | Go core lib + CLI，TDD 任务分解 |
-| [采样协议](docs/board-protocol.md) | 跨工具软纪律：采样律 + 投影律 + 冲突处理 |
-| [适配器指南](adapters/README.md) | opencode plugin + Claude Code hook 安装 |
-| [参考节点示例](docs/reference-node.md) | 守规矩 agent 的完整工作流（F3 残余价值）|
-
----
-
-## 工具无关性证明
-
-设计要求"≥2 工具同板协作"。OuSheng 的工具无关性由架构保证：
-
-```
-opencode agent ──MCP──┐
-                      ├──→ core lib (Go) ──→ git 仓 (.ousheng/)
-Claude Code agent ─hook─┤
-                      │
-human ──CLI────────────┘
-pi/codex ──CLI/skill──┘
-```
-
-**证明**：4 种工具（opencode MCP、Claude Code hook、CLI 脚本、人）共享同一 git 仓。所有写入经过同一 core lib 的 10 道校验门。两 agent 用不同工具同板协作 = 两进程对同一 git 仓做 CAS 写 + git push/pull。CAS 保证不覆盖，git 保证一致。
-
-**实测路径**：
-1. opencode agent 通过 MCP `write_board` 写卡 → git commit
-2. Claude Code agent 启动 → hook 自动 `board read` → 看到该卡
-3. 两 agent 通过 `git push/pull` 同步，CAS 防覆盖
-
-不需要共享 Memory、不需要中心验证、不需要 Ontology。一根绳，一块板。
+| [快速上手](docs/quick-start.md) | 5 分钟到日常循环，多人/多 AI/多仓拓扑 |
+| [工程模型](docs/engineering-model.md) | v0.3 数据模型与五场景验收 |
+| [上下文协议](docs/context-protocol.md) | 三时机查看协议 |
+| [存储约定](docs/state-store.md) | Git+YAML canonical、S1-S7 硬约束 |
+| [采样协议](docs/board-protocol.md) | v1 跨工具软纪律 |
+| [v1 board 参考](docs/v1-board.md) | v1 命令 / Card 模型 / 协作示例 |
+| [设计基石](docs/多人AI协作机制_方案基石.md) | 五原则、控制论映射、C1/C2/C3 边界 |
+| [v0.3 设计方案](docs/OuSheng_工程本体化改造方案_v0.3.md) | 完整规格（59 节） |
+| [适配器指南](adapters/README.md) | opencode plugin / Claude Code hook 安装 |
 
 ---
 
