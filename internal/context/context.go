@@ -104,11 +104,19 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 	ctx.Roles = sortedKeys(roleSet)
 	ctx.Systems = sortedKeys(scope)
 
-	// active work：assignee 视角（agent/human 执行中的工作）
-	blockerSet := map[string]bool{}
-	active, err := s.Idx.ActiveByActor(actorID)
+	// 我的队列：open（未 done/cancelled）且 assignee=我。
+	// session 启动第一时机必须能看到 backlog/ready 待办，否则"我现在该干什么"失明（§26）。
+	mine, err := s.Idx.ByAssignee(actorID)
 	if err != nil {
 		return nil, err
+	}
+	blockerSet := map[string]bool{}
+	var active []model.WorkItem
+	for _, w := range mine {
+		if !model.WorkItemOpen(w.Status) {
+			continue
+		}
+		active = append(active, w)
 	}
 	for _, w := range active {
 		brief := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System}
