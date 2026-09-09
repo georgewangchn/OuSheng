@@ -29,6 +29,7 @@ type Result struct {
 	Status   Status
 	Blockers []string // 未解除阻塞 / 违反 C1/C2 的说明
 	Cycle    []string // 依赖环（若有）
+	Warnings []string // 不一致但不阻塞收敛（如 done 项进度未满）——保留信号分辨力
 }
 
 // Check 只依赖索引：memory 与 sqlite 实现结果必须一致（S5）。
@@ -50,7 +51,7 @@ func Check(idx index.Index) (Result, error) {
 		return Result{Status: Blocked, Cycle: cyc, Blockers: []string{"dependency cycle: " + fmt.Sprint(cyc)}}, nil
 	}
 
-	var blockers []string
+	var blockers, warnings []string
 	hasOpen := false
 
 	for _, w := range all {
@@ -87,13 +88,21 @@ func Check(idx index.Index) (Result, error) {
 		if w.Contract != nil && w.Contract.Breaking && w.HumanAck == nil {
 			blockers = append(blockers, fmt.Sprintf("%s: breaking contract without human_ack", w.ID))
 		}
+
+		// 不一致警告：done 项最后上报进度 < 1.0（claimed 与 reported 矛盾，§19）。
+		// 无上报的 done 不算矛盾（progress 是可选的诚实汇报）。
+		// 只警告不阻塞：若计入 Blockers 会重蹈"waiting 算 BLOCKED"的覆辙，
+		// 让收敛信号失去分辨力。
+		if w.Status == model.StatusDone && w.Progress != nil && w.Progress.Value < 1.0 {
+			warnings = append(warnings, fmt.Sprintf("%s: done but progress reported %.0f%%", w.ID, w.Progress.Value*100))
+		}
 	}
 
 	if len(blockers) > 0 {
-		return Result{Status: Blocked, Blockers: blockers}, nil
+		return Result{Status: Blocked, Blockers: blockers, Warnings: warnings}, nil
 	}
 	if hasOpen {
-		return Result{Status: InProgress}, nil
+		return Result{Status: InProgress, Warnings: warnings}, nil
 	}
-	return Result{Status: Converged}, nil
+	return Result{Status: Converged, Warnings: warnings}, nil
 }

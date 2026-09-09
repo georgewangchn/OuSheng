@@ -156,6 +156,9 @@ func cmdConverge(args []string, stdout, stderr io.Writer) int {
 	for _, b := range res.Blockers {
 		fmt.Fprintf(stdout, "  - %s\n", b)
 	}
+	for _, w := range res.Warnings {
+		fmt.Fprintf(stdout, "  ! %s\n", w)
+	}
 	if len(res.Cycle) > 0 {
 		fmt.Fprintf(stdout, "  cycle: %v\n", res.Cycle)
 	}
