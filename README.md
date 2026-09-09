@@ -13,12 +13,26 @@
 ```bash
 go build -o ousheng ./cmd/ousheng
 
-# 1. 初始化工程工作区（.ousheng/ + git 仓）
+mkdir myproj && cd myproj
+ousheng setup                 # 交互式：项目名 / 你的名字 / 系统列表
+ousheng todo "第一个任务"       # 自动 ID + 全默认值（单系统免 --system）
+ousheng work update T-001 --status doing
+ousheng view kanban           # 看板
+ousheng converge              # 收敛检查
+```
+
+之后日常只有 3 个动作：**开工 `context me` 看队列 → 干活 `work update`/`progress report` → 收工 `converge` + 看板**。加人/加 AI 窗口/契约门详见 **[docs/quick-start.md](docs/quick-start.md)**。
+---
+
+# v0.3 完整上手（多系统/多 Actor 场景）
+
+```bash
+# 1. 立项（默认名=目录名；registry 也可用命令声明：ousheng me / ousheng system add）
 ./ousheng init . --project-id smart-lakehouse --project-name 智能湖仓
 
-# 2. 声明工程身份（人工编辑 YAML + git commit，工具不代写）
-#    .ousheng/systems.yaml / roles.yaml / assignments.yaml / actors/*.yaml
-#    完整示例见 fixtures/lakehouse/
+# 2. 声明身份与系统（或人工编辑 .ousheng/*.yaml，效果等价）
+./ousheng me zhangsan --name 张三
+./ousheng system add datax-backend --name "DataX Backend"
 
 # 3. Agent 每日启动（查看时机①）：拉取 + 刷新 + 我的上下文
 ./ousheng sync --actor backend-agent

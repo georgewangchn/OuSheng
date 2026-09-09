@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"ousheng/internal/context"
 	"ousheng/internal/converge"
@@ -24,15 +25,28 @@ func versionString() string { return "ousheng " + cliVersion }
 
 const usage = `ousheng — 轻量工程上下文运行时（Engineering Context Runtime）
 
+快速开始（单人 5 分钟）:
+  ousheng setup                                    交互式向导（立项+身份+系统，一步到位）
+  ousheng init myproj && cd myproj                 或手动立项（名字默认=目录名）
+  ousheng me george --name George                  我是谁（此后所有命令免 --actor）
+  ousheng system add datax-ui                      有哪些系统
+  ousheng todo "第一个任务"                          开始干活（单系统免 --system）
+  ousheng work update T-001 --status doing         开工
+  ousheng view kanban                              看板
+
 用法: ousheng <command> [args]
 
 workspace:
-  init [dir] --project-id ID --project-name NAME   初始化 .ousheng/ 工作区
+  setup                                            交互式向导 = init + me + system add
+  init [dir] [--project-id ID --project-name NAME] 初始化 .ousheng/ 工作区（默认=目录名）
+  me [<id>] [--name N]                             查看/设置默认身份（.ousheng/me）
+  system add <id> [--name N --parent P]            声明系统
+  todo <title> [--system S --version V]            建任务（自动 T-xxx ID + 全默认值）
   sync [--actor ID]                                git pull + 索引刷新 + 看板/我的上下文
   converge                                         收敛检查（CONVERGED/IN_PROGRESS/BLOCKED）
 
 context (查看时机: 每日启动 / 遇到问题 / 任务结束):
-  context me --actor ID [--json]                   我的工程上下文（第一层）
+  context me [--actor ID] [--json]                 我的工程上下文（第一层）
   context actor <id> [--json]                      Actor 视图
   context system <id> [--json]                     System 视图
 
@@ -78,8 +92,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version":
 		fmt.Fprintln(stdout, versionString())
 		return 0
+	case "setup":
+		return cmdSetup(args[1:], stdout, stderr)
 	case "init":
 		return cmdInit(args[1:], stdout, stderr)
+	case "me":
+		return cmdMe(args[1:], stdout, stderr)
+	case "todo":
+		return cmdTodo(args[1:], stdout, stderr)
 	case "sync":
 		return cmdSync(args[1:], stdout, stderr)
 	case "converge":
@@ -132,10 +152,6 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 			dirFlagSet = true
 		}
 	})
-	if *projectID == "" {
-		fmt.Fprintln(stderr, "--project-id required")
-		return 2
-	}
 	dir := fs.Dir()
 	if fs.NArg() > 1 {
 		fmt.Fprintf(stderr, "init: unexpected argument %q\n", fs.Arg(1))
@@ -147,6 +163,17 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		dir = fs.Arg(0)
+	}
+	if *projectID == "" {
+		// 默认：目录名 slug（init myproj → project-id myproj）
+		*projectID = slugify(filepath.Base(absDir(dir)))
+		if *projectID == "" {
+			fmt.Fprintln(stderr, "--project-id required")
+			return 2
+		}
+	}
+	if *projectName == "" {
+		*projectName = *projectID
 	}
 	repo := gityaml.Open(dir)
 	if err := repo.InitWorkspace(projectModel(*projectID, *projectName)); err != nil {
