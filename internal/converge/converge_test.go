@@ -40,6 +40,58 @@ func wi(id string, status model.WorkStatus) model.WorkItem {
 	return model.WorkItem{SchemaVersion: 2, ID: id, Type: model.TypeTask, Title: id, Status: status, Revision: 1}
 }
 
+// done 项最后上报进度 < 1.0：警告但不阻塞（信号分辨力）。
+func TestDoneWithPartialProgressWarns(t *testing.T) {
+	w := wi("W-1", model.StatusDone)
+	w.Progress = &model.ProgressReport{Value: 0.5, Actor: "a", ReportedAt: "2026-09-09T10:00:00+08:00", Basis: model.BasisManual}
+	r, err := Check(idxFrom(t, []model.WorkItem{w}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Converged {
+		t.Fatalf("partial-progress done must not block, got %s", r.Status)
+	}
+	if len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], "W-1") || !strings.Contains(r.Warnings[0], "50%") {
+		t.Fatalf("want 1 warning for W-1 50%%, got %v", r.Warnings)
+	}
+}
+
+func TestDoneWithFullProgressNoWarning(t *testing.T) {
+	w := wi("W-1", model.StatusDone)
+	w.Progress = &model.ProgressReport{Value: 1.0, Actor: "a", ReportedAt: "2026-09-09T10:00:00+08:00", Basis: model.BasisManual}
+	r, err := Check(idxFrom(t, []model.WorkItem{w}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Warnings) != 0 {
+		t.Fatalf("full-progress done must not warn, got %v", r.Warnings)
+	}
+}
+
+// 无上报的 done 不算矛盾：progress 是可选的诚实汇报，不强制。
+func TestDoneWithoutProgressNoWarning(t *testing.T) {
+	r, err := Check(idxFrom(t, []model.WorkItem{wi("W-1", model.StatusDone)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Warnings) != 0 {
+		t.Fatalf("done without progress report must not warn, got %v", r.Warnings)
+	}
+}
+
+// doing 项部分进度是常态，不警告。
+func TestDoingPartialProgressNoWarning(t *testing.T) {
+	w := wi("W-1", model.StatusDoing)
+	w.Progress = &model.ProgressReport{Value: 0.5, Actor: "a", ReportedAt: "2026-09-09T10:00:00+08:00", Basis: model.BasisManual}
+	r, err := Check(idxFrom(t, []model.WorkItem{w}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Warnings) != 0 {
+		t.Fatalf("doing at 50%% must not warn, got %v", r.Warnings)
+	}
+}
+
 func TestFixturesInProgress(t *testing.T) {
 	r, err := Check(idxFromFixtures(t))
 	if err != nil {
