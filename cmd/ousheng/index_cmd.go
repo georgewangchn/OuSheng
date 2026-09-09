@@ -70,6 +70,9 @@ func cmdIndex(args []string, stdout, stderr io.Writer) int {
 	if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 		return usageErr(stderr, err)
 	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
+	}
 	dir := fs.Dir()
 	switch args[0] {
 	case "rebuild":
@@ -153,7 +156,7 @@ func cmdMigrate(args []string, stdout, stderr io.Writer) int {
 		if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 			return usageErr(stderr, err)
 		}
-		if fs.NArg() < 1 {
+		if fs.NArg() != 1 {
 			fmt.Fprintln(stderr, "usage: ousheng migrate resolve-owner <id> --assignee A [--role R --accountable H]")
 			return 2
 		}

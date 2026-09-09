@@ -50,6 +50,9 @@ func workList(args []string, stdout, stderr io.Writer) int {
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
+	}
 	c, err := ctxService(fs.Dir())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -92,7 +95,7 @@ func workShow(args []string, stdout, stderr io.Writer) int {
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
-	if fs.NArg() < 1 {
+	if fs.NArg() != 1 {
 		fmt.Fprintln(stderr, "usage: ousheng work show <id>")
 		return 2
 	}
@@ -141,6 +144,9 @@ func workCreate(args []string, stdout, stderr io.Writer) int {
 	actor := fs.String("actor", "", "acting actor (activity attribution)")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
+	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
 	}
 
 	var w model.WorkItem
@@ -199,7 +205,7 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
-	if fs.NArg() < 1 {
+	if fs.NArg() != 1 {
 		fmt.Fprintln(stderr, "usage: ousheng work update <id> (--file F --expect N | --status S)")
 		return 2
 	}
@@ -259,7 +265,7 @@ func workAssign(args []string, stdout, stderr io.Writer) int {
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
-	if fs.NArg() < 1 || *assignee == "" {
+	if fs.NArg() != 1 || *assignee == "" {
 		fmt.Fprintln(stderr, "usage: ousheng work assign <id> --assignee A [--role R]")
 		return 2
 	}
@@ -297,6 +303,9 @@ func cmdBug(args []string, stdout, stderr io.Writer) int {
 	actor := fs.String("actor", "", "acting actor")
 	if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 		return usageErr(stderr, err)
+	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
 	}
 
 	var w model.WorkItem
@@ -348,7 +357,7 @@ func cmdProgress(args []string, stdout, stderr io.Writer) int {
 	if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 		return usageErr(stderr, err)
 	}
-	if fs.NArg() < 1 || *value == "" || *actor == "" {
+	if fs.NArg() != 1 || *value == "" || *actor == "" {
 		fmt.Fprintln(stderr, "usage: ousheng progress report <id> --value 0.7 --actor A [--basis B]")
 		return 2
 	}
