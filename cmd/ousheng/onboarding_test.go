@@ -141,6 +141,42 @@ func TestOnboardingTodoFullDefaults(t *testing.T) {
 	}
 }
 
+func TestOnboardingTeamAdd(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "george", "--name", "George")
+	mustRun(t, dir, "system", "add", "datax-ui")
+
+	// 第二个人：human + assignment
+	out := mustRun(t, dir, "team", "add", "lisi", "--name", "李四", "--role", "ui", "--system", "datax-ui")
+	if !strings.Contains(out, "lisi added") || !strings.Contains(out, "assignment lisi×datax-ui") {
+		t.Fatalf("team add: %s", out)
+	}
+	// AI 窗口：agent，responsible-human 默认 me
+	out = mustRun(t, dir, "team", "add", "ui-dev", "--type", "agent", "--role", "ui", "--system", "datax-ui")
+	if !strings.Contains(out, "agent") {
+		t.Fatalf("team add agent: %s", out)
+	}
+	// 默认身份未被 team add 改动
+	out = mustRun(t, dir, "me")
+	if !strings.Contains(out, "george") {
+		t.Fatalf("default identity must stay george: %s", out)
+	}
+	// registry 校验：agent 的 responsible_human = george
+	b, err := os.ReadFile(filepath.Join(dir, ".ousheng", "actors", "ui-dev.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "responsible_human: george") {
+		t.Fatalf("agent must default responsible_human to me:\n%s", b)
+	}
+	// 幂等
+	out = mustRun(t, dir, "team", "add", "lisi")
+	if !strings.Contains(out, "exists") {
+		t.Fatalf("dup team add: %s", out)
+	}
+}
+
 func TestOnboardingTodoMultiSystemRequiresFlag(t *testing.T) {
 	dir := t.TempDir()
 	mustRun(t, dir, "init")

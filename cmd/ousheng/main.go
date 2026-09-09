@@ -40,6 +40,8 @@ workspace:
   setup                                            交互式向导 = init + me + system add
   init [dir] [--project-id ID --project-name NAME] 初始化 .ousheng/ 工作区（默认=目录名）
   me [<id>] [--name N]                             查看/设置默认身份（.ousheng/me）
+  team add <id> [--name N --type human|agent       加协作者/AI 窗口（不动默认身份）
+        --responsible-human H --role R --system S]
   system add <id> [--name N --parent P]            声明系统
   todo <title> [--system S --version V]            建任务（自动 T-xxx ID + 全默认值）
   sync [--actor ID]                                git pull + 索引刷新 + 看板/我的上下文
@@ -98,6 +100,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdInit(args[1:], stdout, stderr)
 	case "me":
 		return cmdMe(args[1:], stdout, stderr)
+	case "team":
+		if len(args) < 2 || args[1] != "add" {
+			fmt.Fprintln(stderr, "usage: ousheng team add <id> [...]")
+			return 2
+		}
+		return cmdTeamAdd(args[2:], stdout, stderr)
 	case "todo":
 		return cmdTodo(args[1:], stdout, stderr)
 	case "sync":

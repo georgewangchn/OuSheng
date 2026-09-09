@@ -166,6 +166,71 @@ func cmdSystemAdd(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// --- ousheng team add ---
+
+// cmdTeamAdd：`ousheng team add <id> [--name N] [--type human|agent] [--responsible-human H]
+// [--role R --system S]`。加协作者（第二个人或 AI 窗口 agent），不动本机默认身份。
+func cmdTeamAdd(args []string, stdout, stderr io.Writer) int {
+	fs := newFS("team add")
+	name := fs.String("name", "", "display name (default: id)")
+	typ := fs.String("type", "human", "human|agent")
+	respHuman := fs.String("responsible-human", "", "agent 的负责 human（默认 me）")
+	role := fs.String("role", "", "role id（与 --system 连用，建 executor assignment）")
+	system := fs.String("system", "", "system id（与 --role 连用）")
+	if err := parseLoose(fs.FlagSet, args); err != nil {
+		return usageErr(stderr, err)
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "usage: ousheng team add <id> [--name N] [--type human|agent] [--role R --system S]")
+		return 2
+	}
+	id := fs.Arg(0)
+	if !cliActorIDRe.MatchString(id) {
+		fmt.Fprintf(stderr, "invalid actor id %q (lowercase-hyphen)\n", id)
+		return 2
+	}
+	if *typ != "human" && *typ != "agent" {
+		fmt.Fprintf(stderr, "--type must be human or agent, got %q\n", *typ)
+		return 2
+	}
+	dir := fs.Dir()
+	repo := gityaml.Open(dir)
+	if _, err := repo.GetActor(id); err == nil {
+		fmt.Fprintf(stdout, "actor %s exists\n", id)
+		return 0
+	}
+	display := *name
+	if display == "" {
+		display = id
+	}
+	a := model.Actor{ID: id, Type: model.ActorType(*typ), DisplayName: display}
+	if *typ == "agent" {
+		rh := *respHuman
+		if rh == "" {
+			rh = defaultActor(dir)
+		}
+		if rh == "" {
+			fmt.Fprintln(stderr, "agent requires --responsible-human (or run ousheng me first)")
+			return 2
+		}
+		a.ResponsibleHuman = rh
+	}
+	if err := repo.SaveActor(model.ActorFile{SchemaVersion: 1, Actor: a},
+		fmt.Sprintf("registry: team add %s (%s)", id, display)); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "actor %s added (%s, %s)\n", id, display, *typ)
+	if *role != "" && *system != "" {
+		if err := ensureAssignment(repo, id, *role, *system); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "assignment %s×%s (%s) ensured\n", id, *system, *role)
+	}
+	return 0
+}
+
 // --- ousheng todo ---
 
 var todoIDRe = regexp.MustCompile(`^T-(\d+)$`)
