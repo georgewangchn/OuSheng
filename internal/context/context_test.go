@@ -4,9 +4,20 @@ import (
 	"encoding/json"
 	"testing"
 
+	"ousheng/internal/model"
 	"ousheng/internal/state/gityaml"
 	"ousheng/internal/testfix"
 )
+
+// reloadRebuilt 重建 Service 索引（New 只在构造时装载一次快照）。
+func reloadRebuilt(t *testing.T, repo *gityaml.Repo) *Service {
+	t.Helper()
+	s, err := New(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
 
 func svc(t *testing.T) *Service {
 	t.Helper()
@@ -82,6 +93,36 @@ func TestGetMyContext_UnknownActor(t *testing.T) {
 	s := svc(t)
 	if _, err := s.GetMyContext("nobody"); err == nil {
 		t.Fatal("unknown actor must error")
+	}
+}
+
+// 场景测试发现：backlog/ready 任务必须出现在我的队列（session 启动第一时机），
+// 否则执行者对未开始的工作失明（§26）。
+func TestGetMyContext_BacklogInQueue(t *testing.T) {
+	dir := testfix.Setup(t)
+	repo := gityaml.Open(dir)
+	s, err := New(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// fixtures 中 wangwu 名下无任务；建一个 backlog 项验证入队
+	w := model.WorkItem{SchemaVersion: 2, ID: "X-1", Type: model.TypeTask, Title: "排队中", Status: model.StatusBacklog, Assignee: "wangwu", Revision: 1}
+	if _, err := repo.CreateWorkItem(w, nil, "test: create X-1"); err != nil {
+		t.Fatal(err)
+	}
+	s = reloadRebuilt(t, repo)
+	c, err := s.GetMyContext("wangwu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, w := range c.ActiveWork {
+		if w.ID == "X-1" && w.Status == string(model.StatusBacklog) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("backlog item assigned to actor must appear in queue: %+v", c.ActiveWork)
 	}
 }
 
