@@ -6,7 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	gitadapter "ousheng/adapters/git"
@@ -103,6 +106,50 @@ func printJSON(w io.Writer, v any) {
 // printYAMLish 输出人类可读 key: value 行（--file 输入原样回显的场景由调用方处理）。
 func printKV(w io.Writer, k, v string) {
 	fmt.Fprintf(w, "  %-18s %s\n", k, v)
+}
+
+// reposPath 是本机 system→代码仓路径映射（.ousheng/repos.yaml，gitignored——
+// 每台机器 clone 位置不同，类 .ousheng/me 的本机个人配置）。
+func reposPath(dir string) string { return filepath.Join(dir, ".ousheng", "repos.yaml") }
+
+func loadRepoMap(dir string) map[string]string {
+	out := map[string]string{}
+	b, err := os.ReadFile(reposPath(dir))
+	if err != nil {
+		return out
+	}
+	// 极简行格式："<system-id>: <path>"
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if i := strings.Index(line, ":"); i > 0 {
+			out[strings.TrimSpace(line[:i])] = strings.TrimSpace(line[i+1:])
+		}
+	}
+	return out
+}
+
+func saveRepoMap(dir string, m map[string]string) error {
+	if err := os.MkdirAll(filepath.Dir(reposPath(dir)), 0o755); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		fmt.Fprintf(&b, "%s: %s\n", k, m[k])
+	}
+	return os.WriteFile(reposPath(dir), []byte(b.String()), 0o644)
+}
+
+// repoDirForSystem 解析 system 的本机代码仓路径：repos.yaml 映射 > 工作区自身（monorepo）。
+func repoDirForSystem(workspaceDir, system string) string {
+	if p, ok := loadRepoMap(workspaceDir)[system]; ok && p != "" {
+		return p
+	}
+	return workspaceDir
 }
 
 // gitAdapterEvidence 经 git evidence adapter 验证 commit 并生成规范 evidence。

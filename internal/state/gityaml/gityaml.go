@@ -107,9 +107,9 @@ func (r *Repo) InitWorkspace(project model.Project) error {
 	if err := os.WriteFile(gi, []byte("*\n!.gitignore\n"), 0o644); err != nil {
 		return err
 	}
-	// me 身份文件是本机个人配置（类 git config user.name），不入 git
+	// me / repos.yaml 是本机个人配置（类 git config user.name），不入 git
 	mgi := filepath.Join(r.root(), ".gitignore")
-	if err := os.WriteFile(mgi, []byte("me\n"), 0o644); err != nil {
+	if err := os.WriteFile(mgi, []byte("me\nrepos.yaml\n"), 0o644); err != nil {
 		return err
 	}
 	if err := r.gitInit(); err != nil {

@@ -8,6 +8,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -174,6 +175,67 @@ func TestOnboardingTeamAdd(t *testing.T) {
 	out = mustRun(t, dir, "team", "add", "lisi")
 	if !strings.Contains(out, "exists") {
 		t.Fatalf("dup team add: %s", out)
+	}
+}
+
+func TestOnboardingMultiRepoEvidence(t *testing.T) {
+	// 多仓拓扑：上下文仓 A + 独立代码仓 B；git_commit 证据必须验证 B 里的 commit
+	ws := t.TempDir()
+	mustRun(t, ws, "init")
+	mustRun(t, ws, "me", "george")
+	mustRun(t, ws, "system", "add", "datax-ui")
+	mustRun(t, ws, "todo", "前端任务")
+	mustRun(t, ws, "work", "update", "T-001", "--status", "ready")
+	mustRun(t, ws, "work", "update", "T-001", "--status", "doing")
+
+	// 代码仓 B：独立 git 仓 + 一个真实 commit
+	code := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = code
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	runGit("init", "-q")
+	runGit("config", "user.email", "t@t")
+	runGit("config", "user.name", "t")
+	os.WriteFile(filepath.Join(code, "a.txt"), []byte("v1"), 0o644)
+	runGit("add", "a.txt")
+	runGit("commit", "-qm", "feat: 首页改版")
+	hashOut, err := exec.Command("git", "-C", code, "rev-parse", "--short", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := strings.TrimSpace(string(hashOut))
+
+	// 未映射：commit 不在上下文仓 → 验证失败
+	_, se, code2 := runIn(t, ws, "evidence", "add", "T-001", "--type", "git_commit", "--locator", hash)
+	if code2 == 0 || !strings.Contains(se, "") {
+		t.Fatalf("unmapped git_commit should fail in workspace repo: code=%d stderr=%s", code2, se)
+	}
+
+	// 映射后：在代码仓 B 验证成功
+	mustRun(t, ws, "repo", "set", "datax-ui", code)
+	out := mustRun(t, ws, "evidence", "add", "T-001", "--type", "git_commit", "--locator", hash)
+	if !strings.Contains(out, "evidence added") {
+		t.Fatalf("mapped git_commit must verify in code repo: %s", out)
+	}
+	// evidence 的 note 回填了 commit subject
+	show := mustRun(t, ws, "work", "show", "T-001")
+	if !strings.Contains(show, "feat: 首页改版") {
+		t.Fatalf("evidence must carry commit subject:\n%s", show)
+	}
+	// repos.yaml 已被 gitignore
+	gi, err := os.ReadFile(filepath.Join(ws, ".ousheng", ".gitignore"))
+	if err != nil || !strings.Contains(string(gi), "repos.yaml") {
+		t.Fatalf("repos.yaml must be gitignored: %v", err)
+	}
+	// repo 查看映射
+	list := mustRun(t, ws, "repo")
+	if !strings.Contains(list, "datax-ui") {
+		t.Fatalf("repo list: %s", list)
 	}
 }
 

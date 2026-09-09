@@ -231,6 +231,58 @@ func cmdTeamAdd(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// --- ousheng repo set ---
+
+// cmdRepoSet：`ousheng repo set <system-id> <本地代码仓路径>`。
+// 本机 system→代码仓映射（.ousheng/repos.yaml，gitignored）——多仓拓扑下
+// git_commit 证据在正确的代码仓里验证。`ousheng repo` 查看当前映射。
+func cmdRepo(args []string, stdout, stderr io.Writer) int {
+	fs := newFS("repo")
+	if err := parseLoose(fs.FlagSet, args); err != nil {
+		return usageErr(stderr, err)
+	}
+	dir := fs.Dir()
+	m := loadRepoMap(dir)
+	if fs.NArg() == 0 {
+		if len(m) == 0 {
+			fmt.Fprintln(stdout, "(no repo mappings — ousheng repo set <system-id> <path>)")
+			return 0
+		}
+		for k, v := range m {
+			fmt.Fprintf(stdout, "%-20s %s\n", k, v)
+		}
+		return 0
+	}
+	if fs.NArg() == 1 && (fs.Arg(0) == "set" || fs.Arg(0) == "add") {
+		fmt.Fprintln(stderr, "usage: ousheng repo set <system-id> <local-repo-path>")
+		return 2
+	}
+	if fs.NArg() != 3 || (fs.Arg(0) != "set" && fs.Arg(0) != "add") {
+		fmt.Fprintln(stderr, "usage: ousheng repo set <system-id> <local-repo-path>")
+		return 2
+	}
+	sysID, path := fs.Arg(1), fs.Arg(2)
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if _, err := os.Stat(filepath.Join(abs, ".git")); err != nil {
+		fmt.Fprintf(stderr, "warning: %s 不含 .git（仍会保存映射）\n", abs)
+	}
+	m[sysID] = abs
+	if err := saveRepoMap(dir, m); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	// 旧工作区可能没有 .ousheng/.gitignore —— 补上本机配置忽略
+	if gi, err := os.ReadFile(filepath.Join(dir, ".ousheng", ".gitignore")); err != nil || !strings.Contains(string(gi), "repos.yaml") {
+		_ = os.WriteFile(filepath.Join(dir, ".ousheng", ".gitignore"), []byte("me\nrepos.yaml\n"), 0o644)
+	}
+	fmt.Fprintf(stdout, "repo mapping: %s → %s\n", sysID, abs)
+	return 0
+}
+
 // --- ousheng todo ---
 
 var todoIDRe = regexp.MustCompile(`^T-(\d+)$`)

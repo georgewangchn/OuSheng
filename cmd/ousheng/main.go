@@ -42,6 +42,7 @@ workspace:
   me [<id>] [--name N]                             查看/设置默认身份（.ousheng/me）
   team add <id> [--name N --type human|agent       加协作者/AI 窗口（不动默认身份）
         --responsible-human H --role R --system S]
+  repo [set <system-id> <本地代码仓路径>]           多仓拓扑：system→代码仓本机映射
   system add <id> [--name N --parent P]            声明系统
   todo <title> [--system S --version V]            建任务（自动 T-xxx ID + 全默认值）
   sync [--actor ID]                                git pull + 索引刷新 + 看板/我的上下文
@@ -106,6 +107,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		return cmdTeamAdd(args[2:], stdout, stderr)
+	case "repo":
+		return cmdRepo(args[1:], stdout, stderr)
 	case "todo":
 		return cmdTodo(args[1:], stdout, stderr)
 	case "sync":

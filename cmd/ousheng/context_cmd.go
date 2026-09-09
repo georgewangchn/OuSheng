@@ -507,9 +507,16 @@ func cmdEvidence(args []string, stdout, stderr io.Writer) int {
 			Locator: *locator, Result: *result, Note: *note,
 			ObservedAt: model.Now(),
 		}
-		// git_commit：经 adapter 验证存在性并回填 subject
+		// git_commit：在正确的代码仓里验证（多仓拓扑：work item 的 system →
+		// repos.yaml 本机映射；monorepo/未映射：回退工作区自身）
 		if ev.Type == model.EvidenceGitCommit {
-			verified, err := gitAdapterEvidence(fs.Dir(), *locator)
+			var repoDir string
+			if cur, err := svc.Repo.GetWorkItem(fs.Arg(0)); err == nil {
+				repoDir = repoDirForSystem(fs.Dir(), cur.System)
+			} else {
+				repoDir = fs.Dir()
+			}
+			verified, err := gitAdapterEvidence(repoDir, *locator)
 			if err != nil {
 				fmt.Fprintln(stderr, err)
 				return 1
