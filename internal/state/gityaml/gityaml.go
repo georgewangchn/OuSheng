@@ -107,6 +107,11 @@ func (r *Repo) InitWorkspace(project model.Project) error {
 	if err := os.WriteFile(gi, []byte("*\n!.gitignore\n"), 0o644); err != nil {
 		return err
 	}
+	// me 身份文件是本机个人配置（类 git config user.name），不入 git
+	mgi := filepath.Join(r.root(), ".gitignore")
+	if err := os.WriteFile(mgi, []byte("me\n"), 0o644); err != nil {
+		return err
+	}
 	if err := r.gitInit(); err != nil {
 		return err
 	}
@@ -425,6 +430,86 @@ func (r *Repo) commitWork(w model.WorkItem, acts []model.Activity, raw []byte, m
 }
 
 // --- Activity ---
+
+// commitFile 在锁内写单个 registry 文件并提交（onboarding 写命令复用）。
+func (r *Repo) commitFile(path string, raw []byte, msg string) error {
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		return err
+	}
+	if _, err := gitRun(r.Dir, "add", ".ousheng"); err != nil {
+		return err
+	}
+	args := []string{"commit", "-m", msg}
+	if r.SignCommits {
+		args = append(args, "-S")
+	}
+	if _, err := gitRun(r.Dir, args...); err != nil {
+		return err
+	}
+	return nil
+}
+
+// SaveActor 写入/覆盖单个 actor 文件（onboarding：ousheng me）。
+func (r *Repo) SaveActor(f model.ActorFile, msg string) error {
+	if err := model.ValidateActor(f.Actor); err != nil {
+		return err
+	}
+	raw, err := model.EncodeActorFile(f)
+	if err != nil {
+		return err
+	}
+	unlock, err := r.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return r.commitFile(r.actorPath(f.Actor.ID), raw, msg)
+}
+
+// SaveSystems 全量覆写 systems.yaml（onboarding：ousheng system add）。
+func (r *Repo) SaveSystems(list []model.System, msg string) error {
+	raw, err := model.EncodeSystemsFile(model.SystemsFile{Systems: list})
+	if err != nil {
+		return err
+	}
+	if _, err := model.DecodeSystemsFile(raw); err != nil {
+		return err // 回读校验：写出的文件必须能被 canonical 严格解码接受
+	}
+	unlock, err := r.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return r.commitFile(r.systemsPath(), raw, msg)
+}
+
+// SaveRoles 全量覆写 roles.yaml（onboarding：默认角色自动建立）。
+func (r *Repo) SaveRoles(list []model.Role, msg string) error {
+	raw, err := model.EncodeRolesFile(model.RolesFile{Roles: list})
+	if err != nil {
+		return err
+	}
+	unlock, err := r.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return r.commitFile(r.rolesPath(), raw, msg)
+}
+
+// SaveAssignments 全量覆写 assignments.yaml（onboarding：指派时隐式建立 assignment）。
+func (r *Repo) SaveAssignments(list []model.Assignment, msg string) error {
+	raw, err := model.EncodeAssignmentsFile(model.AssignmentsFile{Assignments: list})
+	if err != nil {
+		return err
+	}
+	unlock, err := r.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return r.commitFile(r.assignmentsPath(), raw, msg)
+}
 
 // activityPath 按 TS 所在月份分桶。
 func activityPath(dir string, ts string) string {

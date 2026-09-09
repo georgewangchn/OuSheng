@@ -50,6 +50,21 @@ func EncodeActorFile(f ActorFile) ([]byte, error) {
 	return yaml.Marshal(f)
 }
 
+func EncodeSystemsFile(f SystemsFile) ([]byte, error) {
+	f.SchemaVersion = 1
+	return yaml.Marshal(f)
+}
+
+func EncodeRolesFile(f RolesFile) ([]byte, error) {
+	f.SchemaVersion = 1
+	return yaml.Marshal(f)
+}
+
+func EncodeAssignmentsFile(f AssignmentsFile) ([]byte, error) {
+	f.SchemaVersion = 1
+	return yaml.Marshal(f)
+}
+
 func DecodeSystemsFile(b []byte) (SystemsFile, error) {
 	var f SystemsFile
 	if err := decodeStrict(b, &f); err != nil {

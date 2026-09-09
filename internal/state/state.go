@@ -37,13 +37,19 @@ type Repository interface {
 	// ImportWorkItem 迁移路径：以给定 revision 原样导入（仅限不存在的 id）。
 	ImportWorkItem(w model.WorkItem, acts []model.Activity, msg string) (model.WorkItem, error)
 
-	// Registries（读为主；人工编辑 + git 提交，工具不代写）。
+	// Registries（读为主；onboarding 写命令经 Save* 落同一 YAML + git 提交）。
 	ListActors() ([]model.ActorFile, error)
 	GetActor(id string) (model.ActorFile, error)
 	ListSystems() ([]model.System, error)
 	GetSystem(id string) (model.System, error)
 	ListAssignments() ([]model.Assignment, error)
 	ListRoles() ([]model.Role, error)
+	// Save* 仅用于 onboarding 命令（me/system add/todo 隐式 assignment），
+	// 落盘仍是 canonical YAML + git commit，不引入旁路状态。
+	SaveActor(f model.ActorFile, msg string) error
+	SaveSystems(list []model.System, msg string) error
+	SaveRoles(list []model.Role, msg string) error
+	SaveAssignments(list []model.Assignment, msg string) error
 
 	// Activity（append-only audit；按时间文件分桶 YYYY-MM.jsonl）。
 	AppendActivity(acts []model.Activity, msg string) error

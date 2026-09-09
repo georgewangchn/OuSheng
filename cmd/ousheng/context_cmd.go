@@ -33,7 +33,10 @@ func cmdContext(args []string, stdout, stderr io.Writer) int {
 			return code
 		}
 		if *actor == "" {
-			fmt.Fprintln(stderr, "--actor required (or set OUSHENG_ACTOR)")
+			*actor = defaultActor(fs.Dir())
+		}
+		if *actor == "" {
+			fmt.Fprintln(stderr, "--actor required (or run `ousheng me <id>` once)")
 			return 2
 		}
 		c, err := ctxService(fs.Dir())
@@ -248,8 +251,11 @@ func cmdActor(args []string, stdout, stderr io.Writer) int {
 
 func cmdSystem(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "usage: ousheng system <list|show>")
+		fmt.Fprintln(stderr, "usage: ousheng system <list|show|add>")
 		return 2
+	}
+	if args[0] == "add" {
+		return cmdSystemAdd(args[1:], stdout, stderr)
 	}
 	fs := newFS("system " + args[0])
 	if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
@@ -486,6 +492,13 @@ func cmdEvidence(args []string, stdout, stderr io.Writer) int {
 		}
 		if fs.NArg() != 1 || *evType == "" || *locator == "" {
 			fmt.Fprintln(stderr, "usage: ousheng evidence add <work-id> --type T --locator L [...]")
+			return 2
+		}
+		if *actor == "" {
+			*actor = defaultActor(fs.Dir())
+		}
+		if *actor == "" {
+			fmt.Fprintln(stderr, "--actor required (or run `ousheng me <id>` once)")
 			return 2
 		}
 		svc := workspace.New(gityaml.Open(fs.Dir()))

@@ -148,6 +148,9 @@ func workCreate(args []string, stdout, stderr io.Writer) int {
 	if code := rejectExtra(fs, stderr); code != 0 {
 		return code
 	}
+	if *actor == "" {
+		*actor = defaultActor(fs.Dir())
+	}
 
 	var w model.WorkItem
 	if *file != "" {
@@ -204,6 +207,9 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 	actor := fs.String("actor", "", "acting actor")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
+	}
+	if *actor == "" {
+		*actor = defaultActor(fs.Dir())
 	}
 	if fs.NArg() != 1 {
 		fmt.Fprintln(stderr, "usage: ousheng work update <id> (--file F --expect N | --status S)")
@@ -265,6 +271,9 @@ func workAssign(args []string, stdout, stderr io.Writer) int {
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
+	if *actor == "" {
+		*actor = defaultActor(fs.Dir())
+	}
 	if fs.NArg() != 1 || *assignee == "" {
 		fmt.Fprintln(stderr, "usage: ousheng work assign <id> --assignee A [--role R]")
 		return 2
@@ -306,6 +315,9 @@ func cmdBug(args []string, stdout, stderr io.Writer) int {
 	}
 	if code := rejectExtra(fs, stderr); code != 0 {
 		return code
+	}
+	if *actor == "" {
+		*actor = defaultActor(fs.Dir())
 	}
 
 	var w model.WorkItem
@@ -357,8 +369,11 @@ func cmdProgress(args []string, stdout, stderr io.Writer) int {
 	if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 		return usageErr(stderr, err)
 	}
+	if *actor == "" {
+		*actor = defaultActor(fs.Dir())
+	}
 	if fs.NArg() != 1 || *value == "" || *actor == "" {
-		fmt.Fprintln(stderr, "usage: ousheng progress report <id> --value 0.7 --actor A [--basis B]")
+		fmt.Fprintln(stderr, "usage: ousheng progress report <id> --value 0.7 [--actor A] [--basis B]")
 		return 2
 	}
 	v, err := strconv.ParseFloat(*value, 64)
