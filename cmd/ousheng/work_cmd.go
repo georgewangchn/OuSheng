@@ -205,6 +205,7 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 	status := fs.String("status", "", "new status")
 	expect := fs.Int("expect", -1, "expected revision (required with --file)")
 	actor := fs.String("actor", "", "acting actor")
+	ack := fs.Bool("ack", false, "human 拍板：本条提交即 human_ack（approver=acting actor，C2）")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
@@ -212,7 +213,7 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 		*actor = defaultActor(fs.Dir())
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: ousheng work update <id> (--file F --expect N | --status S)")
+		fmt.Fprintln(stderr, "usage: ousheng work update <id> (--file F --expect N [--ack] | --status S)")
 		return 2
 	}
 	id := fs.Arg(0)
@@ -221,6 +222,10 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 	if *file != "" {
 		if *expect < 0 {
 			fmt.Fprintln(stderr, "--file update requires explicit --expect (CAS)")
+			return 2
+		}
+		if *ack && *actor == "" {
+			fmt.Fprintln(stderr, "--ack requires --actor or ousheng me (ack 必须落到 human 身上)")
 			return 2
 		}
 		raw, err := os.ReadFile(*file)
@@ -236,6 +241,9 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 		if w.ID != id {
 			fmt.Fprintf(stderr, "file id %q != argument id %q\n", w.ID, id)
 			return 2
+		}
+		if *ack {
+			w.HumanAck = &model.HumanAck{Approver: *actor, At: model.Now()}
 		}
 		updated, err := svc.Update(w, *expect, *actor)
 		if err != nil {

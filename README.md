@@ -27,32 +27,46 @@
 
 接口文档这种"人工维护的快照"，天生追不上 AI 的日更频率。**OuSheng 不做更快的文档，它把接口约定变成一个 git 仓**：双方 AI 每次开工前必读，每次破坏性修改必须经人确认。
 
-**举个例子：** 需求是「agent 编程用 pi-agent-core 作为运行引擎，替换现在的 deepagents」—— 后端 AI 窗口（datax-server）的活，但编排接口一变，前端 AI 窗口（datax-ui，对话编排页）全受影响：
+**举个例子。** Tide 项目两个系统：`datax-server`（后端，同事的 AI 窗口在写）、`datax-ui`（前端，你的 AI 窗口在写）。今天的需求：**把 agent 运行引擎从 deepagents 换成 pi-agent-core** —— 编排接口要大改，前端全受影响。
+
+**① 后端 AI 接需求、开工**
 
 ```console
-# 后端 AI 窗口接需求
 $ ousheng todo "运行引擎切换：pi-agent-core 替换 deepagents" --system datax-server
 created T-042 (revision 1)
+```
 
-# 它要改编排接口 —— 破坏性变更，挂契约提交
+**② 它把新接口写成契约提交 —— 被拦下**
+
+接口是破坏性变更（breaking），没有人工确认，看板**拒绝写入**：
+
+```console
 $ ousheng work update T-042 --file swap.yaml --expect 1
 contract.breaking=true requires human_ack with non-empty approver
-                              ↑ 没你点头，AI 自己改接口？写不进去
+```
 
-# 你拍板（谁、何时、同意的什么，永久留痕），落盘开工
-$ ousheng work update T-042 --file swap-acked.yaml --expect 1
-updated T-042 (revision 2, status doing)
+**③ 你看一眼变更，拍板放行**
 
-# 前端 AI 窗口新 session 启动，sync 自动注入它的上下文：
-$ ousheng sync --actor ui-dev
-  "active_work": [{ "id": "T-031", "title": "对话编排页", "system": "datax-ui" }],
-  "blockers": ["T-042"]        ← 接口正在变，等事实，不猜
+同一个文件，加 `--ack`。谁在何时同意的什么，永久留痕：
 
-# 后端交付必须带证据（C1：verified 契约无证据不放行）
+```console
+$ ousheng work update T-042 --file swap.yaml --expect 1 --ack
+updated T-042 (revision 2, status doing)     # human_ack: george @ 2026-09-10
+```
+
+**④ 前端 AI 下次开工，自动看到**
+
+它的窗口 session 一启动，sync 就注入它的上下文：「对话编排页」被 `T-042` 阻塞中，接口正在变。**它等事实，不猜、不翻旧文档。**
+
+**⑤ 后端交付必须带证据**
+
+```console
 $ ousheng evidence add T-042 --type test_result --locator "test/engine_test.go::TestSwap"
 ```
 
-前端 AI 拿到的是 **ack 后的真实接口 + 测试证据**，不是文档里的昨日快照；你全程只做了两个动作：拍板、看板。
+验证过的契约才能标 `verified`（C1 门）。前端 AI 看到的，永远是**有证据的接口**。
+
+你全程只做了两个动作：**拍板（一步）、看板（一眼）**。
 
 看板长这样（真实输出）：
 

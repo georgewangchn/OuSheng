@@ -101,9 +101,3 @@ CLAUDE.md
 /ousheng
 /mcp
 /ousheng-mcp
-
-# build artifacts (binary outputs)
-board
-ousheng
-ousheng-mcp
-mcp
