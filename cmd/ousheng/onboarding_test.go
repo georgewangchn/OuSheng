@@ -178,6 +178,45 @@ func TestOnboardingTeamAdd(t *testing.T) {
 	}
 }
 
+func TestOnboardingAckFlag(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "george", "--name", "George")
+	mustRun(t, dir, "system", "add", "datax-server")
+	mustRun(t, dir, "todo", "引擎切换", "--system", "datax-server")
+
+	// breaking 契约无 ack → C2 拒绝
+	yaml := `schema_version: 2
+id: T-001
+type: task
+title: 引擎切换
+system: datax-server
+assignee: george
+acting_role: dev
+accountable_human: george
+status: ready
+revision: 1
+contract:
+  kind: lib
+  status: proposed
+  breaking: true
+`
+	swap := filepath.Join(dir, "swap.yaml")
+	if err := os.WriteFile(swap, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, se, code := runIn(t, dir, "work", "update", "T-001", "--file", swap, "--expect", "1")
+	if code == 0 || !strings.Contains(se, "human_ack") {
+		t.Fatalf("breaking without ack must be rejected: code=%d stderr=%s", code, se)
+	}
+	// 同一文件 + --ack（默认身份 george）→ 放行且 ack 归因正确
+	mustRun(t, dir, "work", "update", "T-001", "--file", swap, "--expect", "1", "--ack")
+	show := mustRun(t, dir, "work", "show", "T-001")
+	if !strings.Contains(show, "approver: george") {
+		t.Fatalf("--ack must record human_ack with default actor:\n%s", show)
+	}
+}
+
 func TestOnboardingMultiRepoEvidence(t *testing.T) {
 	// 多仓拓扑：上下文仓 A + 独立代码仓 B；git_commit 证据必须验证 B 里的 commit
 	ws := t.TempDir()
