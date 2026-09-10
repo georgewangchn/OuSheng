@@ -1,8 +1,48 @@
+<div align="center">
+
+<img src="assets/logo/OuSheng-logo.png" width="180" alt="OuSheng"/>
+
 # OuSheng · 㸸绳
 
-**多个 AI 编码窗口一起干活时，互相不知道对方在干什么。** 接口改了没人知道、任务卡在谁的依赖上没人知道、说"做完了"却没证据。
+**AI 写代码有多快，接口对不齐就有多痛。**
 
-OuSheng 把「谁 / 在哪 / 干什么 / 卡在哪」钉在一个 git 仓上。无服务器、无配置中心，`git push/pull` 就是协作。
+![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Store](https://img.shields.io/badge/store-Git%20%2B%20YAML-orange)
+
+**多 AI 编码窗口的接口对齐器** —— 无服务器 · 无配置中心 · `git push/pull` 即协作
+
+</div>
+
+---
+
+## 你大概正卡在这里
+
+**你的 AI 在写前端，同事的 AI 在写后端。** 昨天刚对齐的接口文档，今天双方的 AI 已经各改了三版——
+
+- 前端 AI 按周二的老文档调 `/login`，后端 AI 周三已改了返回结构 → **联调日爆炸**
+- 谁改的、为什么改、影响谁 → 没人知道，只能拉会对齐 → **会议速度 < AI 生成速度**
+- 两边的 AI 各自宣称"完成了" → 没有证据，只有幻觉 → **验收靠信**
+
+接口文档这种"人工维护的快照"，天生追不上 AI 的日更频率。**OuSheng 不做更快的文档，它把接口约定变成一个 git 仓**：双方 AI 每次开工前必读，每次破坏性修改必须经人确认。
+
+```mermaid
+sequenceDiagram
+    participant U as 前端 AI 窗口
+    participant B as 看板仓（.ousheng/）
+    participant S as 后端 AI 窗口
+    participant H as 你（human）
+
+    U->>B: /login 改返回结构 contract: breaking
+    B-->>H: ❌ 无人确认，拒绝落盘（C2 门）
+    H->>B: human_ack ✔（你拍板）
+    S->>B: 新 session 启动 → sync
+    B-->>S: 新契约 + "你阻塞在 T-001"
+    Note over S: 按 ack 后的真实接口写代码<br/>不猜、不漂移、不翻文档
+```
+
+看板长这样（真实输出）：
 
 ```console
 $ ousheng view kanban
@@ -22,7 +62,7 @@ IN_PROGRESS
 
 ## 跑起来（3 分钟）
 
-前置：Go 1.25+、`git`。
+前置：Go 1.25+、系统 `git`。
 
 ```bash
 git clone git@github.com:georgewangchn/OuSheng.git && cd OuSheng
@@ -35,39 +75,58 @@ ousheng work update T-001 --status doing
 ousheng view kanban
 ```
 
-单人开多窗口 → 各窗口 `--dir` 指向同一个看板目录即可；多人 → 看板仓 push 到 GitHub，每人 clone 后开工前 `ousheng sync`。
+看板就是一个 git 仓：单人多窗口共用一个目录；多人把它 push 到 GitHub，每人开工前 `ousheng sync`。各系统代码仓**保持独立**，零侵入。
 
 ## 日常就三个动作
 
-| 时机 | 命令 |
-|---|---|
-| 开工 | `ousheng context me` —— 我的队列 + 阻塞 |
-| 干活 | `ousheng work update` / `progress report` / `evidence add` |
-| 收工 | `ousheng converge` + `ousheng view kanban` |
+| 时机 | 命令 | 回答的问题 |
+|---|---|---|
+| 开工 | `ousheng context me` | 我该干什么？被谁阻塞？ |
+| 干活 | `ousheng work update` / `progress report` / `evidence add` | 干到哪？凭什么说做完？ |
+| 收工 | `ousheng converge` + `ousheng view kanban` | 全局还差什么？谁卡住了？ |
 
 ## 加人 / 加 AI 窗口
 
 ```bash
 ousheng team add lisi --name 李四 --role ui --system datax-ui        # 同事
-ousheng team add ui-dev --type agent --role ui --system datax-ui     # AI 窗口
+ousheng team add ui-dev --type agent --role ui --system datax-ui     # 同事的 AI 窗口
 ```
 
-AI 窗口挂上 [adapter](adapters/README.md)（opencode / Claude Code）后自动遵守三时机：启动 sync、按需查、收尾 converge。破坏性接口变更（`contract: breaking`）必须 human 确认才落盘 —— 两个 AI 窗口改不出互相漂移的接口。
+AI 窗口挂上 [adapter](adapters/README.md)（opencode / Claude Code）后自动遵守三时机：**启动必读**（sync 注入队列+阻塞+契约）、按需可查（MCP 工具）、**收尾必写**（converge 提醒）。`verified` 契约必须带证据（C1），breaking 必须人 ack（C2）—— 写入路径和收敛检查双层强制，AI 绕不过去。
 
-## 原则
+<details>
+<summary><b>为什么这么设计（点开）</b></summary>
 
-一根绳，不替牛干活：只让每个 worker 看到当前状态 + 强制破坏性变更人工背书。刻意不做合约自动生成、语义合并、Ontology 推理、中心验证。Git + YAML 是唯一事实源，SQLite 仅为可重建的派生索引。
+一根绳，不替牛干活。OuSheng 只做两件事：让每个 worker 看到当前约定状态；强制破坏性变更人工背书。刻意不做：合约自动生成（AI 写的契约 AI 自己验收 = 幻觉闭环）、语义合并（自然语言歧义交机器裁决 = 黑盒）、Ontology 推理、中心验证管线（git 已带审计/冲突解决/分布式同步）。
+
+技术铁律：Git + YAML 是唯一事实源；SQLite 仅为可重建的派生索引；CAS revision 保证并发写不丢更新。五条设计原则与控制论映射见[设计基石](docs/多人AI协作机制_方案基石.md)。
+
+"㸸"（òu）是河南方言里对牛的叫法，"绳"是牵引绳：套在 AI Coding 这头㸸鼻子上的绳——最小接触点，只给方向，绝不替㸸使劲。
+
+</details>
+
+<details>
+<summary><b>v1 协作绳（历史层，仍可用）</b></summary>
+
+v0.3 之前的核心：一张卡一个契约（`cards/<id>.yaml`），五态状态机，`board write` CAS 写入。v0.3 的 WorkItem 已内嵌 Contract 为子对象，`ousheng migrate schema` 幂等迁移。详见 [docs/v1-board.md](docs/v1-board.md)。
+
+</details>
 
 ## 文档
 
 | | |
 |---|---|
-| [快速上手](docs/quick-start.md) | 日常循环 / 多人 / 多仓拓扑 / 契约门 |
-| [工作原理](docs/quick-start.md#它是怎么工作的) | 看板仓通讯模型 |
+| [快速上手](docs/quick-start.md) | 日常循环 / 多人 / 多仓拓扑 / 通讯模型 |
 | [工程模型](docs/engineering-model.md) · [上下文协议](docs/context-protocol.md) · [存储约定](docs/state-store.md) | v0.3 规格 |
 | [设计基石](docs/多人AI协作机制_方案基石.md) · [完整设计方案](docs/OuSheng_工程本体化改造方案_v0.3.md) | 为什么这样设计 |
-| [v1 board](docs/v1-board.md) | 历史层（契约卡协作绳，仍可用） |
+| [v1 board](docs/v1-board.md) | 历史层参考 |
 
 ---
 
-[github.com/georgewangchn/OuSheng](https://github.com/georgewangchn/OuSheng) · MIT
+<div align="center">
+
+**一根绳，一块板，接口不再靠缘分。**
+
+[GitHub](https://github.com/georgewangchn/OuSheng) · MIT License
+
+</div>
