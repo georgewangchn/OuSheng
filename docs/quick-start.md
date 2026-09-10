@@ -52,6 +52,30 @@ ousheng todo "前端联调" --system datax-ui --assignee lisi
 
 AI 编码窗口（opencode/Claude）= 一个 agent actor + 挂 session 启动/结束 hook，见 `adapters/opencode/`。接口有破坏性变更时挂 `contract: breaking: true`，必须 human `human_ack` 才能落盘 —— 防两个 AI 窗口互相改接口漂移。
 
+## 它是怎么工作的
+
+**没有消息通讯，只有共享状态。** 看板住在一个独立的 git 仓（上下文仓）里，各系统代码仓完全独立、零侵入：
+
+```
+  你的代码仓 repo-a          同事的代码仓 repo-b       （各系统独立 git 仓）
+          │                         │
+          ▼                         ▼
+  ┌──────────── 上下文仓（看板住这里）────────────┐
+  │  .ousheng/work/*.yaml   任务/状态/依赖/契约/证据 │
+  │  .ousheng/activity/     审计流                 │
+  └──────┬─────────────────────────────┬────────┘
+   git push                        git pull
+         ▼                               ▼
+   A 的窗口（opencode）              B 的窗口 / 你
+```
+
+- **单人多窗口**：所有窗口 `--dir` 指向同一个上下文仓目录，连 remote 都不用
+- **跨机多人**：上下文仓 push 到 GitHub / 公司裸仓，每人 clone + `ousheng sync`（= pull + 索引重建 + 我的上下文）
+- **代码仓与看板的连接**：`ousheng repo set <system> <本地代码仓路径>` —— `git_commit` 证据会去正确的代码仓验证
+- **冲突不会写坏**：本机 `.ousheng.lock` 写串行 → CAS revision 拒绝逻辑并发 → git 处理传输并发；每次变更一个 commit，`git log` 即审计
+
+各系统**不要求**在同一个 git 仓：System ≠ Repository，一个 System 可映射多个代码仓（`system.repositories` 声明）。
+
 ## 命令全景
 
 ```
