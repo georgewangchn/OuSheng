@@ -10,10 +10,10 @@
 
 *An agile kanban for AI coding — the board itself is a git repository.*
 
-![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)
-![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Store](https://img.shields.io/badge/store-Git%20%2B%20YAML-orange)
+![Go](assets/badges/go.svg)
+![Platform](assets/badges/platform.svg)
+![License](assets/badges/license.svg)
+![Store](assets/badges/store.svg)
 
 无服务器 · 无配置中心 · `git push/pull` 即协作
 
