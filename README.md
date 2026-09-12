@@ -4,14 +4,18 @@
 
 # OuSheng · 㸸绳
 
-**AI 写代码有多快，接口对不齐就有多痛。**
+**多人多系统的 AI Coding 敏捷看板**
+
+看板就是一个 git 仓 —— AI 窗口领活 · 留证 · 汇报，人只拍板
+
+*An agile kanban for AI coding — the board itself is a git repository.*
 
 ![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Store](https://img.shields.io/badge/store-Git%20%2B%20YAML-orange)
 
-**多 AI 编码窗口的接口对齐器** —— 无服务器 · 无配置中心 · `git push/pull` 即协作
+无服务器 · 无配置中心 · `git push/pull` 即协作
 
 </div>
 
@@ -19,13 +23,15 @@
 
 ## 你大概正卡在这里
 
+**AI 写代码有多快，接口对不齐就有多痛。**
+
 **你的 AI 在写前端，同事的 AI 在写后端。** 昨天刚对齐的接口文档，今天双方的 AI 已经各改了三版——
 
 - 前端 AI 按周二的老文档调 `/login`，后端 AI 周三已改了返回结构 → **联调日爆炸**
 - 谁改的、为什么改、影响谁 → 没人知道，只能拉会对齐 → **会议速度 < AI 生成速度**
 - 两边的 AI 各自宣称"完成了" → 没有证据，只有幻觉 → **验收靠信**
 
-接口文档这种"人工维护的快照"，天生追不上 AI 的日更频率。**OuSheng 不做更快的文档，它把接口约定变成一个 git 仓**：双方 AI 每次开工前必读，每次破坏性修改必须经人确认。
+接口文档这种"人工维护的快照"，天生追不上 AI 的日更频率。**OuSheng 不做更快的文档——它把整块看板变成一个 git 仓**：需求、契约、进度、证据全在上面，双方 AI 每次开工前必读，每次破坏性修改必须经人确认。
 
 **举个例子。** 你的项目有两个系统：`datax-server`（后端，同事的 AI 窗口在写）、`datax-ui`（前端，你的 AI 窗口在写）。今天的需求：**把 agent 运行引擎从 deepagents 换成 pi-agent-core** —— 编排接口要大改，前端全受影响。
 
@@ -143,6 +149,7 @@ v0.3 之前的核心：一张卡一个契约（`cards/<id>.yaml`），五态状�
 | | |
 |---|---|
 | [快速上手](docs/quick-start.md) | 日常循环 / 多人 / 多仓拓扑 / 通讯模型 |
+| [多机多窗口使用指南](docs/多机多窗口使用指南.md) | 4 系统 × 4 机器 + 产品经理的完整拓扑、安装与日常协议 |
 | [工程模型](docs/engineering-model.md) · [上下文协议](docs/context-protocol.md) · [存储约定](docs/state-store.md) | v0.3 规格 |
 | [设计基石](docs/多人AI协作机制_方案基石.md) · [完整设计方案](docs/OuSheng_工程本体化改造方案_v0.3.md) | 为什么这样设计 |
 | [v1 board](docs/v1-board.md) | 历史层参考 |
