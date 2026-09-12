@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo/OuSheng-logo.png" width="180" alt="OuSheng"/>
+<img src="assets/cover/OuSheng-cover-generic-v6.png" width="720" alt="OuSheng — 多人多系统的 AI Coding 敏捷看板"/>
 
 # OuSheng · 㸸绳
 
@@ -8,14 +8,14 @@
 
 看板就是一个 git 仓 —— AI 窗口领活 · 留证 · 汇报，人只拍板
 
-*An agile kanban for AI coding — the board itself is a git repository.*
-
 ![Go](assets/badges/go.svg)
 ![Platform](assets/badges/platform.svg)
-![License](assets/badges/license.svg)
-![Store](assets/badges/store.svg)
+[![License](assets/badges/license.svg)](LICENSE)
+[![Store](assets/badges/store.svg)](docs/state-store.md)
 
 无服务器 · 无配置中心 · `git push/pull` 即协作
+
+[快速上手](docs/quick-start.md) · [多机多窗口使用指南](docs/多机多窗口使用指南.md) · [设计基石](docs/多人AI协作机制_方案基石.md) · [完整设计方案](docs/OuSheng_工程本体化改造方案_v0.3.md)
 
 </div>
 
@@ -82,6 +82,8 @@ $ ousheng view kanban
 [T-001] 首页改版
   System    datax-ui (湖仓前端)
   Actor     george
+  Priority  P1
+  Due       2026-09-30
   Progress  30% reported
 [T-002] 发布接口
   System    datax-server
@@ -97,8 +99,8 @@ IN_PROGRESS
 前置：Go 1.25+、系统 `git`。
 
 ```bash
-git clone git@github.com:georgewangchn/OuSheng.git && cd OuSheng
-go build -o /usr/local/bin/ousheng ./cmd/ousheng
+git clone https://github.com/georgewangchn/OuSheng.git && cd OuSheng
+go install ./cmd/ousheng        # 装到 $(go env GOPATH)/bin，确认它在 PATH 里
 
 mkdir myproj && cd myproj
 ousheng setup                  # 交互式：项目名 / 你的名字 / 系统列表
