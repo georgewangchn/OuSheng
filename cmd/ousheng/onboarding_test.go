@@ -429,3 +429,66 @@ func TestWorkPlanningFields(t *testing.T) {
 		t.Fatal("invalid due date must be rejected")
 	}
 }
+
+func TestContractSignalFourPaths(t *testing.T) {
+	// 嵌套 aggregate 与平面字段同罪：contract 信号必须四路可见（S6）。
+	// 教训：contract 进了存储但 list/kanban/WorkBrief 三路全盲——接口标准是
+	// 基石唯一钉死之物，恰好漏得最狠。
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "george", "--name", "George")
+	mustRun(t, dir, "system", "add", "admin-ui")
+	mustRun(t, dir, "todo", "接口改版", "--system", "admin-ui")
+
+	yaml := `schema_version: 2
+id: T-001
+type: task
+title: 接口改版
+system: admin-ui
+assignee: george
+acting_role: dev
+accountable_human: george
+status: ready
+revision: 1
+contract:
+  kind: http
+  status: live
+  breaking: false
+  interface:
+    method: POST
+    path: /v2/admin/rerun
+`
+	swap := filepath.Join(dir, "swap.yaml")
+	if err := os.WriteFile(swap, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, dir, "work", "update", "T-001", "--file", swap, "--expect", "1")
+
+	// 路 1：work show（detail 层，全量 interface）
+	show := mustRun(t, dir, "work", "show", "T-001")
+	for _, want := range []string{"contract:", "kind: http", "status: live", "POST"} {
+		if !strings.Contains(show, want) {
+			t.Fatalf("work show missing %q:\n%s", want, show)
+		}
+	}
+
+	// 路 2：work list CT 列
+	list := mustRun(t, dir, "work", "list", "--open")
+	if !strings.Contains(list, "http/live") {
+		t.Fatalf("work list missing contract column:\n%s", list)
+	}
+
+	// 路 3：view kanban 卡片行
+	kan := mustRun(t, dir, "view", "kanban")
+	if !strings.Contains(kan, "Contract") || !strings.Contains(kan, "http/live") {
+		t.Fatalf("kanban missing contract signal:\n%s", kan)
+	}
+
+	// 路 4：context me（WorkBrief 信道，AI 注入面）
+	mc := mustRun(t, dir, "context", "me", "--actor", "george")
+	for _, want := range []string{`"contract"`, `"kind": "http"`, `"status": "live"`} {
+		if !strings.Contains(mc, want) {
+			t.Fatalf("context me must carry contract signal %q:\n%s", want, mc)
+		}
+	}
+}

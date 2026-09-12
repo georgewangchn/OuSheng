@@ -54,13 +54,34 @@ type MyContext struct {
 
 // WorkBrief 是 active work 的最小条目；progress 标注 reported（§19/§21）。
 type WorkBrief struct {
-	ID            string  `json:"id"`
-	Title         string  `json:"title"`
-	Status        string  `json:"status"`
-	System        string  `json:"system,omitempty"`
-	Priority      string  `json:"priority,omitempty"`
-	DueOn         string  `json:"due_on,omitempty"`
-	ProgressValue float64 `json:"progress_reported,omitempty"`
+	ID            string         `json:"id"`
+	Title         string         `json:"title"`
+	Status        string         `json:"status"`
+	System        string         `json:"system,omitempty"`
+	Priority      string         `json:"priority,omitempty"`
+	DueOn         string         `json:"due_on,omitempty"`
+	ProgressValue float64        `json:"progress_reported,omitempty"`
+	Contract      *ContractBrief `json:"contract,omitempty"`
+}
+
+// ContractBrief 是 WorkItem 内嵌契约的最小信号（S6：接口标准必须进注入信道，
+// agent 在 context me 即知"这单带 live http 契约"，再 work show 取全量 interface）。
+type ContractBrief struct {
+	Kind     string `json:"kind"`
+	Status   string `json:"status"`
+	Breaking bool   `json:"breaking,omitempty"`
+}
+
+// newWorkBrief 是 WorkBrief 唯一构造点（曾因多点复制漏字段，见四路验证规则）。
+func newWorkBrief(w model.WorkItem) WorkBrief {
+	b := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System, Priority: w.Priority, DueOn: w.DueOn}
+	if w.Progress != nil {
+		b.ProgressValue = w.Progress.Value
+	}
+	if w.Contract != nil {
+		b.Contract = &ContractBrief{Kind: w.Contract.Kind, Status: string(w.Contract.Status), Breaking: w.Contract.Breaking}
+	}
+	return b
 }
 
 func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
@@ -121,10 +142,7 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 		active = append(active, w)
 	}
 	for _, w := range active {
-		brief := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System, Priority: w.Priority, DueOn: w.DueOn}
-		if w.Progress != nil {
-			brief.ProgressValue = w.Progress.Value
-		}
+		brief := newWorkBrief(w)
 		ctx.ActiveWork = append(ctx.ActiveWork, brief)
 		bs, err := s.Idx.BlockersOf(w.ID)
 		if err != nil {
@@ -191,10 +209,7 @@ func (s *Service) GetActorContext(actorID string) (*ActorView, error) {
 		if !model.WorkItemActive(w.Status) {
 			continue
 		}
-		brief := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System, Priority: w.Priority, DueOn: w.DueOn}
-		if w.Progress != nil {
-			brief.ProgressValue = w.Progress.Value
-		}
+		brief := newWorkBrief(w)
 		v.AccountableFor = append(v.AccountableFor, brief)
 		if w.Status == model.StatusBlocked {
 			v.BlockedWork = append(v.BlockedWork, brief)
@@ -256,10 +271,7 @@ func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
 		if !model.WorkItemActive(w.Status) {
 			continue
 		}
-		brief := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System, Priority: w.Priority, DueOn: w.DueOn}
-		if w.Progress != nil {
-			brief.ProgressValue = w.Progress.Value
-		}
+		brief := newWorkBrief(w)
 		v.ActiveWork = append(v.ActiveWork, brief)
 		if w.Type == model.TypeBug && model.WorkItemOpen(w.Status) {
 			v.OpenBugs++
@@ -301,7 +313,7 @@ func (s *Service) GetWorkItem(id string) (*WorkItemDetail, error) {
 			d.Deps = append(d.Deps, WorkBrief{ID: dep, Status: "missing"})
 			continue
 		}
-		d.Deps = append(d.Deps, WorkBrief{ID: dw.ID, Title: dw.Title, Status: string(dw.Status), System: dw.System, Priority: dw.Priority, DueOn: dw.DueOn})
+		d.Deps = append(d.Deps, newWorkBrief(dw))
 	}
 	return d, nil
 }

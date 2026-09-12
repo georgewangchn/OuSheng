@@ -30,6 +30,7 @@ type KanbanCard struct {
 	TargetVersion string
 	Priority      string
 	DueOn         string
+	Contract      string
 	Role          string
 	RoleName      string
 	Actor         string
@@ -104,6 +105,12 @@ func (s *Service) Kanban() ([]KanbanColumn, error) {
 		if w.Progress != nil {
 			card.Progress = fmt.Sprintf("%d%% reported (%s)", int(w.Progress.Value*100), w.Progress.Basis)
 		}
+		if w.Contract != nil {
+			card.Contract = w.Contract.Kind + "/" + string(w.Contract.Status)
+			if w.Contract.Breaking {
+				card.Contract += " (breaking)"
+			}
+		}
 		cols[w.Status] = append(cols[w.Status], card)
 	}
 	// 列内按优先级排序（P0 在前，未定级殿后，再按 ID 稳定）。
@@ -163,9 +170,12 @@ func RenderKanban(w io.Writer, cols []KanbanColumn) {
 			if c.Priority != "" {
 				fmt.Fprintf(w, "  Priority  %s\n", c.Priority)
 			}
-			if c.DueOn != "" {
-				fmt.Fprintf(w, "  Due       %s\n", c.DueOn)
-			}
+		if c.DueOn != "" {
+			fmt.Fprintf(w, "  Due       %s\n", c.DueOn)
+		}
+		if c.Contract != "" {
+			fmt.Fprintf(w, "  Contract  %s\n", c.Contract)
+		}
 			if c.Role != "" {
 				line := "  Role      " + c.Role
 				if c.RoleName != "" {

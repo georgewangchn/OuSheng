@@ -63,7 +63,7 @@ func workList(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "ID               STATUS     SYSTEM             ASSIGNEE         PRI    DUE         TITLE")
+	fmt.Fprintln(stdout, "ID               STATUS     SYSTEM             ASSIGNEE         PRI    DUE         CT           TITLE")
 	for _, w := range items {
 		if *system != "" && w.System != *system {
 			continue
@@ -83,8 +83,12 @@ func workList(args []string, stdout, stderr io.Writer) int {
 		if *open && !model.WorkItemOpen(w.Status) {
 			continue
 		}
-		fmt.Fprintf(stdout, "%-16s %-10s %-18s %-16s %-6s %-11s %s\n",
-			w.ID, w.Status, w.System, w.Assignee, w.Priority, w.DueOn, w.Title)
+		ct := ""
+		if w.Contract != nil {
+			ct = w.Contract.Kind + "/" + string(w.Contract.Status)
+		}
+		fmt.Fprintf(stdout, "%-16s %-10s %-18s %-16s %-6s %-11s %-12s %s\n",
+			w.ID, w.Status, w.System, w.Assignee, w.Priority, w.DueOn, ct, w.Title)
 	}
 	return 0
 }
