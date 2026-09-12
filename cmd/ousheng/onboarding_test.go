@@ -361,3 +361,71 @@ func TestOnboardingSetupChineseSystemNames(t *testing.T) {
 		t.Fatalf("project name must keep chinese:\n%s", b)
 	}
 }
+
+func TestWorkPlanningFields(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "george", "--name", "George")
+	mustRun(t, dir, "system", "add", "admin-ui")
+
+	mustRun(t, dir, "work", "create", "--id", "REQ-001", "--type", "requirement",
+		"--title", "批量重跑", "--system", "admin-ui", "--assignee", "george",
+		"--accountable", "george", "--priority", "P1", "--due", "2026-09-30",
+		"--description", "验收标准：编排页可批量勾选重跑")
+	show := mustRun(t, dir, "work", "show", "REQ-001")
+	for _, want := range []string{"priority: P1", `due_on: "2026-09-30"`, "批量重跑"} {
+		if !strings.Contains(show, want) {
+			t.Fatalf("work show missing %q:\n%s", want, show)
+		}
+	}
+
+	// 快捷改档（PM 调优先级高频路径）
+	mustRun(t, dir, "work", "update", "REQ-001", "--priority", "P0")
+	show = mustRun(t, dir, "work", "show", "REQ-001")
+	if !strings.Contains(show, "priority: P0") {
+		t.Fatalf("--priority quick update failed:\n%s", show)
+	}
+
+	// work list 显示计划列
+	list := mustRun(t, dir, "work", "list", "--open")
+	if !strings.Contains(list, "P0") || !strings.Contains(list, "2026-09-30") {
+		t.Fatalf("work list missing planning columns:\n%s", list)
+	}
+
+	// 看板显示计划刻度（人的扫读决策面）
+	kan := mustRun(t, dir, "view", "kanban")
+	if !strings.Contains(kan, "Priority") || !strings.Contains(kan, "P0") || !strings.Contains(kan, "2026-09-30") {
+		t.Fatalf("kanban missing planning fields:\n%s", kan)
+	}
+
+	// todo 同样带计划字段（单人主线不绕 work create）
+	mustRun(t, dir, "todo", "第二个任务", "--system", "admin-ui",
+		"--priority", "P2", "--due", "2026-10-15", "--description", "补充任务")
+	show = mustRun(t, dir, "work", "show", "T-001")
+	if !strings.Contains(show, "priority: P2") || !strings.Contains(show, "2026-10-15") {
+		t.Fatalf("todo planning flags lost:\n%s", show)
+	}
+
+	// context me：计划字段必须进 AI 注入信道（绳的信号要到达牛）
+	mc := mustRun(t, dir, "context", "me", "--actor", "george")
+	if !strings.Contains(mc, "\"P0\"") || !strings.Contains(mc, "2026-09-30") {
+		t.Fatalf("context me must carry priority/due_on:\n%s", mc)
+	}
+
+	// 看板列内 P0 在前（与 ID 序相反的用例：T-901 P0 应排在 T-001 P2 之前）
+	mustRun(t, dir, "work", "create", "--id", "T-901", "--type", "task",
+		"--title", "高优插队", "--system", "admin-ui", "--accountable", "george", "--priority", "P0")
+	kan = mustRun(t, dir, "view", "kanban")
+	if strings.Index(kan, "T-901") > strings.Index(kan, "T-001") {
+		t.Fatalf("kanban must sort P0 before P2 within column:\n%s", kan)
+	}
+
+	// 非法值拒绝（校验手写枚举/日期门）
+	if _, _, code := runIn(t, dir, "work", "update", "REQ-001", "--priority", "urgent"); code == 0 {
+		t.Fatal("invalid priority must be rejected")
+	}
+	if _, _, code := runIn(t, dir, "work", "create", "--id", "REQ-002", "--type", "requirement",
+		"--title", "x", "--due", "2026/09/30", "--accountable", "george"); code == 0 {
+		t.Fatal("invalid due date must be rejected")
+	}
+}

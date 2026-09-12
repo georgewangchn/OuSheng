@@ -59,7 +59,13 @@ type WorkItem struct {
 	Title         string       `yaml:"title"`
 	System        string       `yaml:"system,omitempty"`
 	TargetVersion string       `yaml:"target_version,omitempty"`
-	TargetRelease string       `yaml:"target_release,omitempty"`
+	TargetRelease string       `yaml:"target_release,omitempty"` // 休眠：无读者（反事实推演 2026-09-12 判冻结）——禁用于新功能，待 schema 大版本回收
+
+	// 计划三字段（100 场景推演判必须）：纯数据刻度，无自动化语义。
+	// priority：人拍板的排序档位；due_on：对外承诺日；description：需求正文/验收标准。
+	Priority    string `yaml:"priority,omitempty"`    // P0..P3（空=未定级）
+	DueOn       string `yaml:"due_on,omitempty"`     // YYYY-MM-DD
+	Description string `yaml:"description,omitempty"`
 
 	Assignee         string `yaml:"assignee,omitempty"`
 	ActingRole       string `yaml:"acting_role,omitempty"`
@@ -70,7 +76,7 @@ type WorkItem struct {
 	Revision int        `yaml:"revision"`
 
 	DependsOn []string `yaml:"depends_on,omitempty"`
-	RelatedTo []string `yaml:"related_to,omitempty"`
+	RelatedTo []string `yaml:"related_to,omitempty"` // 溯源链接：work show 正向可见；反向查询走 grep 仓文件（不入索引——仓即数据库）
 
 	Contract *Contract       `yaml:"contract,omitempty"`
 	Progress *ProgressReport `yaml:"progress,omitempty"`

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -102,6 +103,9 @@ func TestValidateWorkItemRules(t *testing.T) {
 			w.Contract = &Contract{Kind: "http", Status: ContractStatus("draft")}
 		}},
 		{"self dep", func(w *WorkItem) { w.DependsOn = []string{"BUG-017"} }},
+		{"bad priority", func(w *WorkItem) { w.Priority = "urgent" }},
+		{"bad due_on format", func(w *WorkItem) { w.DueOn = "2026/09/30" }},
+		{"bad due_on month", func(w *WorkItem) { w.DueOn = "2026-13-01" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -111,6 +115,31 @@ func TestValidateWorkItemRules(t *testing.T) {
 				t.Fatalf("expected rejection for %s", tc.name)
 			}
 		})
+	}
+}
+
+func TestValidateWorkItemPlanningFields(t *testing.T) {
+	raw := validWorkItem + "priority: P1\ndue_on: 2026-09-30\ndescription: 验收标准：批量重跑入口可用\n"
+	w, err := DecodeWorkItem([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Priority != "P1" || w.DueOn != "2026-09-30" || w.Description == "" {
+		t.Fatalf("planning fields lost: %+v", w)
+	}
+	if err := ValidateWorkItem(w, []byte(raw)); err != nil {
+		t.Fatalf("valid planning fields rejected: %v", err)
+	}
+	back, err := EncodeWorkItem(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w2, err := DecodeWorkItem(back)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(w2, w) {
+		t.Fatalf("roundtrip mismatch:\n%+v\n%+v", w, w2)
 	}
 }
 

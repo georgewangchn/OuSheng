@@ -63,7 +63,7 @@ func workList(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintln(stdout, "ID               STATUS     SYSTEM             ASSIGNEE         TITLE")
+	fmt.Fprintln(stdout, "ID               STATUS     SYSTEM             ASSIGNEE         PRI    DUE         TITLE")
 	for _, w := range items {
 		if *system != "" && w.System != *system {
 			continue
@@ -83,8 +83,8 @@ func workList(args []string, stdout, stderr io.Writer) int {
 		if *open && !model.WorkItemOpen(w.Status) {
 			continue
 		}
-		fmt.Fprintf(stdout, "%-16s %-10s %-18s %-16s %s\n",
-			w.ID, w.Status, w.System, w.Assignee, w.Title)
+		fmt.Fprintf(stdout, "%-16s %-10s %-18s %-16s %-6s %-11s %s\n",
+			w.ID, w.Status, w.System, w.Assignee, w.Priority, w.DueOn, w.Title)
 	}
 	return 0
 }
@@ -141,6 +141,9 @@ func workCreate(args []string, stdout, stderr io.Writer) int {
 	accountable := fs.String("accountable", "", "accountable human id")
 	detectedBy := fs.String("detected-by", "", "detected-by actor id (bug)")
 	dependsOn := fs.String("depends-on", "", "comma-separated dependency ids")
+	priority := fs.String("priority", "", "P0..P3")
+	due := fs.String("due", "", "due date YYYY-MM-DD")
+	description := fs.String("description", "", "需求正文/验收标准")
 	actor := fs.String("actor", "", "acting actor (activity attribution)")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
@@ -176,6 +179,9 @@ func workCreate(args []string, stdout, stderr io.Writer) int {
 			Title:            *title,
 			System:           *system,
 			TargetVersion:    *version,
+			Priority:         *priority,
+			DueOn:            *due,
+			Description:      *description,
 			Assignee:         *assignee,
 			ActingRole:       *role,
 			AccountableHuman: *accountable,
@@ -203,6 +209,9 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("work update")
 	file := fs.String("file", "", "full work item yaml")
 	status := fs.String("status", "", "new status")
+	priority := fs.String("priority", "", "set priority P0..P3")
+	due := fs.String("due", "", "set due date YYYY-MM-DD")
+	description := fs.String("description", "", "set description")
 	expect := fs.Int("expect", -1, "expected revision (required with --file)")
 	actor := fs.String("actor", "", "acting actor")
 	ack := fs.Bool("ack", false, "human 拍板：本条提交即 human_ack（approver=acting actor，C2）")
@@ -213,7 +222,7 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 		*actor = defaultActor(fs.Dir())
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: ousheng work update <id> (--file F --expect N [--ack] | --status S)")
+		fmt.Fprintln(stderr, "usage: ousheng work update <id> (--file F --expect N [--ack] | --status S | --priority P | --due D | --description X)")
 		return 2
 	}
 	id := fs.Arg(0)
@@ -254,12 +263,23 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	if *status == "" {
-		fmt.Fprintln(stderr, "nothing to update: pass --status or --file")
+	if *status == "" && *priority == "" && *due == "" && *description == "" {
+		fmt.Fprintln(stderr, "nothing to update: pass --status/--priority/--due/--description or --file")
 		return 2
 	}
 	updated, err := updateWithAutoExpect(svc, id, *expect, func(cur model.WorkItem) model.WorkItem {
-		cur.Status = model.WorkStatus(*status)
+		if *status != "" {
+			cur.Status = model.WorkStatus(*status)
+		}
+		if *priority != "" {
+			cur.Priority = *priority
+		}
+		if *due != "" {
+			cur.DueOn = *due
+		}
+		if *description != "" {
+			cur.Description = *description
+		}
 		return cur
 	}, *actor)
 	if err != nil {

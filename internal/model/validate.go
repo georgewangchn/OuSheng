@@ -40,6 +40,8 @@ var evidenceTypes = map[EvidenceType]bool{
 	EvidenceManualCheck: true, EvidenceDocument: true,
 }
 
+var priorities = map[string]bool{"P0": true, "P1": true, "P2": true, "P3": true}
+
 var progressBases = map[ProgressBasis]bool{
 	BasisManual: true, BasisImplementationChecklist: true, BasisTestCases: true,
 	BasisSubtasks: true, BasisStoryPoints: true, BasisMilestone: true,
@@ -73,6 +75,14 @@ func ValidateWorkItem(w WorkItem, raw []byte) error {
 	}
 	if w.TargetVersion != "" && strings.TrimSpace(w.TargetVersion) == "" {
 		return fmt.Errorf("target_version must be non-empty if present")
+	}
+	if w.Priority != "" && !priorities[w.Priority] {
+		return fmt.Errorf("invalid priority %q (want P0..P3)", w.Priority)
+	}
+	if w.DueOn != "" {
+		if _, err := time.Parse("2006-01-02", w.DueOn); err != nil {
+			return fmt.Errorf("due_on must be YYYY-MM-DD, got %q", w.DueOn)
+		}
 	}
 	if w.ActingRole != "" && !lowerIDRe.MatchString(w.ActingRole) {
 		return fmt.Errorf("invalid acting_role %q", w.ActingRole)
