@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/cover/OuSheng-cover-generic-v6.png" width="720" alt="OuSheng — 多人多系统的 AI Coding 敏捷看板"/>
+<img src="assets/logo/OuSheng-logo.png" width="180" alt="OuSheng"/>
 
 # OuSheng · 㸸绳
 
