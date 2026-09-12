@@ -296,11 +296,14 @@ func cmdTodo(args []string, stdout, stderr io.Writer) int {
 	version := fs.String("version", "", "target version")
 	assignee := fs.String("assignee", "", "assignee (default: me)")
 	role := fs.String("role", "", "acting role (default: dev)")
+	priority := fs.String("priority", "", "P0..P3")
+	due := fs.String("due", "", "due date YYYY-MM-DD")
+	description := fs.String("description", "", "需求正文/验收标准")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: ousheng todo <title> [--system S] [--version V]")
+		fmt.Fprintln(stderr, "usage: ousheng todo <title> [--system S] [--version V] [--priority P] [--due D] [--description X]")
 		return 2
 	}
 	title := fs.Arg(0)
@@ -397,6 +400,7 @@ func cmdTodo(args []string, stdout, stderr io.Writer) int {
 	w := model.WorkItem{
 		SchemaVersion: 2, ID: id, Type: model.TypeTask, Title: title,
 		System: system, TargetVersion: *version,
+		Priority: *priority, DueOn: *due, Description: *description,
 		Assignee: asg, ActingRole: roleID, AccountableHuman: humans[0],
 	}
 	svc := workspace.New(repo)

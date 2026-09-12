@@ -46,6 +46,7 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. v0.3 已实现�
 - **校验手写**（严格解码拒绝未知键、8192 字节门、C1 verified→evidence、C2 breaking→human_ack）。
 - **activity 是审计非事实源**；progress 是 reported state（必须带 basis + actor + 时间戳）。
 - **SQLite 硬约束 S5**：memory 与 sqlite 查询结果必须深度相等（`internal/index/sqlite/sqlite_test.go`）；改动 Index 接口须同步两实现 + 等价性测试。
+- **新字段四路验证**：WorkItem 新增字段必须同时接通四条消费路径——`work show`（detail 层）、`work list`（列表列）、`view kanban`（卡片行）、`context me`（WorkBrief 信道，AI 注入面）。只进存储不进信道 = 没上绳（2026-09-12 复盘教训：priority/due_on 曾漏接 context me，人拍板牛不见）。机械锁：`cmd/ousheng/onboarding_test.go` 的 `TestWorkPlanningFields` 四路断言齐全，新字段照此扩展。
 - **验证命令**：`go test ./... && go vet ./...`（每次改动必跑）。
 - **查看时机协议**：三时机（session 启动 sync / 遇问题查上下文 / 任务结束更新再看板），禁止引入每 loop 轮询。
 - fixtures：`fixtures/lakehouse/` 是五场景数据，`internal/testfix.Setup(t)` 装载；改 fixture 须跑全量测试。

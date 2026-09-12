@@ -28,6 +28,8 @@ type KanbanCard struct {
 	System        string
 	SystemName    string
 	TargetVersion string
+	Priority      string
+	DueOn         string
 	Role          string
 	RoleName      string
 	Actor         string
@@ -91,6 +93,8 @@ func (s *Service) Kanban() ([]KanbanColumn, error) {
 			ID: w.ID, Title: w.Title,
 			System: w.System, SystemName: sysName(w.System),
 			TargetVersion: w.TargetVersion,
+			Priority:      w.Priority,
+			DueOn:         w.DueOn,
 			Role:          w.ActingRole, RoleName: roleName(w.ActingRole),
 			Actor: w.Assignee,
 			Human: w.AccountableHuman, HumanName: humanName(w.AccountableHuman),
@@ -101,6 +105,31 @@ func (s *Service) Kanban() ([]KanbanColumn, error) {
 			card.Progress = fmt.Sprintf("%d%% reported (%s)", int(w.Progress.Value*100), w.Progress.Basis)
 		}
 		cols[w.Status] = append(cols[w.Status], card)
+	}
+	// 列内按优先级排序（P0 在前，未定级殿后，再按 ID 稳定）。
+	// 这是呈现人的排序决策（拍板的刻度），不是调度器——AI 拿到什么单仍由人指派。
+	rank := func(p string) int {
+		switch p {
+		case "P0":
+			return 0
+		case "P1":
+			return 1
+		case "P2":
+			return 2
+		case "P3":
+			return 3
+		}
+		return 4
+	}
+	for st := range cols {
+		c := cols[st]
+		sort.SliceStable(c, func(i, j int) bool {
+			ri, rj := rank(c[i].Priority), rank(c[j].Priority)
+			if ri != rj {
+				return ri < rj
+			}
+			return c[i].ID < c[j].ID
+		})
 	}
 	var out []KanbanColumn
 	for _, st := range kanbanOrder {
@@ -130,6 +159,12 @@ func RenderKanban(w io.Writer, cols []KanbanColumn) {
 			}
 			if c.TargetVersion != "" {
 				fmt.Fprintf(w, "  Version   %s\n", c.TargetVersion)
+			}
+			if c.Priority != "" {
+				fmt.Fprintf(w, "  Priority  %s\n", c.Priority)
+			}
+			if c.DueOn != "" {
+				fmt.Fprintf(w, "  Due       %s\n", c.DueOn)
 			}
 			if c.Role != "" {
 				line := "  Role      " + c.Role

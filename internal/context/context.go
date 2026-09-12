@@ -58,6 +58,8 @@ type WorkBrief struct {
 	Title         string  `json:"title"`
 	Status        string  `json:"status"`
 	System        string  `json:"system,omitempty"`
+	Priority      string  `json:"priority,omitempty"`
+	DueOn         string  `json:"due_on,omitempty"`
 	ProgressValue float64 `json:"progress_reported,omitempty"`
 }
 
@@ -119,7 +121,7 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 		active = append(active, w)
 	}
 	for _, w := range active {
-		brief := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System}
+		brief := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System, Priority: w.Priority, DueOn: w.DueOn}
 		if w.Progress != nil {
 			brief.ProgressValue = w.Progress.Value
 		}
@@ -189,7 +191,7 @@ func (s *Service) GetActorContext(actorID string) (*ActorView, error) {
 		if !model.WorkItemActive(w.Status) {
 			continue
 		}
-		brief := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System}
+		brief := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System, Priority: w.Priority, DueOn: w.DueOn}
 		if w.Progress != nil {
 			brief.ProgressValue = w.Progress.Value
 		}
@@ -254,7 +256,7 @@ func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
 		if !model.WorkItemActive(w.Status) {
 			continue
 		}
-		brief := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System}
+		brief := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System, Priority: w.Priority, DueOn: w.DueOn}
 		if w.Progress != nil {
 			brief.ProgressValue = w.Progress.Value
 		}
@@ -299,7 +301,7 @@ func (s *Service) GetWorkItem(id string) (*WorkItemDetail, error) {
 			d.Deps = append(d.Deps, WorkBrief{ID: dep, Status: "missing"})
 			continue
 		}
-		d.Deps = append(d.Deps, WorkBrief{ID: dw.ID, Title: dw.Title, Status: string(dw.Status), System: dw.System})
+		d.Deps = append(d.Deps, WorkBrief{ID: dw.ID, Title: dw.Title, Status: string(dw.Status), System: dw.System, Priority: dw.Priority, DueOn: dw.DueOn})
 	}
 	return d, nil
 }
