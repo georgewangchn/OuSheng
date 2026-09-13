@@ -44,6 +44,7 @@ func wi(id string, status model.WorkStatus) model.WorkItem {
 func TestDoneWithPartialProgressWarns(t *testing.T) {
 	w := wi("W-1", model.StatusDone)
 	w.Progress = &model.ProgressReport{Value: 0.5, Actor: "a", ReportedAt: "2026-09-09T10:00:00+08:00", Basis: model.BasisManual}
+	w.Evidence = []model.Evidence{{Type: model.EvidenceManualCheck, Source: "human", Locator: "review"}}
 	r, err := Check(idxFrom(t, []model.WorkItem{w}))
 	if err != nil {
 		t.Fatal(err)
@@ -59,6 +60,7 @@ func TestDoneWithPartialProgressWarns(t *testing.T) {
 func TestDoneWithFullProgressNoWarning(t *testing.T) {
 	w := wi("W-1", model.StatusDone)
 	w.Progress = &model.ProgressReport{Value: 1.0, Actor: "a", ReportedAt: "2026-09-09T10:00:00+08:00", Basis: model.BasisManual}
+	w.Evidence = []model.Evidence{{Type: model.EvidenceManualCheck, Source: "human", Locator: "review"}}
 	r, err := Check(idxFrom(t, []model.WorkItem{w}))
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +72,9 @@ func TestDoneWithFullProgressNoWarning(t *testing.T) {
 
 // 无上报的 done 不算矛盾：progress 是可选的诚实汇报，不强制。
 func TestDoneWithoutProgressNoWarning(t *testing.T) {
-	r, err := Check(idxFrom(t, []model.WorkItem{wi("W-1", model.StatusDone)}))
+	w := wi("W-1", model.StatusDone)
+	w.Evidence = []model.Evidence{{Type: model.EvidenceManualCheck, Source: "human", Locator: "review"}}
+	r, err := Check(idxFrom(t, []model.WorkItem{w}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +129,75 @@ func TestAllDoneConverged(t *testing.T) {
 	}
 	if r.Status != Converged {
 		t.Fatalf("all done should be CONVERGED, got %s (%v)", r.Status, r.Blockers)
+	}
+}
+
+// done 零证据：基石 ASR 意图（防过早喊 done 污染下游）的可见化，只警告不阻塞。
+func TestDoneWithoutEvidenceWarns(t *testing.T) {
+	r, err := Check(idxFrom(t, []model.WorkItem{wi("W-1", model.StatusDone)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Converged {
+		t.Fatalf("zero-evidence done must not block, got %s", r.Status)
+	}
+	found := false
+	for _, warn := range r.Warnings {
+		if strings.Contains(warn, "done without evidence") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want done-without-evidence warning, got %v", r.Warnings)
+	}
+}
+
+func TestDoneWithEvidenceNoEvidenceWarning(t *testing.T) {
+	w := wi("W-1", model.StatusDone)
+	w.Evidence = []model.Evidence{{Type: model.EvidenceManualCheck, Source: "human", Locator: "review"}}
+	r, err := Check(idxFrom(t, []model.WorkItem{w}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, warn := range r.Warnings {
+		if strings.Contains(warn, "without evidence") {
+			t.Fatalf("evidence present, must not warn: %v", r.Warnings)
+		}
+	}
+}
+
+// 跨状态机漂移：关闭的工作携带 proposed 契约（done=实施超前于共识；cancelled=悬空提案）。
+func TestClosedWorkWithProposedContractWarns(t *testing.T) {
+	for _, st := range []model.WorkStatus{model.StatusDone, model.StatusCancelled} {
+		w := wi("W-1", st)
+		w.Contract = &model.Contract{Kind: "http", Status: model.ContractProposed}
+		r, err := Check(idxFrom(t, []model.WorkItem{w}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, warn := range r.Warnings {
+			if strings.Contains(warn, "contract still proposed on closed work") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("status %s: want proposed-on-closed warning, got %v", st, r.Warnings)
+		}
+	}
+}
+
+// work done + contract live 是合法终态（契约生命周期长于工作），不警告。
+func TestDoneWorkWithLiveContractNoWarning(t *testing.T) {
+	w := wi("W-1", model.StatusDone)
+	w.Contract = &model.Contract{Kind: "http", Status: model.ContractLive}
+	w.Evidence = []model.Evidence{{Type: model.EvidenceManualCheck, Source: "human", Locator: "review"}}
+	r, err := Check(idxFrom(t, []model.WorkItem{w}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Warnings) != 0 {
+		t.Fatalf("done + live contract is a legal terminal state, got warnings %v", r.Warnings)
 	}
 }
 

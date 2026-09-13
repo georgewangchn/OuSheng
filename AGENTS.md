@@ -46,6 +46,7 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. v0.3 已实现�
 - **校验手写**（严格解码拒绝未知键、8192 字节门、C1 verified→evidence、C2 breaking→human_ack）。
 - **activity 是审计非事实源**；progress 是 reported state（必须带 basis + actor + 时间戳）。
 - **SQLite 硬约束 S5**：memory 与 sqlite 查询结果必须深度相等（`internal/index/sqlite/sqlite_test.go`）；改动 Index 接口须同步两实现 + 等价性测试。
+- **SQLite 定位**（防"零读者部件"复发，2026-09-13 推演裁决）：产品查询路径默认 memory（零基础设施模式）；sqlite 是派生索引，树内消费者 = S5 等价测试（交叉验证 oracle），树外用途 = 只读 SQL 查询面（`ousheng index rebuild` 后查 `.ousheng/cache/index.db`）。接入查询路径的激活判据与升 authoritative store 相同（v0.3 §1）：真实使用证明 memory 每命令重建成为实际痛点，才接。
 - **新字段四路验证**：WorkItem 新增字段必须同时接通四条消费路径——`work show`（detail 层）、`work list`（列表列）、`view kanban`（卡片行）、`context me`（WorkBrief 信道，AI 注入面）。只进存储不进信道 = 没上绳（2026-09-12 复盘教训：priority/due_on 曾漏接 context me，人拍板牛不见）。机械锁：`cmd/ousheng/onboarding_test.go` 的 `TestWorkPlanningFields` 四路断言齐全，新字段照此扩展。
 - **嵌套 aggregate 同罪**：Contract、blocks 等嵌套结构与平面字段适用同一四路规则——信号必须接通四路，或明文判决出局并写明理由（2026-09-12 第二课：contract 进了存储但 list/kanban/WorkBrief 三路全盲，接口标准是基石唯一钉死之物，恰好漏得最狠）。机械锁：同文件 `TestContractSignalFourPaths`。WorkBrief 构造已收敛至 `internal/context` 的 `newWorkBrief` 单点，新信号只改一处。
 - **验证命令**：`go test ./... && go vet ./...`（每次改动必跑）。

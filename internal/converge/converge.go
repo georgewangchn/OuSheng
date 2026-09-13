@@ -96,6 +96,21 @@ func Check(idx index.Index) (Result, error) {
 		if w.Status == model.StatusDone && w.Progress != nil && w.Progress.Value < 1.0 {
 			warnings = append(warnings, fmt.Sprintf("%s: done but progress reported %.0f%%", w.ID, w.Progress.Value*100))
 		}
+
+		// 不一致警告：done 项零证据。基石 ASR 意图的回收（防"过早喊 done 污染下游"）——
+		// 终极防线是 accountable human 拍板，这里只让漏网可见，不阻塞。
+		if w.Status == model.StatusDone && len(w.Evidence) == 0 {
+			warnings = append(warnings, fmt.Sprintf("%s: done without evidence", w.ID))
+		}
+
+		// 跨状态机漂移警告：工作已关闭但契约仍 proposed——
+		// done = 实施跑到了共识前面；cancelled = 提案悬空未清理。
+		// 只盯 proposed：agreed/live 与关闭态并存是合法终态
+		// （契约生命周期长于工作，work done + contract live 是接口交付后的常态）。
+		if (w.Status == model.StatusDone || w.Status == model.StatusCancelled) &&
+			w.Contract != nil && w.Contract.Status == model.ContractProposed {
+			warnings = append(warnings, fmt.Sprintf("%s: contract still proposed on closed work", w.ID))
+		}
 	}
 
 	if len(blockers) > 0 {
