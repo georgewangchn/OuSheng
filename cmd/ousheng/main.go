@@ -73,7 +73,7 @@ evidence / activity:
   activity list [--limit N]
 
 view:
-  view kanban | view system <id> | view version --version V | view project
+  view kanban | view actor <id> | view system <id> | view version --version V | view project
 
 index:
   index rebuild                                    从 canonical YAML 重建派生索引
