@@ -65,6 +65,17 @@ func (s *Service) validateRefs(w model.WorkItem) error {
 				return fmt.Errorf("accountable_human %q must be type=human, got %s", w.AccountableHuman, a.Type)
 			}
 		}
+		// C2 同理：ack 者必须是人。agent 机器默认身份是 agent——若无此门，
+		// agent 可自 ack breaking 变更，"AI 生成→AI 验收"闭环即告成立。
+		if w.HumanAck != nil && w.HumanAck.Approver != "" {
+			a, ok := byID[w.HumanAck.Approver]
+			if !ok {
+				return fmt.Errorf("unknown human_ack.approver %q", w.HumanAck.Approver)
+			}
+			if a.Type != model.ActorHuman {
+				return fmt.Errorf("human_ack.approver %q must be type=human, got %s", w.HumanAck.Approver, a.Type)
+			}
+		}
 	}
 
 	roles, err := s.Repo.ListRoles()

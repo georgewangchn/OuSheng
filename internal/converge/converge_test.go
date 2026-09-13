@@ -201,6 +201,37 @@ func TestDoneWorkWithLiveContractNoWarning(t *testing.T) {
 	}
 }
 
+// C2 语义审计：breaking 由 agent ack = BLOCKED（防手改绕过写入路径的门）。
+func TestBreakingAckedByNonHumanBlocks(t *testing.T) {
+	w := wi("W-1", model.StatusDoing)
+	w.Contract = &model.Contract{Kind: "http", Status: model.ContractProposed, Breaking: true}
+	w.HumanAck = &model.HumanAck{Approver: "dev-agent"}
+	snap := index.Snapshot{
+		Actors:    []model.ActorFile{{Actor: model.Actor{ID: "dev-agent", Type: model.ActorAgent, DisplayName: "Dev"}}},
+		WorkItems: []model.WorkItem{w},
+	}
+	idx := memory.New()
+	if err := idx.Rebuild(snap); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Check(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Blocked {
+		t.Fatalf("breaking acked by agent must BLOCK, got %s (%v)", r.Status, r.Blockers)
+	}
+	found := false
+	for _, b := range r.Blockers {
+		if strings.Contains(b, "non-human actor") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want non-human-ack blocker, got %v", r.Blockers)
+	}
+}
+
 func TestExplicitBlocked(t *testing.T) {
 	r, err := Check(idxFrom(t, []model.WorkItem{wi("A-1", model.StatusBlocked)}))
 	if err != nil {
