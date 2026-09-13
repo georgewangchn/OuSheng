@@ -9,7 +9,7 @@
 //	  assignments.yaml
 //	  actors/*.yaml
 //	  work/*.yaml
-//	  activity/YYYY-MM.jsonl
+//	  activity/YYYY-MM/<actor>.jsonl
 //	  cache/            ← gitignored，派生索引
 //
 // CAS 在本层执行（lock + read + compare + write + commit）；
@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -512,13 +513,20 @@ func (r *Repo) SaveAssignments(list []model.Assignment, msg string) error {
 }
 
 // activityPath 按 TS 所在月份分桶。
-func activityPath(dir string, ts string) string {
+// activityPath 按 月×actor 分区（2026-09 多机 dogfood 裁决：按月单文件是多机
+// 常态冲突热点——每机身份不同，actor 进路径即零碰撞；与 work 单文件同款原则）。
+func activityPath(dir string, ts string, actor string) string {
 	month := "unknown"
 	if len(ts) >= len("2006-01") {
 		month = ts[:7]
 	}
-	return filepath.Join(dir, month+".jsonl")
+	if !activityActorRe.MatchString(actor) {
+		actor = "unknown"
+	}
+	return filepath.Join(dir, month, actor+".jsonl")
 }
+
+var activityActorRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 func (r *Repo) AppendActivity(acts []model.Activity, msg string) error {
 	if len(acts) == 0 {
@@ -530,13 +538,16 @@ func (r *Repo) AppendActivity(acts []model.Activity, msg string) error {
 	byFile := map[string][]model.Activity{}
 	var order []string
 	for _, a := range acts {
-		p := activityPath(r.activityDir(), a.TS)
+		p := activityPath(r.activityDir(), a.TS, a.Actor)
 		if _, ok := byFile[p]; !ok {
 			order = append(order, p)
 		}
 		byFile[p] = append(byFile[p], a)
 	}
 	for _, p := range order {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
 		f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
 			return err
@@ -565,18 +576,21 @@ func (r *Repo) AppendActivity(acts []model.Activity, msg string) error {
 }
 
 func (r *Repo) ListActivity() ([]model.Activity, error) {
-	entries, err := os.ReadDir(r.activityDir())
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
+	var files []string
+	err := filepath.WalkDir(r.activityDir(), func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".jsonl") {
+			files = append(files, path)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	var files []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".jsonl") {
-			files = append(files, filepath.Join(r.activityDir(), e.Name()))
-		}
 	}
 	sort.Strings(files)
 	var out []model.Activity
@@ -587,6 +601,10 @@ func (r *Repo) ListActivity() ([]model.Activity, error) {
 		}
 		out = append(out, acts...)
 	}
+	// 跨 actor 文件后时间线交织，全局按 TS 排序恢复审计流。
+	// 同秒并列常见（RFC3339 秒精度）：Stable 保住文件内 append 序（=因果序），
+	// 跨文件同秒是真并发，序不可知也不必知。
+	sort.SliceStable(out, func(i, j int) bool { return out[i].TS < out[j].TS })
 	return out, nil
 }
 

@@ -185,4 +185,6 @@ func LoadActivityFile(path string) ([]Activity, error) {
 }
 
 // Now 返回 RFC3339 时间戳（单一出口，测试可替换）。
-var Now = func() string { return time.Now().Format(time.RFC3339) }
+// Now 用 RFC3339Nano：秒精度下同秒并列会破坏跨文件审计因果序
+// （activity 按 月×actor 分文件后，跨文件同秒无 in-file append 序可依）。
+var Now = func() string { return time.Now().Format(time.RFC3339Nano) }

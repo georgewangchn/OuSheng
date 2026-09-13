@@ -534,3 +534,48 @@ contract:
 		t.Fatalf("human ack must pass and record:\n%s", show)
 	}
 }
+
+func TestActivityPerActorFiles(t *testing.T) {
+	// 多机 S7 裁决：activity 按月单文件是多机常态冲突热点（两机同月各写一笔，
+	// rebase 必冲突）。按 月×actor 分区后零碰撞；activity list 跨文件全局有序。
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "george", "--name", "George")
+	mustRun(t, dir, "system", "add", "admin-ui")
+	mustRun(t, dir, "team", "add", "dev-agent", "--type", "agent", "--responsible-human", "george")
+	mustRun(t, dir, "todo", "任务A", "--system", "admin-ui")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "ready", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "doing", "--actor", "dev-agent")
+
+	// 两个 actor 的 activity 必须落在不同文件（activity/<YYYY-MM>/<actor>.jsonl）
+	entries, err := os.ReadDir(filepath.Join(dir, ".ousheng", "activity"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	monthDir := ""
+	for _, e := range entries {
+		if e.IsDir() {
+			monthDir = e.Name()
+		}
+	}
+	if monthDir == "" {
+		t.Fatalf("expected activity/<YYYY-MM>/ directory, got %v", entries)
+	}
+	actors := map[string]bool{}
+	inner, err := os.ReadDir(filepath.Join(dir, ".ousheng", "activity", monthDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range inner {
+		actors[strings.TrimSuffix(e.Name(), ".jsonl")] = true
+	}
+	if !actors["george"] || !actors["dev-agent"] {
+		t.Fatalf("per-actor activity files missing: %v", actors)
+	}
+
+	// 审计流跨文件全局按 TS 有序
+	out := mustRun(t, dir, "activity", "list")
+	if !strings.Contains(out, "george") || !strings.Contains(out, "dev-agent") {
+		t.Fatalf("activity list must show both actors:\n%s", out)
+	}
+}
