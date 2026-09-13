@@ -13,11 +13,13 @@ const (
 )
 
 // Contract 是 WorkItem 的重要子对象，不再是顶层核心（v0.3 §4.3）。
+// 工具钉死的是信封（kind 枚举、状态机、C1/C2、CAS）；Interface 载荷是
+// 自由结构、由 kind 决定语义——v1 board 协议的明文决策，载荷属对话层。
 type Contract struct {
 	Kind      string         `yaml:"kind"` // http|cli|lib|event
 	Status    ContractStatus `yaml:"status,omitempty"`
 	Breaking  bool           `yaml:"breaking,omitempty"`
-	Interface any            `yaml:"interface,omitempty"`
+	Interface any            `yaml:"interface,omitempty"` // 自由结构，不校验形状（v1 协议）
 }
 
 // HumanAck 是 human accountability 载体（v0.3 §42）。
