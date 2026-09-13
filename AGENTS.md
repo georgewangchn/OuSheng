@@ -59,6 +59,7 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. v0.3 已实现�
 The plan in `docs/superpowers/plans/2026-08-09-阶段1-core-lib-cli.md` defines the rules; follow them exactly:
 
 - **Language**: Go 1.22+. Module path `ousheng` (imports like `ousheng/internal/card`).
+- **v1 已知边界**：v1 card 无 actor 注册表，C2 的 approver 无法验 human 类型——v1 场景下 C2 仅为非空检查；v0.3 已在写入路径（`workspace.validateRefs`）+ converge 审计双层强制（2026-09-13 语义轴推演裁决）。
 - **Sole external dependency**: `gopkg.in/yaml.v3`. No JSON Schema lib, no go-git (call system `git` via `os/exec`).
 - **Layout**: `cmd/board/main.go` (CLI: `init|read|write|converge|version`), `internal/{card,lifecycle,graph,store,board}/`.
 - **Store**: a git repo, one card per file at `cards/<id>.yaml`. Card id regex `^[a-z0-9][a-z0-9-]*$`. Max card size 8192 bytes (projection gate).

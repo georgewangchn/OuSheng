@@ -492,3 +492,45 @@ contract:
 		}
 	}
 }
+
+func TestAckMustBeHuman(t *testing.T) {
+	// C2 语义门：agent 机器默认身份是 agent——若无此门，agent 可自 ack breaking，
+	// "AI 生成→AI 验收"闭环成立，README"AI 绕不过去"的承诺失守。
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "george", "--name", "George")
+	mustRun(t, dir, "system", "add", "datax-server")
+	mustRun(t, dir, "team", "add", "dev-agent", "--type", "agent", "--responsible-human", "george")
+	mustRun(t, dir, "todo", "引擎切换", "--system", "datax-server")
+
+	yaml := `schema_version: 2
+id: T-001
+type: task
+title: 引擎切换
+system: datax-server
+assignee: dev-agent
+acting_role: dev
+accountable_human: george
+status: ready
+revision: 1
+contract:
+  kind: lib
+  status: proposed
+  breaking: true
+`
+	swap := filepath.Join(dir, "swap.yaml")
+	if err := os.WriteFile(swap, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// agent 自 ack → 拒绝
+	_, se, code := runIn(t, dir, "work", "update", "T-001", "--file", swap, "--expect", "1", "--ack", "--actor", "dev-agent")
+	if code == 0 || !strings.Contains(se, "type=human") {
+		t.Fatalf("agent self-ack must be rejected: code=%d stderr=%s", code, se)
+	}
+	// human ack → 放行
+	mustRun(t, dir, "work", "update", "T-001", "--file", swap, "--expect", "1", "--ack", "--actor", "george")
+	show := mustRun(t, dir, "work", "show", "T-001")
+	if !strings.Contains(show, "approver: george") {
+		t.Fatalf("human ack must pass and record:\n%s", show)
+	}
+}

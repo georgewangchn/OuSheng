@@ -54,6 +54,13 @@ func Check(idx index.Index) (Result, error) {
 	var blockers, warnings []string
 	hasOpen := false
 
+	actorByID := map[string]model.Actor{}
+	if afs, err := idx.Actors(); err == nil {
+		for _, af := range afs {
+			actorByID[af.Actor.ID] = af.Actor
+		}
+	}
+
 	for _, w := range all {
 		open := model.WorkItemOpen(w.Status)
 		if open {
@@ -87,6 +94,12 @@ func Check(idx index.Index) (Result, error) {
 		// C2：breaking 必须有 human_ack
 		if w.Contract != nil && w.Contract.Breaking && w.HumanAck == nil {
 			blockers = append(blockers, fmt.Sprintf("%s: breaking contract without human_ack", w.ID))
+		}
+		// C2 语义审计：ack 者必须是 human（防手改绕过 + agent 自 ack）
+		if w.Contract != nil && w.Contract.Breaking && w.HumanAck != nil && w.HumanAck.Approver != "" {
+			if a, ok := actorByID[w.HumanAck.Approver]; ok && a.Type != model.ActorHuman {
+				blockers = append(blockers, fmt.Sprintf("%s: human_ack by non-human actor %q", w.ID, w.HumanAck.Approver))
+			}
 		}
 
 		// 不一致警告：done 项最后上报进度 < 1.0（claimed 与 reported 矛盾，§19）。
