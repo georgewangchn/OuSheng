@@ -273,6 +273,37 @@ func TestDoneItemWithStaleDepNotBlocking(t *testing.T) {
 	}
 }
 
+// 依赖目标被取消 = 永不满足，open 项必须 BLOCKED（比悬空更糟：missing 还可能重现，cancelled 不会）。
+func TestDependsOnCancelledBlocks(t *testing.T) {
+	a := wi("A-1", model.StatusDoing)
+	a.DependsOn = []string{"B-1"}
+	b := wi("B-1", model.StatusCancelled)
+	r, err := Check(idxFrom(t, []model.WorkItem{a, b}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Blocked {
+		t.Fatalf("dep-on-cancelled should be BLOCKED, got %s", r.Status)
+	}
+	if !strings.Contains(strings.Join(r.Blockers, ";"), "dependency B-1 cancelled") {
+		t.Fatalf("blockers wrong: %v", r.Blockers)
+	}
+}
+
+// done 项依赖被取消的单：历史残留，不阻塞（与 stale dep 同理）。
+func TestDoneItemWithCancelledDepNotBlocking(t *testing.T) {
+	a := wi("A-1", model.StatusDone)
+	a.DependsOn = []string{"B-1"}
+	b := wi("B-1", model.StatusCancelled)
+	r, err := Check(idxFrom(t, []model.WorkItem{a, b}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Converged {
+		t.Fatalf("done item's cancelled dep must not block, got %s (%v)", r.Status, r.Blockers)
+	}
+}
+
 func TestCycle(t *testing.T) {
 	a := wi("A-1", model.StatusDoing)
 	a.DependsOn = []string{"B-1"}
