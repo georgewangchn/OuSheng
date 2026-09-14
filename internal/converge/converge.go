@@ -85,6 +85,14 @@ func Check(idx index.Index) (Result, error) {
 					blockers = append(blockers, fmt.Sprintf("%s: dangling dependency %s", w.ID, b.DepID))
 				}
 			}
+			// 依赖被取消 = 永不满足（比悬空更糟：missing 还可能重现，cancelled 不会）。
+			// isDone 把 cancelled 当满足是给「已关闭项的依赖是历史残留」用的语义，
+			// 对 open 项的依赖目标必须反着算。
+			for _, dep := range w.DependsOn {
+				if d, ok, err := idx.Get(dep); err == nil && ok && d.Status == model.StatusCancelled {
+					blockers = append(blockers, fmt.Sprintf("%s: dependency %s cancelled (unsatisfiable)", w.ID, dep))
+				}
+			}
 		}
 
 		// C1：verified 契约必须有 evidence（写路径已挡，此处防手工编辑绕过）
