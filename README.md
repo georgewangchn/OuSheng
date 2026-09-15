@@ -6,14 +6,14 @@
 
 **多人多系统的 AI Coding 敏捷看板**
 
-看板就是一个 git 仓 —— AI 窗口领活 · 留证 · 汇报，人只拍板
+看板就是一个 git 仓 —— AI 窗口领活 · 留证 · 汇报 · 表态，人只拍板
 
 ![Go](assets/badges/go.svg)
 ![Platform](assets/badges/platform.svg)
 [![License](assets/badges/license.svg)](LICENSE)
 [![Store](assets/badges/store.svg)](docs/state-store.md)
 
-无服务器 · 无配置中心 · `git push/pull` 即协作
+无服务器 · 无注册服务 · `git push/pull` 即协作
 
 [快速上手](docs/quick-start.md) · [多机多窗口使用指南](docs/多机多窗口使用指南.md) · [设计基石](docs/多人AI协作机制_方案基石.md) · [完整设计方案](docs/OuSheng_工程本体化改造方案_v0.3.md)
 
@@ -94,6 +94,31 @@ $ ousheng converge
 IN_PROGRESS
 ```
 
+## 方案与共识，也在这根绳上
+
+接口之外，AI 协作还有第二类对不齐：**整体方案**。"当时为什么这么做？"——答案在聊天记录里、在某个人脑子里，就是不在仓里。v0.4 把共识的生产与传播也上了绳：
+
+```console
+$ ousheng context me --actor ui-dev
+{
+  "pending_reviews": ["live-results"],     ← 有个方案在等我表态
+  "knowledge": ["vote-api", "vote-ui"]     ← 全局系统文档，存在即索引
+}
+```
+
+```console
+$ ousheng design list --waiting-for ui-dev
+live-results    draft    pm    vote-api,vote-ui    REQ-VOTE-003
+
+$ ousheng design decide live-results --actor pm
+design live-results decided by pm
+```
+
+- **方案 = 一个 topic 一个目录**：`design.md`（frontmatter 状态机 draft → agreed → superseded，正文随意写）+ `round-N.md` 轮次发言（节头机器可读）。**待发言清单是派生的**——说完即消，零元数据腐烂；发散的长讨论不上绳（那是对话层的事，绳只存收敛的骨架）。
+- **拍板门与 C2 同血统**：`design decide` 仅 human。agent 自拍共识 = 自导自演，写入路径直接拒。
+- **converge 盯时间轴**：方案还在 draft 你就开工（doing × draft）→ 超前曝光警告；supersede 链悬空/未生效/成环 → 警告或阻塞。
+- **注入面最小化 = 免疫面最小化**：`context me` 只注入指针（topic 名、文件名清单），方案正文绝不自动进任何 AI 上下文——需要时自己 `design show`。
+
 ## 跑起来（3 分钟）
 
 前置：Go 1.25+、系统 `git`。
@@ -109,29 +134,37 @@ ousheng work update T-001 --status doing
 ousheng view kanban
 ```
 
-看板就是一个 git 仓：单人多窗口共用一个目录；多人把它 push 到 GitHub，每人开工前 `ousheng sync`。各系统代码仓**保持独立**，零侵入。
+看板就是一个 git 仓：单人多窗口共用一个目录；多人把它 push 到 GitHub，每人开工前 `ousheng sync`，新机器 `ousheng join` 一次上绳。各系统代码仓**保持独立**，零侵入。
 
 ## 日常就三个动作
 
 | 时机 | 命令 | 回答的问题 |
 |---|---|---|
-| 开工 | `ousheng context me` | 我该干什么？被谁阻塞？ |
+| 开工 | `ousheng context me` | 我该干什么？被谁阻塞？哪个方案等我表态？ |
 | 干活 | `ousheng work update` / `progress report` / `evidence add` | 干到哪？凭什么说做完？ |
-| 收工 | `ousheng converge` + `ousheng view kanban` | 全局还差什么？谁卡住了？ |
+| 收工 | `ousheng converge` + `ousheng view kanban` | 全局还差什么？谁卡住了？谁在未拍板的方案上跑？ |
 
-## 加人 / 加 AI 窗口
+## 加人 / 加 AI 窗口：中心三行，各机自助
+
+中心只出一个项目地址（init + me + push，三行），系统、agent 全部由各机**自助上绳**——真实团队的拓扑是长出来的，不是预先规划出来的：
 
 ```bash
-ousheng team add lisi --name 李四 --role ui --system datax-ui        # 同事
-ousheng team add ui-dev --type agent --role ui --system datax-ui     # 同事的 AI 窗口
+# 新机器：clone 后跑协议，opencode 问答或人手工执行均可
+ousheng join
+
+# 协议落地的核心两步（agent 身份：顺序不可倒，me 对新 actor 恒建 human 型）
+ousheng team add ui-dev --type agent --responsible-human lead --role ui --system datax-ui
+ousheng me ui-dev
 ```
 
-AI 窗口挂上 [adapter](adapters/README.md)（opencode / Claude Code）后自动遵守三时机：**启动必读**（sync 注入队列+阻塞+契约）、按需可查（MCP 工具）、**收尾必写**（converge 提醒）。`verified` 契约必须带证据（C1），breaking 必须人 ack（C2）—— 写入路径和收敛检查双层强制，AI 绕不过去。
+`ousheng join` 打印的协议与 CLI 同版本（时机零动线）：身份参数只来自本机 human 问答；系统先 `system list` 选、清单空才创造；**问责是人对人的授予**——agent 的 responsible-human 必须已上绳，agent 无权自己造一个（CLI 写路径校验）。机器损毁？re-clone 后重跑同一协议，registry 在中央仓，本机只有身份和路径两个小文件。
+
+AI 窗口挂上 [adapter](adapters/README.md)（opencode / Claude Code）后自动遵守三时机：**启动必读**（sync 注入队列+阻塞+契约+待表态方案）、按需可查（MCP 工具）、**收尾必写**（converge 提醒）。`verified` 契约必须带证据（C1），breaking 必须人 ack（C2），方案拍板必须 human（v0.4）—— 写入路径和收敛检查双层强制，AI 绕不过去。
 
 <details>
 <summary><b>为什么这么设计（点开）</b></summary>
 
-一根绳，不替牛干活。OuSheng 只做两件事：让每个 worker 看到当前约定状态；强制破坏性变更人工背书。刻意不做：合约自动生成（AI 写的契约 AI 自己验收 = 幻觉闭环）、语义合并（自然语言歧义交机器裁决 = 黑盒）、Ontology 推理、中心验证管线（git 已带审计/冲突解决/分布式同步）。
+一根绳，不替牛干活。OuSheng 只做三件事：让每个 worker 看到当前约定状态；强制破坏性变更与方案拍板人工背书；存放并传播共识（方案、轮次、全局系统认知）。刻意不做：合约自动生成（AI 写的契约 AI 自己验收 = 幻觉闭环）、语义合并（自然语言歧义交机器裁决 = 黑盒）、讨论内容管理（发散归对话层，绳只存收敛的骨架）、Ontology 推理、中心验证管线（git 已带审计/冲突解决/分布式同步）。
 
 技术铁律：Git + YAML 是唯一事实源；SQLite 仅为可重建的派生索引；CAS revision 保证并发写不丢更新。五条设计原则与控制论映射见[设计基石](docs/多人AI协作机制_方案基石.md)。
 
@@ -151,7 +184,8 @@ v0.3 之前的核心：一张卡一个契约（`cards/<id>.yaml`），五态状�
 | | |
 |---|---|
 | [快速上手](docs/quick-start.md) | 日常循环 / 多人 / 多仓拓扑 / 通讯模型 |
-| [多机多窗口使用指南](docs/多机多窗口使用指南.md) | 4 系统 × 4 机器 + 产品经理的完整拓扑、安装与日常协议 |
+| [多机多窗口使用指南](docs/多机多窗口使用指南.md) | 两段式上绳（join 时机零）、4 系统 × 4 机器完整拓扑与日常协议 |
+| [共识层设计方案 v0.4](docs/OuSheng_共识层设计方案_v0.4.md) | 方案讨论/轮次/拍板/architecture 全局面貌——线下沟通的本体化 |
 | [工程模型](docs/engineering-model.md) · [上下文协议](docs/context-protocol.md) · [存储约定](docs/state-store.md) | v0.3 规格 |
 | [设计基石](docs/多人AI协作机制_方案基石.md) · [完整设计方案](docs/OuSheng_工程本体化改造方案_v0.3.md) | 为什么这样设计 |
 | [v1 board](docs/v1-board.md) | 历史层参考 |
@@ -160,7 +194,7 @@ v0.3 之前的核心：一张卡一个契约（`cards/<id>.yaml`），五态状�
 
 <div align="center">
 
-**一根绳，一块板，接口不再靠缘分。**
+**一根绳，一块板——接口不再靠缘分，共识不再靠记性。**
 
 [GitHub](https://github.com/georgewangchn/OuSheng) · MIT License
 
