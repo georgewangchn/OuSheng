@@ -47,6 +47,7 @@ workspace:
   todo <title> [--system S --version V]            建任务（自动 T-xxx ID + 全默认值）
   sync [--actor ID]                                git pull + 索引刷新 + 看板/我的上下文
   converge                                         收敛检查（CONVERGED/IN_PROGRESS/BLOCKED）
+  design <list|show|decide|supersede>              共识层：整体方案（list 可按 --status/--waiting-for 过滤；decide/supersede 为 human 门）
 
 context (查看时机: 每日启动 / 遇到问题 / 任务结束):
   context me [--actor ID] [--json]                 我的工程上下文（第一层）
@@ -115,6 +116,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdSync(args[1:], stdout, stderr)
 	case "converge":
 		return cmdConverge(args[1:], stdout, stderr)
+	case "design":
+		return cmdDesign(args[1:], stdout, stderr)
 	case "context":
 		return cmdContext(args[1:], stdout, stderr)
 	case "work":
@@ -203,12 +206,14 @@ func cmdConverge(args []string, stdout, stderr io.Writer) int {
 	if code := rejectExtra(fs, stderr); code != 0 {
 		return code
 	}
-	idx, err := loadIndex(fs.Dir())
+	idx, snap, err := loadSnapshot(fs.Dir())
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	res, err := converge.Check(idx)
+	// 共识层输入经 kn 显式携带（v0.4：不进 Index 查询面——S5 判决）。
+	kn := converge.Knowledge{Designs: snap.Designs, Architecture: snap.Architecture}
+	res, err := converge.Check(idx, kn)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -291,16 +296,22 @@ func newFS(name string) *flagSetWithDir {
 func (f *flagSetWithDir) Dir() string { return *f.dir }
 
 func loadIndex(dir string) (index.Index, error) {
+	idx, _, err := loadSnapshot(dir)
+	return idx, err
+}
+
+// loadSnapshot 装载索引 + 完整快照（converge 需要共识层字段，Index 不感知——S5）。
+func loadSnapshot(dir string) (index.Index, index.Snapshot, error) {
 	repo := gityaml.Open(dir)
 	snap, err := index.Load(repo)
 	if err != nil {
-		return nil, err
+		return nil, snap, err
 	}
 	idx := memory.New()
 	if err := idx.Rebuild(snap); err != nil {
-		return nil, err
+		return nil, snap, err
 	}
-	return idx, nil
+	return idx, snap, nil
 }
 
 func usageErr(stderr io.Writer, err error) int {
