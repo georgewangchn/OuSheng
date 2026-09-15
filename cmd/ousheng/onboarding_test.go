@@ -579,3 +579,23 @@ func TestActivityPerActorFiles(t *testing.T) {
 		t.Fatalf("activity list must show both actors:\n%s", out)
 	}
 }
+
+func TestTeamAddResponsibleHumanGate(t *testing.T) {
+	// F4 门（两段式配置推演 2026-09-15）：问责是人对人的授予，agent 无权创造。
+	// 自注册联邦式配置下，agent 可自己 team add——若无此门，agent 可谎报
+	// responsible-human 指向未注册者/另一个 agent，傀儡问责链静默成立。
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+
+	// 未注册 → 拒（引导其先上绳）
+	if _, se, code := runIn(t, dir, "team", "add", "a1", "--type", "agent", "--responsible-human", "ghost"); code == 0 || !strings.Contains(se, "not in registry") {
+		t.Fatalf("unregistered responsible-human must be rejected: code=%d stderr=%s", code, se)
+	}
+	// 注册 human 后 → 放行
+	mustRun(t, dir, "me", "george", "--name", "George")
+	mustRun(t, dir, "team", "add", "a1", "--type", "agent", "--responsible-human", "george")
+	// 指向 agent 型 → 拒（问责不可转授）
+	if _, se, code := runIn(t, dir, "team", "add", "a2", "--type", "agent", "--responsible-human", "a1"); code == 0 || !strings.Contains(se, "must be human") {
+		t.Fatalf("agent-type responsible-human must be rejected: code=%d stderr=%s", code, se)
+	}
+}
