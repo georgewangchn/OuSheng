@@ -106,7 +106,7 @@ func TestReviewClosedCycleNotBlocking(t *testing.T) {
 	if err := idx.Rebuild(snap); err != nil {
 		t.Fatal(err)
 	}
-	r, err := converge.Check(idx)
+	r, err := converge.Check(idx, converge.Knowledge{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestReviewClosedCycleNotBlocking(t *testing.T) {
 	if err := idx2.Rebuild(snap); err != nil {
 		t.Fatal(err)
 	}
-	r2, err := converge.Check(idx2)
+	r2, err := converge.Check(idx2, converge.Knowledge{})
 	if err != nil {
 		t.Fatal(err)
 	}

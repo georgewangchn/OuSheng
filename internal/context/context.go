@@ -11,6 +11,7 @@ package context
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"ousheng/internal/index"
 	"ousheng/internal/index/memory"
@@ -22,6 +23,11 @@ type Service struct {
 	Repo    state.Repository
 	Idx     index.Index
 	Project model.Project
+
+	// 共识层（v0.4）：随 Snapshot 携带，join 于消费点（context/work show/converge），
+	// 不进 Index 查询面（S5 判决）。
+	Designs      []model.DesignInfo
+	Architecture []string
 }
 
 // New 装载 snapshot 并构建内存索引（小规模零基础设施，§30）。
@@ -34,7 +40,7 @@ func New(repo state.Repository) (*Service, error) {
 	if err := idx.Rebuild(snap); err != nil {
 		return nil, err
 	}
-	return &Service{Repo: repo, Idx: idx, Project: snap.Project}, nil
+	return &Service{Repo: repo, Idx: idx, Project: snap.Project, Designs: snap.Designs, Architecture: snap.Architecture}, nil
 }
 
 // --- 第一层：最小上下文 ---
@@ -50,6 +56,10 @@ type MyContext struct {
 	TargetVersion    string      `json:"target_version,omitempty"`
 	ActiveWork       []WorkBrief `json:"active_work,omitempty"`
 	Blockers         []string    `json:"blockers,omitempty"`
+
+	// 共识层三通道（v0.4 §4.4，注入面铁律：全是指针，零自由文本）。
+	Knowledge       []string `json:"knowledge,omitempty"`        // architecture 文件名清单（正文自读）
+	PendingReviews  []string `json:"pending_reviews,omitempty"`  // 等我发言的 draft 设计主题（地址化派生）
 }
 
 // WorkBrief 是 active work 的最小条目；progress 标注 reported（§19/§21）。
@@ -62,6 +72,7 @@ type WorkBrief struct {
 	DueOn         string         `json:"due_on,omitempty"`
 	ProgressValue float64        `json:"progress_reported,omitempty"`
 	Contract      *ContractBrief `json:"contract,omitempty"`
+	Design        string         `json:"design,omitempty"` // 方案出处指针："export-csv (agreed)"（v0.4 §4.4）
 }
 
 // ContractBrief 是 WorkItem 内嵌契约的最小信号（S6：接口标准必须进注入信道，
@@ -72,14 +83,27 @@ type ContractBrief struct {
 	Breaking bool   `json:"breaking,omitempty"`
 }
 
-// newWorkBrief 是 WorkBrief 唯一构造点（曾因多点复制漏字段，见四路验证规则）。
-func newWorkBrief(w model.WorkItem) WorkBrief {
+// workBrief 是 WorkBrief 唯一构造点（曾因多点复制漏字段，见四路验证规则）。
+// Design 出处也在此单点接入（v0.4：新信号只改一处）。
+func (s *Service) workBrief(w model.WorkItem) WorkBrief {
 	b := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System, Priority: w.Priority, DueOn: w.DueOn}
 	if w.Progress != nil {
 		b.ProgressValue = w.Progress.Value
 	}
 	if w.Contract != nil {
 		b.Contract = &ContractBrief{Kind: w.Contract.Kind, Status: string(w.Contract.Status), Breaking: w.Contract.Breaking}
+	}
+	var topics []string
+	for _, d := range s.Designs {
+		for _, id := range d.Design.RelatedItems {
+			if id == w.ID {
+				topics = append(topics, d.Topic+" ("+string(d.Design.Status)+")")
+			}
+		}
+	}
+	if len(topics) > 0 {
+		sort.Strings(topics)
+		b.Design = strings.Join(topics, ", ")
 	}
 	return b
 }
@@ -142,7 +166,7 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 		active = append(active, w)
 	}
 	for _, w := range active {
-		brief := newWorkBrief(w)
+		brief := s.workBrief(w)
 		ctx.ActiveWork = append(ctx.ActiveWork, brief)
 		bs, err := s.Idx.BlockersOf(w.ID)
 		if err != nil {
@@ -156,6 +180,42 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 		ctx.ActiveWork = []WorkBrief{}
 	}
 	ctx.Blockers = sortedKeys(blockerSet)
+
+	// 共识层三通道（v0.4 §4.4）：
+	// knowledge = architecture 文件名（指针，正文 agent 按需自读——注入面铁律）。
+	ctx.Knowledge = s.Architecture
+
+	// pending_reviews = 地址化派生：draft × systems 与我的作用域相交 ×
+	// 最新轮次我未发言（owner 不算——design 本身就是他的发言）。
+	// 空 systems = 未指名受众，不喊人（PM 巡检面可见）。
+	var pending []string
+	for _, d := range s.Designs {
+		if d.Design.Status != model.DesignDraft || d.Design.Owner == actorID {
+			continue
+		}
+		addressed := false
+		for _, sys := range d.Design.Systems {
+			if scope[sys] {
+				addressed = true
+				break
+			}
+		}
+		if !addressed {
+			continue
+		}
+		spoken := false
+		for _, a := range d.LatestSpeakers {
+			if a == actorID {
+				spoken = true
+				break
+			}
+		}
+		if !spoken {
+			pending = append(pending, d.Topic)
+		}
+	}
+	sort.Strings(pending)
+	ctx.PendingReviews = pending
 	return ctx, nil
 }
 
@@ -209,7 +269,7 @@ func (s *Service) GetActorContext(actorID string) (*ActorView, error) {
 		if !model.WorkItemActive(w.Status) {
 			continue
 		}
-		brief := newWorkBrief(w)
+		brief := s.workBrief(w)
 		v.AccountableFor = append(v.AccountableFor, brief)
 		if w.Status == model.StatusBlocked {
 			v.BlockedWork = append(v.BlockedWork, brief)
@@ -271,7 +331,7 @@ func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
 		if !model.WorkItemActive(w.Status) {
 			continue
 		}
-		brief := newWorkBrief(w)
+		brief := s.workBrief(w)
 		v.ActiveWork = append(v.ActiveWork, brief)
 		if w.Type == model.TypeBug && model.WorkItemOpen(w.Status) {
 			v.OpenBugs++
@@ -290,9 +350,18 @@ func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
 
 // --- 第二层：单个 WorkItem 全量 ---
 
+// DesignBrief 是 work show detail 层的方案出处（v0.4 §4.4：detail 接入，
+// list/kanban 明文出局——扫视层不放深链接）。
+type DesignBrief struct {
+	Topic     string `json:"topic" yaml:"topic"`
+	Status    string `json:"status" yaml:"status"`
+	DecidedBy string `json:"decided_by,omitempty" yaml:"decided_by,omitempty"`
+}
+
 type WorkItemDetail struct {
 	model.WorkItem
-	Deps []WorkBrief `json:"deps,omitempty"` // 直接依赖摘要
+	Deps    []WorkBrief    `json:"deps,omitempty"`    // 直接依赖摘要
+	Designs []DesignBrief  `json:"designs,omitempty"` // 关联方案出处
 }
 
 func (s *Service) GetWorkItem(id string) (*WorkItemDetail, error) {
@@ -313,7 +382,15 @@ func (s *Service) GetWorkItem(id string) (*WorkItemDetail, error) {
 			d.Deps = append(d.Deps, WorkBrief{ID: dep, Status: "missing"})
 			continue
 		}
-		d.Deps = append(d.Deps, newWorkBrief(dw))
+		d.Deps = append(d.Deps, s.workBrief(dw))
+	}
+	for _, di := range s.Designs {
+		for _, id := range di.Design.RelatedItems {
+			if id == w.ID {
+				d.Designs = append(d.Designs, DesignBrief{Topic: di.Topic, Status: string(di.Design.Status), DecidedBy: di.Design.DecidedBy})
+				break
+			}
+		}
 	}
 	return d, nil
 }
