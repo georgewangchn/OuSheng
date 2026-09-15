@@ -8,6 +8,7 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. v0.3 已实现�
 
 - v1：Card/Contract 协作绳（`cards/`、`cmd/board`）——继续可用，勿破坏。
 - v0.3：工程语义层（`.ousheng/` workspace、`cmd/ousheng`）——Actor/System/Assignment/WorkItem/typed Evidence/Progress；Git+YAML 为 canonical，SQLite 仅派生索引（`internal/index/sqlite`）。
+- v0.4：共识层（`.ousheng/architecture/` + `.ousheng/designs/`，`design list|show|decide|supersede`）——architecture 全局面貌 + design 决策过程；详见 `docs/OuSheng_共识层设计方案_v0.4.md`（权威）。
 
 语言：所有文档正文为中文，保留中文内容不翻译。
 
@@ -51,10 +52,20 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. v0.3 已实现�
 - **嵌套 aggregate 同罪**：Contract、blocks 等嵌套结构与平面字段适用同一四路规则——信号必须接通四路，或明文判决出局并写明理由（2026-09-12 第二课：contract 进了存储但 list/kanban/WorkBrief 三路全盲，接口标准是基石唯一钉死之物，恰好漏得最狠）。机械锁：同文件 `TestContractSignalFourPaths`。WorkBrief 构造已收敛至 `internal/context` 的 `newWorkBrief` 单点，新信号只改一处。
 - **验证命令**：`go test ./... && go vet ./...`（每次改动必跑）。
 - **依赖被砍 = BLOCKED**（S7 混沌发现 2026-09-14）：open 项依赖目标 cancelled = 永不满足（missing 可能重现，cancelled 不会）→ converge 硬阻塞 `dependency X cancelled (unsatisfiable)`；done 项历史残留不阻塞。修在 converge 层（Index.isDone 是历史残留语义，勿动）。锁 `TestDependsOnCancelledBlocks`。
-- **S7 多机回归**：`scripts/dogfood-s7.sh` 四机拓扑（PM/后端/前端/测试 + bare 中央仓）全流程演练——含 C2 攻防（agent 自 ack 被拒→human ack 放行）、push 分歧 pull --rebase 恢复、四机 converge 一致性；`scripts/dogfood-s7-chaos.sh` 混沌第一辑（同拓扑 + 第五机 mobile-agent + 12 突发：需求变更/事故插队/同单跨机冲突/机器损毁 re-clone/新成员移交/误取消重开/competing contracts/依赖被砍/伪造证据/紧急回滚/虚报被抓/优先级重排）；`scripts/dogfood-s7-chaos2.sh` 混沌第二辑（CMS 场景五机 + 12 全新突发：发版跳版/agent 失联重派/breaking 三连攻防/假冒 --actor（git 审计揪出）/手改损坏 strict decode 拒+revert 恢复/依赖环/撞 ID/8192 门/裸修中央仓/批量雪崩/重工循环/诚实框架假证据）。改 state/sync/activity 相关代码后必跑（三剧本都跑）。
+- **S7 多机回归**：`scripts/dogfood-s7.sh` 四机拓扑（PM/后端/前端/测试 + bare 中央仓）全流程演练——含 C2 攻防（agent 自 ack 被拒→human ack 放行）、push 分歧 pull --rebase 恢复、四机 converge 一致性；`scripts/dogfood-s7-chaos.sh` 混沌第一辑（同拓扑 + 第五机 mobile-agent + 12 突发：需求变更/事故插队/同单跨机冲突/机器损毁 re-clone/新成员移交/误取消重开/competing contracts/依赖被砍/伪造证据/紧急回滚/虚报被抓/优先级重排）；`scripts/dogfood-s7-chaos2.sh` 混沌第二辑（CMS 场景五机 + 12 全新突发：发版跳版/agent 失联重派/breaking 三连攻防/假冒 --actor（git 审计揪出）/手改损坏 strict decode 拒+revert 恢复/依赖环/撞 ID/8192 门/裸修中央仓/批量雪崩/重工循环/诚实框架假证据）；`scripts/dogfood-s7-design.sh` 第四幕共识层（三机：设计发起/轮次发言 pending 派生/超前曝光 warning/agent 自 decide 被拒/supersede 继任链/waiting-for 巡检）。改 state/sync/activity 相关代码后必跑（四剧本都跑）；改共识层（context/converge/design cmd）后必跑第四幕。
 - **查看时机协议**：三时机（session 启动 sync / 遇问题查上下文 / 任务结束更新再看板），禁止引入每 loop 轮询。
 - fixtures：`fixtures/lakehouse/` 是五场景数据，`internal/testfix.Setup(t)` 装载；改 fixture 须跑全量测试。
 - **提交纪律**：`git add` 用显式路径，禁 `git add -A`（会把 `内容/` 未跟踪文章带进来）。Commit message 正常散文体 + trailer `Co-Authored-By: Claude <noreply@anthropic.com>`。
+
+### 共识层（v0.4 层）——设计依据 `docs/OuSheng_共识层设计方案_v0.4.md`（权威）
+
+- **布局**：`.ousheng/architecture/<系统>.md`（纯 MD 零 schema，绳只索引文件名，正文人写 LLM 写皆可）+ `.ousheng/designs/<topic>/design.md`（frontmatter：status/owner/systems/related_items/decided_by/decided_at/superseded_by，正文 verbatim 往返）+ `round-N.md`（节头 `## <actor> — <日期>`，机器可读清单）。`waiting_for` 不存储——从最新 round 节头派生（零元数据腐烂）；topic 命名受 topicRe 约束（防路径穿越）。
+- **生命周期**：draft→agreed（`design decide`，仅 human）→superseded（`design supersede --by`，仅 human + 继任者存在 + 禁自 supersede）。内容生成不经绳——design.md/round 人和 agent 直接写文件，绳只做发现/注入/生命周期。
+- **注入面铁律（T10）**：`context me` 等自动注入面只含指针——design topic（`WorkBrief.design` 出处）、architecture 文件名清单（`knowledge`）、待发言主题（`pending_reviews`）——绝不含 design/architecture 正文自由文本。注入面最小化=免疫面最小化。机械锁：`cmd/ousheng/design_cmd_test.go` `TestDesignSignalPaths` 的 INJECTION-MARKER 双断言。
+- **human 门**：design decide/supersede 仅 human actor（`humanActor`，注册表为空时拒绝——拍板门没有弱形态）；agent 自 decide = 自拍共识，必拒。锁 `TestDesignDecideMustBeHuman`。门强度诚实边界：写路径校验+审计，手改 frontmatter 可绕过（同 C2 边界，git 审计兜底）。
+- **共识信号四路判决**：接入 = `work show`（Designs detail 层）+ `context me`（WorkBrief.design / knowledge / pending_reviews 三通道）；**明文出局** = `work list` / `view kanban`（扫视层不放深链接，v0.4 §4.4 判决）。新共识信号照此：接通两路注入面，或明文判决出局并写明理由。锁 `TestDesignSignalPaths`。
+- **converge 共识审计**：非 human decide = BLOCKER；supersede 环 = BLOCKER、悬空/未生效 = warning；related_items 悬空 = warning；work doing/testing/done × design draft 超前曝光 = warning（§4.8 防线二）；architecture 覆盖缺失 = warning（双向：design 提及的系统无文档、有文档的系统无 active design 时）。锁 `internal/converge/converge_test.go` 9 个 TestDesign*/TestSupersede*。
+- **S5 判决**：designs/architecture 只进 `index.Snapshot`（context/converge 直接读），**不进 Index 查询面**（memory/sqlite Rebuild 忽略），S5 等价性测试不受影响；升 Index 查询面判据同 sqlite 激活判据（真实痛点才接）。
 
 ## When implementing code (phase 1, v1 layer — historical rules still binding)
 
