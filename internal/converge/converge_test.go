@@ -36,6 +36,185 @@ func idxFrom(t *testing.T, items []model.WorkItem) index.Index {
 	return idx
 }
 
+// checkFixtures 带固定语料的 Check（共识层输入为空：fixtures 无 designs）。
+func checkFixtures(t *testing.T) (Result, error) {
+	t.Helper()
+	return Check(idxFromFixtures(t), Knowledge{})
+}
+
+// --- 共识层（v0.4）：design 审计 ---
+
+func idxWithActors(t *testing.T, actors []model.ActorFile) index.Index {
+	t.Helper()
+	snap := index.Snapshot{
+		Actors: actors,
+	}
+	idx := memory.New()
+	if err := idx.Rebuild(snap); err != nil {
+		t.Fatal(err)
+	}
+	return idx
+}
+
+var castActors = []model.ActorFile{
+	{Actor: model.Actor{ID: "pm", Type: model.ActorHuman}},
+	{Actor: model.Actor{ID: "be-agent", Type: model.ActorAgent}},
+}
+
+func di(topic, status, decidedBy, supersededBy string, systems, related []string) model.DesignInfo {
+	return model.DesignInfo{Topic: topic, Design: model.DesignDoc{
+		Status: model.DesignStatus(status), Owner: "be-agent", Systems: systems,
+		RelatedItems: related, DecidedBy: decidedBy, SupersededBy: supersededBy,
+	}}
+}
+
+// agent 自拍共识（agreed 但 decided_by 非 human）= BLOCKER（T10 §10.2，C2 血统）。
+func TestDesignDecidedByNonHumanBlocks(t *testing.T) {
+	idx := idxWithActors(t, castActors)
+	kn := Knowledge{Designs: []model.DesignInfo{di("export", "agreed", "be-agent", "", nil, nil)}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Blocked || !contains(r.Blockers, "non-human") {
+		t.Fatalf("agent-decided design must BLOCK, got %s (%v)", r.Status, r.Blockers)
+	}
+}
+
+func TestDesignDecidedByUnknownActorBlocks(t *testing.T) {
+	idx := idxWithActors(t, castActors)
+	kn := Knowledge{Designs: []model.DesignInfo{di("export", "agreed", "ghost", "", nil, nil)}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Blocked || !contains(r.Blockers, "unknown actor") {
+		t.Fatalf("unknown decider must BLOCK, got %s (%v)", r.Status, r.Blockers)
+	}
+}
+
+func TestDesignDecidedByHumanConverges(t *testing.T) {
+	idx := idxWithActors(t, castActors)
+	kn := Knowledge{Designs: []model.DesignInfo{di("export", "agreed", "pm", "", nil, nil)}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Converged || len(r.Warnings) != 0 {
+		t.Fatalf("human-decided design must converge clean, got %s (%v)", r.Status, r.Warnings)
+	}
+}
+
+// supersede 链环 = BLOCKER（镜像依赖环，T10 §10.3）。
+func TestSupersedeCycleBlocks(t *testing.T) {
+	idx := idxWithActors(t, castActors)
+	kn := Knowledge{Designs: []model.DesignInfo{
+		di("a", "superseded", "", "b", nil, nil),
+		di("b", "superseded", "", "a", nil, nil),
+	}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Blocked || !contains(r.Blockers, "supersede cycle") {
+		t.Fatalf("supersede cycle must BLOCK, got %s (%v)", r.Status, r.Blockers)
+	}
+}
+
+func TestSupersedeDanglingWarns(t *testing.T) {
+	idx := idxWithActors(t, castActors)
+	kn := Knowledge{Designs: []model.DesignInfo{di("a", "superseded", "", "ghost", nil, nil)}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Converged || !contains(r.Warnings, "dangling") {
+		t.Fatalf("dangling successor must warn, got %s (%v)", r.Status, r.Warnings)
+	}
+}
+
+func TestSupersedeNotEffectiveWarns(t *testing.T) {
+	idx := idxWithActors(t, castActors)
+	kn := Knowledge{Designs: []model.DesignInfo{
+		di("old", "superseded", "", "new", nil, nil),
+		di("new", "draft", "", "", nil, nil),
+	}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(r.Warnings, "not effective") {
+		t.Fatalf("draft successor must warn not-effective, got %v", r.Warnings)
+	}
+}
+
+// 超前曝光：work 开工（doing/testing/done）而方案仍 draft（§4.8 防线二）。
+func TestWorkAheadOfDraftDesignWarns(t *testing.T) {
+	w := wi("REQ-1", model.StatusDoing)
+	idx := memory.New()
+	if err := idx.Rebuild(index.Snapshot{Actors: castActors, WorkItems: []model.WorkItem{w}}); err != nil {
+		t.Fatal(err)
+	}
+	kn := Knowledge{Designs: []model.DesignInfo{di("plan", "draft", "", "", nil, []string{"REQ-1"})}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != InProgress || !contains(r.Warnings, "running ahead of undecided design plan") {
+		t.Fatalf("ahead-of-draft must warn, got %s (%v)", r.Status, r.Warnings)
+	}
+}
+
+func TestRelatedItemsDanglingWarns(t *testing.T) {
+	idx := idxWithActors(t, castActors)
+	kn := Knowledge{Designs: []model.DesignInfo{di("plan", "agreed", "pm", "", nil, []string{"GHOST-1"})}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(r.Warnings, "related item GHOST-1 missing") {
+		t.Fatalf("dangling related item must warn, got %v", r.Warnings)
+	}
+}
+
+// architecture 覆盖（T10 §10.5）：注册系统无文档 → warning；文档无系统 → warning。
+func TestArchitectureCoverageWarns(t *testing.T) {
+	snap := index.Snapshot{
+		Actors:  castActors,
+		Systems: []model.System{{ID: "datax"}, {ID: "ui"}},
+	}
+	idx := memory.New()
+	if err := idx.Rebuild(snap); err != nil {
+		t.Fatal(err)
+	}
+	kn := Knowledge{Architecture: []string{"datax", "ghost-sys"}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(r.Warnings, "system ui: no architecture doc") {
+		t.Fatalf("uncovered system must warn, got %v", r.Warnings)
+	}
+	if !contains(r.Warnings, "architecture ghost-sys.md: not a registered system") {
+		t.Fatalf("orphan architecture must warn, got %v", r.Warnings)
+	}
+}
+
+func contains(list []string, sub string) bool {
+	for _, s := range list {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkK 无共识层输入的 Check（既有用例：只测 WorkItem 面）。
+func checkK(t *testing.T, items []model.WorkItem) (Result, error) {
+	t.Helper()
+	return Check(idxFrom(t, items), Knowledge{})
+}
+
 func wi(id string, status model.WorkStatus) model.WorkItem {
 	return model.WorkItem{SchemaVersion: 2, ID: id, Type: model.TypeTask, Title: id, Status: status, Revision: 1}
 }
@@ -45,7 +224,7 @@ func TestDoneWithPartialProgressWarns(t *testing.T) {
 	w := wi("W-1", model.StatusDone)
 	w.Progress = &model.ProgressReport{Value: 0.5, Actor: "a", ReportedAt: "2026-09-09T10:00:00+08:00", Basis: model.BasisManual}
 	w.Evidence = []model.Evidence{{Type: model.EvidenceManualCheck, Source: "human", Locator: "review"}}
-	r, err := Check(idxFrom(t, []model.WorkItem{w}))
+	r, err := checkK(t, []model.WorkItem{w})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +240,7 @@ func TestDoneWithFullProgressNoWarning(t *testing.T) {
 	w := wi("W-1", model.StatusDone)
 	w.Progress = &model.ProgressReport{Value: 1.0, Actor: "a", ReportedAt: "2026-09-09T10:00:00+08:00", Basis: model.BasisManual}
 	w.Evidence = []model.Evidence{{Type: model.EvidenceManualCheck, Source: "human", Locator: "review"}}
-	r, err := Check(idxFrom(t, []model.WorkItem{w}))
+	r, err := checkK(t, []model.WorkItem{w})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +253,7 @@ func TestDoneWithFullProgressNoWarning(t *testing.T) {
 func TestDoneWithoutProgressNoWarning(t *testing.T) {
 	w := wi("W-1", model.StatusDone)
 	w.Evidence = []model.Evidence{{Type: model.EvidenceManualCheck, Source: "human", Locator: "review"}}
-	r, err := Check(idxFrom(t, []model.WorkItem{w}))
+	r, err := checkK(t, []model.WorkItem{w})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +266,7 @@ func TestDoneWithoutProgressNoWarning(t *testing.T) {
 func TestDoingPartialProgressNoWarning(t *testing.T) {
 	w := wi("W-1", model.StatusDoing)
 	w.Progress = &model.ProgressReport{Value: 0.5, Actor: "a", ReportedAt: "2026-09-09T10:00:00+08:00", Basis: model.BasisManual}
-	r, err := Check(idxFrom(t, []model.WorkItem{w}))
+	r, err := checkK(t, []model.WorkItem{w})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +276,7 @@ func TestDoingPartialProgressNoWarning(t *testing.T) {
 }
 
 func TestFixturesInProgress(t *testing.T) {
-	r, err := Check(idxFromFixtures(t))
+	r, err := checkFixtures(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +292,7 @@ func TestFixturesInProgress(t *testing.T) {
 }
 
 func TestEmptyConverged(t *testing.T) {
-	r, err := Check(idxFrom(t, nil))
+	r, err := checkK(t, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +302,7 @@ func TestEmptyConverged(t *testing.T) {
 }
 
 func TestAllDoneConverged(t *testing.T) {
-	r, err := Check(idxFrom(t, []model.WorkItem{wi("A-1", model.StatusDone), wi("B-1", model.StatusCancelled)}))
+	r, err := checkK(t, []model.WorkItem{wi("A-1", model.StatusDone), wi("B-1", model.StatusCancelled)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +313,7 @@ func TestAllDoneConverged(t *testing.T) {
 
 // done 零证据：基石 ASR 意图（防过早喊 done 污染下游）的可见化，只警告不阻塞。
 func TestDoneWithoutEvidenceWarns(t *testing.T) {
-	r, err := Check(idxFrom(t, []model.WorkItem{wi("W-1", model.StatusDone)}))
+	r, err := checkK(t, []model.WorkItem{wi("W-1", model.StatusDone)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +334,7 @@ func TestDoneWithoutEvidenceWarns(t *testing.T) {
 func TestDoneWithEvidenceNoEvidenceWarning(t *testing.T) {
 	w := wi("W-1", model.StatusDone)
 	w.Evidence = []model.Evidence{{Type: model.EvidenceManualCheck, Source: "human", Locator: "review"}}
-	r, err := Check(idxFrom(t, []model.WorkItem{w}))
+	r, err := checkK(t, []model.WorkItem{w})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +350,7 @@ func TestClosedWorkWithProposedContractWarns(t *testing.T) {
 	for _, st := range []model.WorkStatus{model.StatusDone, model.StatusCancelled} {
 		w := wi("W-1", st)
 		w.Contract = &model.Contract{Kind: "http", Status: model.ContractProposed}
-		r, err := Check(idxFrom(t, []model.WorkItem{w}))
+		r, err := checkK(t, []model.WorkItem{w})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -192,7 +371,7 @@ func TestDoneWorkWithLiveContractNoWarning(t *testing.T) {
 	w := wi("W-1", model.StatusDone)
 	w.Contract = &model.Contract{Kind: "http", Status: model.ContractLive}
 	w.Evidence = []model.Evidence{{Type: model.EvidenceManualCheck, Source: "human", Locator: "review"}}
-	r, err := Check(idxFrom(t, []model.WorkItem{w}))
+	r, err := checkK(t, []model.WorkItem{w})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +393,7 @@ func TestBreakingAckedByNonHumanBlocks(t *testing.T) {
 	if err := idx.Rebuild(snap); err != nil {
 		t.Fatal(err)
 	}
-	r, err := Check(idx)
+	r, err := Check(idx, Knowledge{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +412,7 @@ func TestBreakingAckedByNonHumanBlocks(t *testing.T) {
 }
 
 func TestExplicitBlocked(t *testing.T) {
-	r, err := Check(idxFrom(t, []model.WorkItem{wi("A-1", model.StatusBlocked)}))
+	r, err := checkK(t, []model.WorkItem{wi("A-1", model.StatusBlocked)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +427,7 @@ func TestExplicitBlocked(t *testing.T) {
 func TestDanglingDep(t *testing.T) {
 	a := wi("A-1", model.StatusDoing)
 	a.DependsOn = []string{"GHOST"}
-	r, err := Check(idxFrom(t, []model.WorkItem{a}))
+	r, err := checkK(t, []model.WorkItem{a})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +443,7 @@ func TestDoneItemWithStaleDepNotBlocking(t *testing.T) {
 	// done 项的依赖不再阻塞收敛（历史依赖）
 	a := wi("A-1", model.StatusDone)
 	a.DependsOn = []string{"B-1"}
-	r, err := Check(idxFrom(t, []model.WorkItem{a}))
+	r, err := checkK(t, []model.WorkItem{a})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +457,7 @@ func TestDependsOnCancelledBlocks(t *testing.T) {
 	a := wi("A-1", model.StatusDoing)
 	a.DependsOn = []string{"B-1"}
 	b := wi("B-1", model.StatusCancelled)
-	r, err := Check(idxFrom(t, []model.WorkItem{a, b}))
+	r, err := checkK(t, []model.WorkItem{a, b})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +474,7 @@ func TestDoneItemWithCancelledDepNotBlocking(t *testing.T) {
 	a := wi("A-1", model.StatusDone)
 	a.DependsOn = []string{"B-1"}
 	b := wi("B-1", model.StatusCancelled)
-	r, err := Check(idxFrom(t, []model.WorkItem{a, b}))
+	r, err := checkK(t, []model.WorkItem{a, b})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +488,7 @@ func TestCycle(t *testing.T) {
 	a.DependsOn = []string{"B-1"}
 	b := wi("B-1", model.StatusDoing)
 	b.DependsOn = []string{"A-1"}
-	r, err := Check(idxFrom(t, []model.WorkItem{a, b}))
+	r, err := checkK(t, []model.WorkItem{a, b})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +500,7 @@ func TestCycle(t *testing.T) {
 func TestVerifiedWithoutEvidence(t *testing.T) {
 	a := wi("A-1", model.StatusDone)
 	a.Contract = &model.Contract{Kind: "http", Status: model.ContractVerified}
-	r, err := Check(idxFrom(t, []model.WorkItem{a}))
+	r, err := checkK(t, []model.WorkItem{a})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +508,7 @@ func TestVerifiedWithoutEvidence(t *testing.T) {
 		t.Fatalf("verified without evidence should be BLOCKED, got %s", r.Status)
 	}
 	a.Evidence = []model.Evidence{{Type: model.EvidenceTestResult, Source: "t"}}
-	r2, err := Check(idxFrom(t, []model.WorkItem{a}))
+	r2, err := checkK(t, []model.WorkItem{a})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +520,7 @@ func TestVerifiedWithoutEvidence(t *testing.T) {
 func TestBreakingWithoutAck(t *testing.T) {
 	a := wi("A-1", model.StatusDoing)
 	a.Contract = &model.Contract{Kind: "http", Breaking: true}
-	r, err := Check(idxFrom(t, []model.WorkItem{a}))
+	r, err := checkK(t, []model.WorkItem{a})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +528,7 @@ func TestBreakingWithoutAck(t *testing.T) {
 		t.Fatalf("breaking without ack should be BLOCKED, got %s", r.Status)
 	}
 	a.HumanAck = &model.HumanAck{Approver: "zhangsan"}
-	r2, err := Check(idxFrom(t, []model.WorkItem{a}))
+	r2, err := checkK(t, []model.WorkItem{a})
 	if err != nil {
 		t.Fatal(err)
 	}

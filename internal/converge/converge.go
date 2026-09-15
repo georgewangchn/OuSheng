@@ -32,8 +32,15 @@ type Result struct {
 	Warnings []string // 不一致但不阻塞收敛（如 done 项进度未满）——保留信号分辨力
 }
 
+// Knowledge 是共识层审计输入（v0.4：join 于 converge 层，不进 Index 查询面——S5 判决）。
+type Knowledge struct {
+	Designs      []model.DesignInfo
+	Architecture []string
+}
+
 // Check 只依赖索引：memory 与 sqlite 实现结果必须一致（S5）。
-func Check(idx index.Index) (Result, error) {
+// 共识层输入经 kn 显式携带（cmd/测试从 repo 构建，Index 不感知）。
+func Check(idx index.Index, kn Knowledge) (Result, error) {
 	all, err := idx.All()
 	if err != nil {
 		return Result{}, err
@@ -134,6 +141,8 @@ func Check(idx index.Index) (Result, error) {
 		}
 	}
 
+	blockers, warnings = kn.audit(idx, all, blockers, warnings)
+
 	if len(blockers) > 0 {
 		return Result{Status: Blocked, Blockers: blockers, Warnings: warnings}, nil
 	}
@@ -141,4 +150,96 @@ func Check(idx index.Index) (Result, error) {
 		return Result{Status: InProgress, Warnings: warnings}, nil
 	}
 	return Result{Status: Converged, Warnings: warnings}, nil
+}
+
+// audit 共识层检查（v0.4 §4.2/§4.8 + T10）。
+// BLOCKER：decided_by 非 human（agent 自拍共识）；supersede 链环。
+// WARNING：继任者悬空/未生效；related_items 悬空；draft 设计上的跑单（超前）；
+// architecture 覆盖不全（注册系统无文档 / 文档无系统）。
+func (kn Knowledge) audit(idx index.Index, all []model.WorkItem, blockers, warnings []string) ([]string, []string) {
+	byTopic := map[string]model.DesignInfo{}
+	for _, d := range kn.Designs {
+		byTopic[d.Topic] = d
+	}
+	actorByID := map[string]model.Actor{}
+	if afs, err := idx.Actors(); err == nil {
+		for _, af := range afs {
+			actorByID[af.Actor.ID] = af.Actor
+		}
+	}
+	workByID := map[string]model.WorkItem{}
+	for _, w := range all {
+		workByID[w.ID] = w
+	}
+
+	// supersede 链环（镜像依赖环）：环上方案无权威性可言。
+	edges := map[string][]string{}
+	for _, d := range kn.Designs {
+		if d.Design.Status == model.DesignSuperseded && d.Design.SupersededBy != "" {
+			edges[d.Topic] = []string{d.Design.SupersededBy}
+		}
+	}
+	if cyc := graph.FindCycle(edges); cyc != nil {
+		blockers = append(blockers, "supersede cycle: "+fmt.Sprint(cyc))
+	}
+
+	for _, d := range kn.Designs {
+		dd := d.Design
+		// decide 门审计：agreed 的 decided_by 必须是注册 human（防手改绕过 + agent 自拍）。
+		if dd.Status == model.DesignAgreed {
+			if a, ok := actorByID[dd.DecidedBy]; !ok {
+				blockers = append(blockers, fmt.Sprintf("design %s: decided by unknown actor %q", d.Topic, dd.DecidedBy))
+			} else if a.Type != model.ActorHuman {
+				blockers = append(blockers, fmt.Sprintf("design %s: decided by non-human actor %q", d.Topic, dd.DecidedBy))
+			}
+		}
+		// 链完整性：继任者存在 + 已拍板（未生效 = 权威性被甩给未拍板方案）。
+		if dd.Status == model.DesignSuperseded {
+			if succ, ok := byTopic[dd.SupersededBy]; !ok {
+				warnings = append(warnings, fmt.Sprintf("design %s: superseded_by %s dangling", d.Topic, dd.SupersededBy))
+			} else if succ.Design.Status == model.DesignDraft {
+				warnings = append(warnings, fmt.Sprintf("design %s: supersede not effective (%s still draft)", d.Topic, dd.SupersededBy))
+			}
+		}
+		for _, id := range dd.RelatedItems {
+			w, ok := workByID[id]
+			if !ok {
+				warnings = append(warnings, fmt.Sprintf("design %s: related item %s missing", d.Topic, id))
+				continue
+			}
+			// 超前曝光：开工（doing/testing/done）而方案仍 draft。
+			// 只曝光不拦：PM 可能故意抢先（§4.8 防线二）。
+			if dd.Status == model.DesignDraft {
+				switch w.Status {
+				case model.StatusDoing, model.StatusTesting, model.StatusDone:
+					warnings = append(warnings, fmt.Sprintf("%s: work running ahead of undecided design %s", w.ID, d.Topic))
+				}
+			}
+		}
+	}
+
+	// architecture 覆盖（T10 §10.5）：注册系统 ↔ 文档双向。
+	archSet := map[string]bool{}
+	for _, a := range kn.Architecture {
+		archSet[a] = true
+	}
+	if systems, err := idx.Systems(); err == nil {
+		for _, s := range systems {
+			if !archSet[s.ID] {
+				warnings = append(warnings, fmt.Sprintf("system %s: no architecture doc (.ousheng/architecture/%s.md)", s.ID, s.ID))
+			}
+		}
+	}
+	sysSet := map[string]bool{}
+	if systems, err := idx.Systems(); err == nil {
+		for _, s := range systems {
+			sysSet[s.ID] = true
+		}
+	}
+	for _, a := range kn.Architecture {
+		if !sysSet[a] {
+			warnings = append(warnings, fmt.Sprintf("architecture %s.md: not a registered system", a))
+		}
+	}
+	return blockers, warnings
 }
