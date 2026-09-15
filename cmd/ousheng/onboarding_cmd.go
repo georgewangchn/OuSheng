@@ -213,6 +213,17 @@ func cmdTeamAdd(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "agent requires --responsible-human (or run ousheng me first)")
 			return 2
 		}
+		// F4 门（两段式配置推演 2026-09-15）：问责是人对人的授予——
+		// agent 无权创造问责关系。responsible-human 必须已注册且为 human 型。
+		raf, err := repo.GetActor(rh)
+		if err != nil {
+			fmt.Fprintf(stderr, "responsible-human %q not in registry — 负责人须先上绳（其机器跑 ousheng me %s）\n", rh, rh)
+			return 2
+		}
+		if raf.Actor.Type != model.ActorHuman {
+			fmt.Fprintf(stderr, "responsible-human %q is %s, must be human（问责不可转授给 agent）\n", rh, raf.Actor.Type)
+			return 2
+		}
 		a.ResponsibleHuman = rh
 	}
 	if err := repo.SaveActor(model.ActorFile{SchemaVersion: 1, Actor: a},

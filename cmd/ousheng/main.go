@@ -34,10 +34,14 @@ const usage = `ousheng — 轻量工程上下文运行时（Engineering Context 
   ousheng work update T-001 --status doing         开工
   ousheng view kanban                              看板
 
+多机加入（时机零）:
+  ousheng join                                     首次上绳协议（新机/新窗口/re-clone 灾难恢复）
+
 用法: ousheng <command> [args]
 
 workspace:
   setup                                            交互式向导 = init + me + system add
+  join                                             时机零协议：新机首次上绳（打印动线）
   init [dir] [--project-id ID --project-name NAME] 初始化 .ousheng/ 工作区（默认=目录名）
   me [<id>] [--name N]                             查看/设置默认身份（.ousheng/me）
   team add <id> [--name N --type human|agent       加协作者/AI 窗口（不动默认身份）
@@ -98,6 +102,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "setup":
 		return cmdSetup(args[1:], stdout, stderr)
+	case "join":
+		return cmdJoin(args[1:], stdout, stderr)
 	case "init":
 		return cmdInit(args[1:], stdout, stderr)
 	case "me":
