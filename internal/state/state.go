@@ -54,4 +54,12 @@ type Repository interface {
 	// Activity（append-only audit；按时间文件分桶 YYYY-MM.jsonl）。
 	AppendActivity(acts []model.Activity, msg string) error
 	ListActivity() ([]model.Activity, error)
+
+	// 共识层（v0.4）：designs/ 与 architecture/。
+	// 读 = 目录扫描 + frontmatter strict decode（损坏响亮报错）；
+	// 写 = 仅生命周期（decide/supersede），内容生成不经绳（牛的活）。
+	ListDesigns() ([]model.DesignInfo, error)
+	ListArchitecture() ([]string, error)
+	GetDesignRaw(topic string) (model.DesignDoc, []byte, error)
+	UpdateDesign(topic string, d model.DesignDoc, body []byte, acts []model.Activity, msg string) error
 }
