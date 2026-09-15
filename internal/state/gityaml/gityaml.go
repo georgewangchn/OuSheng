@@ -79,6 +79,175 @@ func (r *Repo) actorPath(id string) string {
 	return filepath.Join(r.actorsDir(), id+".yaml")
 }
 
+// --- 共识层（v0.4）：designs/ 与 architecture/ ---
+
+var topicRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+func (r *Repo) designsDir() string      { return filepath.Join(r.root(), "designs") }
+func (r *Repo) architectureDir() string { return filepath.Join(r.root(), "architecture") }
+
+func (r *Repo) designPath(topic string) (string, error) {
+	if !topicRe.MatchString(topic) {
+		return "", fmt.Errorf("invalid design topic %q", topic)
+	}
+	return filepath.Join(r.designsDir(), topic, "design.md"), nil
+}
+
+// ListDesigns 扫描 .ousheng/designs/<topic>/design.md + 最新轮次节头（v0.4 §4.7）。
+// 目录不存在 = 无设计（老工作区零迁移）。损坏的 frontmatter 响亮报错（strict decode 纪律）。
+func (r *Repo) ListDesigns() ([]model.DesignInfo, error) {
+	dir := r.designsDir()
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []model.DesignInfo
+	for _, e := range entries {
+		if !e.IsDir() || !topicRe.MatchString(e.Name()) {
+			continue
+		}
+		topic := e.Name()
+		raw, err := os.ReadFile(filepath.Join(dir, topic, "design.md"))
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("designs/%s: missing design.md", topic)
+		}
+		if err != nil {
+			return nil, err
+		}
+		d, _, err := model.DecodeDesignDoc(raw)
+		if err != nil {
+			return nil, fmt.Errorf("designs/%s/design.md: %w", topic, err)
+		}
+		info := model.DesignInfo{Topic: topic, Design: d}
+		speakers, ok, err := latestRoundSpeakers(filepath.Join(dir, topic))
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			info.RoundExists = true
+			info.LatestSpeakers = speakers
+		}
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Topic < out[j].Topic })
+	return out, nil
+}
+
+// latestRoundSpeakers 取 round-N.md（N 最大者）的节头 actor。清单解析，非语义解析。
+func latestRoundSpeakers(topicDir string) ([]string, bool, error) {
+	entries, err := os.ReadDir(topicDir)
+	if err != nil {
+		return nil, false, err
+	}
+	best, bestName := -1, ""
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "round-") || !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(name, "round-"), ".md"))
+		if err != nil || n < 1 {
+			continue
+		}
+		if n > best {
+			best, bestName = n, name
+		}
+	}
+	if best < 0 {
+		return nil, false, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(topicDir, bestName))
+	if err != nil {
+		return nil, false, err
+	}
+	return model.ParseRoundSpeakers(raw), true, nil
+}
+
+// ListArchitecture 返回 architecture/*.md 基名清单（零 schema 纯目录约定，v0.4 §4.1）。
+func (r *Repo) ListArchitecture() ([]string, error) {
+	entries, err := os.ReadDir(r.architectureDir())
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		out = append(out, strings.TrimSuffix(e.Name(), ".md"))
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// GetDesignRaw 取单主题（frontmatter + 正文原样）。
+func (r *Repo) GetDesignRaw(topic string) (model.DesignDoc, []byte, error) {
+	p, err := r.designPath(topic)
+	if err != nil {
+		return model.DesignDoc{}, nil, err
+	}
+	raw, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return model.DesignDoc{}, nil, fmt.Errorf("design %q: %w", topic, state.ErrNotFound)
+	}
+	if err != nil {
+		return model.DesignDoc{}, nil, err
+	}
+	d, body, err := model.DecodeDesignDoc(raw)
+	if err != nil {
+		return model.DesignDoc{}, nil, fmt.Errorf("designs/%s/design.md: %w", topic, err)
+	}
+	return d, body, nil
+}
+
+// UpdateDesign 写回 design.md（frontmatter 重排、正文零损伤），活动 + git commit。
+// 供 design decide / supersede 等生命周期写入（内容生成不经此——牛的活不走绳）。
+func (r *Repo) UpdateDesign(topic string, d model.DesignDoc, body []byte, acts []model.Activity, msg string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	unlock, err := r.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	if _, _, err := r.GetDesignRaw(topic); err != nil {
+		return err
+	}
+	raw, err := model.EncodeDesignDoc(d, body)
+	if err != nil {
+		return err
+	}
+	p, err := r.designPath(topic)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(p, raw, 0o644); err != nil {
+		return err
+	}
+	if err := r.AppendActivity(acts, ""); err != nil {
+		return err
+	}
+	if _, err := gitRun(r.Dir, "add", ".ousheng"); err != nil {
+		return err
+	}
+	args := []string{"commit", "-m", msg}
+	if r.SignCommits {
+		args = append(args, "-S")
+	}
+	if _, err := gitRun(r.Dir, args...); err != nil {
+		return err
+	}
+	return nil
+}
+
 // --- Init ---
 
 func (r *Repo) InitWorkspace(project model.Project) error {

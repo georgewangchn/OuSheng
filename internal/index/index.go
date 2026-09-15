@@ -20,6 +20,11 @@ type Snapshot struct {
 	Actors      []model.ActorFile
 	Assignments []model.Assignment
 	WorkItems   []model.WorkItem
+
+	// 共识层（v0.4）：随 Snapshot 携带但**不进 Index 查询面**（S5 判决：
+	// memory/sqlite 等价性只覆盖 WorkItem 查询；design 消费点 = context join + converge）。
+	Designs      []model.DesignInfo
+	Architecture []string
 }
 
 // Load 从 repository 装载完整 snapshot。
@@ -42,6 +47,12 @@ func Load(repo state.Repository) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	if s.WorkItems, err = repo.ListWorkItems(); err != nil {
+		return Snapshot{}, err
+	}
+	if s.Designs, err = repo.ListDesigns(); err != nil {
+		return Snapshot{}, err
+	}
+	if s.Architecture, err = repo.ListArchitecture(); err != nil {
 		return Snapshot{}, err
 	}
 	return s, nil
