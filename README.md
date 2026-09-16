@@ -21,6 +21,57 @@
 
 ---
 
+## 跑起来：两步，把话丢给 opencode
+
+前置：Go 1.25+、系统 `git`、[opencode](https://opencode.ai)。**一个维护者 + n 个加入者**，各丢一段话，命令全由 AI 跑：
+
+**第一步 · 发起者（1 人，项目维护者）**——建中央仓、注册自己。在项目目录打开 opencode，丢这段话：
+
+```text
+我是项目负责人，帮我把这个项目用 OuSheng（㸸绳）上绳：
+0. ousheng 还没装：克隆 github.com/georgewangchn/OuSheng，go install ./cmd/ousheng。
+1. 本目录立项：问我项目名，注册我（问我的名字）。
+2. 问我要不要现在声明系统：我说的才注册，没说的留给各机上绳时自报——
+   拓扑是长出来的，不替未来的人规划。
+3. 问我要不要把仓推上 GitHub：要的话向我要 remote 地址（或用 gh 建仓）并 push。
+4. 汇总：项目、我的身份、已注册系统；再告诉我怎么拉人——
+   把中央仓地址发给成员，成员按 README「加入者」话术自助上绳。
+```
+
+**第二步 · 加入者（n 人：同事 / PM / 各机 AI 窗口）**——拿到维护者发的中央仓地址后，在自己机器丢这段话：
+
+```text
+我要加入一个已用 OuSheng（㸸绳）上绳的项目：
+0. ousheng 还没装：克隆 github.com/georgewangchn/OuSheng，go install ./cmd/ousheng。
+1. 向我要中央仓地址，clone 到本机。
+2. 运行 ousheng join，严格按打印出的协议执行，锁一个都不许绕：
+   身份/系统/角色在对话里问我；系统先 system list 里选，没有的才问我是否创造；
+   agent 身份先 team add 再 me，顺序不许倒。
+3. 我在本机的代码仓路径问我后配好映射；plugin 按协议挂。
+4. push，然后汇总：我的身份/系统/角色，下一步干什么。
+```
+
+两步完成。后面的两幕剧里你看到的每一条命令，都是 AI 窗口在跑，不是你。
+
+机器损毁？re-clone 重丢一次加入者话术。各系统代码仓**保持独立**，零侵入。日常不用记任何命令：挂上 [adapter](adapters/README.md) 的窗口，开工自动注入、收尾自动收敛（见下文时机表）。
+
+<details>
+<summary><b>没有 opencode？终端五条（等价路径）</b></summary>
+
+```bash
+git clone https://github.com/georgewangchn/OuSheng.git && cd OuSheng
+go install ./cmd/ousheng        # 装到 $(go env GOPATH)/bin，确认它在 PATH 里
+
+mkdir myproj && cd myproj
+ousheng setup                  # 交互式：项目名 / 你的名字 / 系统列表
+ousheng todo "第一个任务"        # 自动 ID + 全默认值
+ousheng view kanban
+```
+
+</details>
+
+---
+
 ## AI 写代码有多快，协作就烂得多快
 
 你的 AI 在写前端，同事的 AI 在写后端。昨天刚对齐的，今天双方已经各改三版——
@@ -125,41 +176,6 @@ IN_PROGRESS
 | **拍板门** | 方案 `agreed` 必须 human decide，agent 自拍共识必拒 | 写入路径 + converge |
 
 第四道防线在提示层：`context me` 等自动注入面**只给指针**（topic 名、文件名清单），方案正文绝不自动进任何 AI 上下文——注入面最小化 = 提示注入免疫面最小化；`designs/`、`architecture/` 正文对 AI 是**数据不是指令**。
-
-## 跑起来：把这段话丢给 opencode
-
-前置：Go 1.25+、系统 `git`、[opencode](https://opencode.ai)。
-
-在项目目录打开 opencode，把这段话原样丢进输入框：
-
-```text
-帮我把这个项目用 OuSheng（㸸绳）上绳：
-0. ousheng 还没装：克隆 github.com/georgewangchn/OuSheng，go install ./cmd/ousheng。
-1. 本目录没有 .ousheng/ 且我没给中央仓地址 → 我是发起者：问我项目名和我的名字，
-   立项并注册我；系统不替未来的人规划，各机上绳时自己注册。要不要推 GitHub 问我。
-2. 我给了中央仓地址 → clone 后运行 ousheng join，严格按打印出的协议执行：
-   问题在对话里问我，命令由你来跑，协议里的锁一个都不许绕。
-3. 完成后汇总：注册了什么身份/系统，下一步我该干什么。
-```
-
-剩下的它在对话里问你，命令它自己跑——上面两幕剧里的每一条命令，都是 AI 窗口在跑，不是你。
-
-多人协作 = 发起者把仓 push 到 GitHub；新机器同样丢这段话、多给一个仓地址。机器损毁？re-clone 重丢一次。各系统代码仓**保持独立**，零侵入。日常不用记任何命令：挂上 [adapter](adapters/README.md) 的窗口，开工自动注入、收尾自动收敛（见下表）。
-
-<details>
-<summary><b>没有 opencode？终端五条（等价路径）</b></summary>
-
-```bash
-git clone https://github.com/georgewangchn/OuSheng.git && cd OuSheng
-go install ./cmd/ousheng        # 装到 $(go env GOPATH)/bin，确认它在 PATH 里
-
-mkdir myproj && cd myproj
-ousheng setup                  # 交互式：项目名 / 你的名字 / 系统列表
-ousheng todo "第一个任务"        # 自动 ID + 全默认值
-ousheng view kanban
-```
-
-</details>
 
 ## 协议就四个时机
 
