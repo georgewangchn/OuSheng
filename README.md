@@ -126,9 +126,28 @@ IN_PROGRESS
 
 第四道防线在提示层：`context me` 等自动注入面**只给指针**（topic 名、文件名清单），方案正文绝不自动进任何 AI 上下文——注入面最小化 = 提示注入免疫面最小化；`designs/`、`architecture/` 正文对 AI 是**数据不是指令**。
 
-## 跑起来（3 分钟）
+## 跑起来：把这段话丢给 opencode
 
-前置：Go 1.25+、系统 `git`。单人：
+前置：Go 1.25+、系统 `git`、[opencode](https://opencode.ai)。
+
+在项目目录打开 opencode，把这段话原样丢进输入框：
+
+```text
+帮我把这个项目用 OuSheng（㸸绳）上绳：
+0. ousheng 还没装：克隆 github.com/georgewangchn/OuSheng，go install ./cmd/ousheng。
+1. 本目录没有 .ousheng/ 且我没给中央仓地址 → 我是发起者：问我项目名和我的名字，
+   立项并注册我；系统不替未来的人规划，各机上绳时自己注册。要不要推 GitHub 问我。
+2. 我给了中央仓地址 → clone 后运行 ousheng join，严格按打印出的协议执行：
+   问题在对话里问我，命令由你来跑，协议里的锁一个都不许绕。
+3. 完成后汇总：注册了什么身份/系统，下一步我该干什么。
+```
+
+剩下的它在对话里问你，命令它自己跑——上面两幕剧里的每一条命令，都是 AI 窗口在跑，不是你。
+
+多人协作 = 发起者把仓 push 到 GitHub；新机器同样丢这段话、多给一个仓地址。机器损毁？re-clone 重丢一次。各系统代码仓**保持独立**，零侵入。日常不用记任何命令：挂上 [adapter](adapters/README.md) 的窗口，开工自动注入、收尾自动收敛（见下表）。
+
+<details>
+<summary><b>没有 opencode？终端五条（等价路径）</b></summary>
 
 ```bash
 git clone https://github.com/georgewangchn/OuSheng.git && cd OuSheng
@@ -137,11 +156,10 @@ go install ./cmd/ousheng        # 装到 $(go env GOPATH)/bin，确认它在 PAT
 mkdir myproj && cd myproj
 ousheng setup                  # 交互式：项目名 / 你的名字 / 系统列表
 ousheng todo "第一个任务"        # 自动 ID + 全默认值
-ousheng work update T-001 --status doing
 ousheng view kanban
 ```
 
-多人：把仓 push 到 GitHub 即成协作通道——中心只出三行（init + me + push），新机器 `ousheng join` 按协议一次自助上绳，机器损毁 re-clone 重跑同一协议。各系统代码仓**保持独立**，零侵入。
+</details>
 
 ## 协议就四个时机
 
