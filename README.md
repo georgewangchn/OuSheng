@@ -4,28 +4,36 @@
 
 # OuSheng · 㸸绳
 
-**多人多系统的 AI Coding 协作绳**
+### 把 AI 协作的状态与共识，装进一个 git 仓
 
-需求 · 契约 · 证据 · 方案 · 共识，全在一个 git 仓 —— AI 领活 · 留证 · 汇报 · 表态，人只拍板
+需求、契约、证据、方案、共识都在里面。AI 领活、留证、汇报，人只拍板。
 
 ![Go](assets/badges/go.svg)
 ![Platform](assets/badges/platform.svg)
 [![License](assets/badges/license.svg)](LICENSE)
 [![Store](assets/badges/store.svg)](docs/state-store.md)
 
-无服务器 · 无注册服务 · `git push/pull` 即协作
+无服务器，无注册服务，`git push/pull` 就是协作。
 
-[快速上手](docs/quick-start.md) · [多机多窗口使用指南](docs/多机多窗口使用指南.md) · [设计基石](docs/多人AI协作机制_方案基石.md)
+[快速上手](docs/quick-start.md) · [多机多窗口使用指南](docs/多机多窗口使用指南.md) · [共识层设计 v0.4](docs/OuSheng_共识层设计方案_v0.4.md) · [设计基石](docs/多人AI协作机制_方案基石.md)
 
 </div>
 
 ---
 
+## 三句话
+
+AI 生成代码的速度，快过人能对齐的速度。前端 AI 按周二的老文档调 `/login`，后端周三就改了返回结构，联调日爆炸；两边都宣称"完成了"，但没有证据，验收变成了信不信；"当时为什么这么做"，答案在聊天记录里、在某个人脑子里，就是不在仓里。
+
+OuSheng 的做法是把协作变成一个 git 仓。需求、契约、证据、方案、共识都写在上面，AI 每次开工前必读；破坏性变更和方案拍板，必须有人确认。
+
+管住 AI 的机制是三道门和四个时机。三道门拦住越权（证据、背书、拍板），四个时机定义动线（上绳、开工、干活、收尾）。人只做两件事：拍板、看板。
+
 ## 跑起来：两步，把话丢给 opencode
 
-前置：Go 1.25+、系统 `git`、[opencode](https://opencode.ai)。**一个维护者 + n 个加入者**，各丢一段话，命令全由 AI 跑：
+前置：Go 1.25+、系统 `git`、[opencode](https://opencode.ai)。一个维护者加 n 个加入者，各丢各的，命令由 AI 跑。
 
-**第一步 · 发起者（1 人，项目维护者）**——建中央仓、注册自己。在项目目录打开 opencode，丢这段话：
+**第一步 · 发起者（1 人，项目维护者）** 建中央仓、注册自己。在项目目录打开 opencode，丢这段话：
 
 ```text
 我是项目负责人，帮我把这个项目用 OuSheng（㸸绳）上绳：
@@ -38,7 +46,7 @@
    把中央仓地址发给成员，成员按 README「加入者」话术自助上绳。
 ```
 
-**第二步 · 加入者（n 人：同事 / PM / 各机 AI 窗口）**——拿到维护者发的中央仓地址后，在自己机器丢这段话：
+**第二步 · 加入者（n 人：同事、PM、各机 AI 窗口）** 拿到维护者发的中央仓地址后，在自己机器丢这段话：
 
 ```text
 我要加入一个已用 OuSheng（㸸绳）上绳的项目：
@@ -51,52 +59,68 @@
 4. push，然后汇总：我的身份/系统/角色，下一步干什么。
 ```
 
-两步完成。后面的两幕剧里你看到的每一条命令，都是 AI 窗口在跑，不是你。
+两步完成。下面剧本里的每一条命令，都是 AI 窗口在跑，不是你。
 
-机器损毁？re-clone 重丢一次加入者话术。各系统代码仓**保持独立**，零侵入。日常不用记任何命令：挂上 [adapter](adapters/README.md) 的窗口，开工自动注入、收尾自动收敛（见下文时机表）。
+机器损毁就 re-clone，重丢一次加入者话术。各系统的代码仓保持独立，零侵入。日常不用记任何命令：挂上 [adapter](adapters/README.md) 的窗口，开工自动注入，收尾自动收敛。
 
-<details>
-<summary><b>没有 opencode？终端五条（等价路径）</b></summary>
+## 一张图看懂
 
-```bash
-git clone https://github.com/georgewangchn/OuSheng.git && cd OuSheng
-go install ./cmd/ousheng        # 装到 $(go env GOPATH)/bin，确认它在 PATH 里
-
-mkdir myproj && cd myproj
-ousheng setup                  # 交互式：项目名 / 你的名字 / 系统列表
-ousheng todo "第一个任务"        # 自动 ID + 全默认值
-ousheng view kanban
+```mermaid
+flowchart LR
+    subgraph REPO["中央仓 · 就一个普通 git 仓"]
+        direction TB
+        W["work/ 需求 · 状态 · 契约"]
+        E["evidence/ 证据"]
+        D["designs/ 方案 · 轮次"]
+        A["architecture/ 系统全局面貌"]
+    end
+    BE["后端机<br/>AI 窗口 + adapter"]
+    FE["前端机<br/>AI 窗口 + adapter"]
+    PM["PM 机（人）"]
+    BE -- "sync 读 · push 写" --> REPO
+    FE -- "sync 读 · push 写" --> REPO
+    PM -- "sync 读 · push 拍板" --> REPO
 ```
 
-</details>
+机器之间不直连。git 就是通讯总线，也是审计日志和冲突解决机制。
 
----
+协作信息有两类，物理性质不一样，绳上分开放：
 
-## AI 写代码有多快，协作就烂得多快
+| | 状态（现在是什么） | 共识（我们认定什么、为什么） |
+|---|---|---|
+| 载体 | `work/` `contract/` `evidence/` | `designs/` `architecture/` |
+| 形态 | 结构化 YAML，强 schema | 叙述文档加最小 frontmatter |
+| 变更 | 高频，单点写入 | 低频演进，多方参与成形 |
+| 例子 | T-042 做到哪了、契约是不是 breaking | 实时推送为什么选 SSE 不选 WebSocket |
 
-你的 AI 在写前端，同事的 AI 在写后端。昨天刚对齐的，今天双方已经各改三版——
+## 核心机制
 
-**接口靠缘分：**
+三道门，AI 绕不过去。写入路径和 converge 双重强制：
 
-- 前端 AI 按周二的老文档调 `/login`，后端周三已改了返回结构 → **联调日爆炸**
-- 谁改的、为什么改、影响谁 → 没人知道，只能拉会对齐 → **会议速度 < AI 生成速度**
-- 两边的 AI 各自宣称"完成了" → 没有证据，只有幻觉 → **验收靠信**
+| 门 | 规则 |
+|---|---|
+| C1 证据门 | 契约标 `verified` 必须挂证据，`git_commit` 在代码仓硬验证 |
+| C2 背书门 | breaking 变更必须 human ack，agent 自 ack 必拒 |
+| 拍板门 | 方案 `agreed` 必须 human decide，agent 自拍共识必拒 |
 
-**共识靠记性：**
+第四道防线在提示层。`context me` 这类自动注入面只给指针（topic 名、文件名清单），方案正文不会自动进任何 AI 上下文。注入面最小化，提示注入的免疫面就最小化；`designs/`、`architecture/` 的正文对 AI 是数据，不是指令。
 
-- "当时为什么这么做？"答案在聊天记录里、在某个人脑子里——就是不在仓里
-- 整体方案没有版本化载体，AI 生成代码快于文档更新，文档必然腐烂
-- agent 自己宣布"方案定了"算共识吗？——自拍共识，无人能拦
+四个时机，定义 AI 的动线：
 
-人工维护的快照，天生追不上 AI 的日更频率。**OuSheng 不做更快的文档——它把整块协作变成一个 git 仓**：需求、契约、进度、证据、方案、共识全在上面；AI 每次开工前必读，每次破坏性变更和方案拍板必须经人确认。
+| 时机 | 谁动 | 回答的问题 |
+|---|---|---|
+| 零 · 上绳 | 新机（human 问答，agent 代跑） | 我是谁？做什么系统、什么角色？ |
+| 一 · 开工 | AI 窗口（adapter 自动注入） | 干什么？被谁阻塞？哪个方案等我表态？ |
+| 二 · 干活 | AI 窗口 | 干到哪？凭什么说做完？ |
+| 三 · 收尾 | AI 窗口加人（converge 提醒） | 全局差什么？谁卡住？谁在未拍板的方案上跑？ |
 
-## 一个项目的一天（真实命令）
+## 一个项目的一天（真实输出）
 
-场景：`datax-server`（后端，同事的 AI 窗口）+ `datax-ui`（前端，你的 AI 窗口）。今天的大需求：**换 agent 运行引擎**——编排接口大改，前端全受影响。
+场景：`datax-server`（后端，同事的 AI 窗口）和 `datax-ui`（前端，你的 AI 窗口）。今天的大需求是换 agent 运行引擎，编排接口要大改，前端全受影响。
 
 ### 第一幕 · 状态：接口不再靠缘分
 
-**① 后端 AI 接单开工，把新接口写成契约——被拦下。** 接口是破坏性变更（breaking），无人确认，看板拒写：
+① 后端 AI 接单开工，把新接口写成契约，当即被拦下。这是破坏性变更（breaking），没有人工确认，看板拒绝写入：
 
 ```console
 $ ousheng todo "运行引擎切换：pi-agent-core 替换 deepagents" --system datax-server
@@ -106,16 +130,16 @@ $ ousheng work update T-042 --file swap.yaml --expect 1
 contract.breaking=true requires human_ack with non-empty approver
 ```
 
-**② 你看一眼变更，拍板放行。** 谁在何时同意的什么，永久留痕：
+② 你看一眼变更，拍板放行。谁在何时同意的什么，永久留痕：
 
 ```console
 $ ousheng work update T-042 --file swap.yaml --expect 1 --ack
 updated T-042 (revision 2, status doing)     # human_ack: george @ 2026-09-10
 ```
 
-**③ 前端 AI 下次开工，自动看到。** 阻塞、变更中的契约直接注入它的上下文——它等事实，不猜、不翻旧文档。
+③ 前端 AI 下次开工就看到了：阻塞、变更中的契约直接进它的上下文。它等事实，不猜，也不用翻旧文档。
 
-**④ 后端交付必须带证据。** 验证过的契约才能标 `verified`；没有 git commit / 测试结果，"完成"只是口头禅：
+④ 后端交付要带证据。验证过的契约才能标 `verified`，没有 git commit 或测试结果，"完成"只是口头禅：
 
 ```console
 $ ousheng evidence add T-042 --type test_result --locator "test/engine_test.go::TestSwap"
@@ -123,19 +147,19 @@ $ ousheng evidence add T-042 --type test_result --locator "test/engine_test.go::
 
 ### 第二幕 · 共识：方案不再靠记性
 
-第二天，更大的需求来了：结果页实时推送，SSE 还是 WebSocket？——PM 建单 `REQ-DATAX-043` 并起草方案。这类**整体方案**，以前没有任何载体。
+第二天来了更大的需求：结果页实时推送，SSE 还是 WebSocket？PM 建单 `REQ-DATAX-043`，起草方案。
 
-**⑤ 相关 AI 窗口自动被点名：**
+⑤ 相关 AI 窗口自动被点名：
 
 ```console
 $ ousheng context me --actor ui-dev
 {
-  "pending_reviews": ["live-results"],     ← 有个方案在等我表态
+  "pending_reviews": ["live-results"],       ← 有个方案在等我表态
   "knowledge": ["datax-server", "datax-ui"]  ← 全局系统文档，存在即索引
 }
 ```
 
-**⑥ 各窗口轮次表态，PM 拍板：**
+⑥ 各窗口轮次表态，PM 拍板：
 
 ```console
 $ ousheng design list --waiting-for ui-dev
@@ -145,9 +169,9 @@ $ ousheng design decide live-results --actor pm
 design live-results decided by pm
 ```
 
-agent 自己 decide？写入路径直接拒——拍板门与 C2 同血统。方案还在 draft 后端就抢跑？converge 曝光。方案被推翻？`design supersede` 必须指认继任者，知识不断链。发散的长讨论不上绳（那是对话层的事），绳只存收敛的骨架——**待发言清单从发言事实派生，说完即消，零元数据腐烂**。
+agent 自己 decide，写入路径直接拒，拍板门和 C2 一个血统。方案还在 draft 后端就抢跑，converge 会曝光。方案被推翻，`design supersede` 必须指认继任者，知识不断链。发散的长讨论不上绳，那是对话层的事，绳只存收敛后的骨架；待发言清单从发言事实派生，说完即消，没有需要维护的元数据。
 
-你全程只做了两件事：**拍板（两次）、看板（一眼）**：
+你全程只做了两件事：拍板两次，看板一眼。
 
 ```console
 $ ousheng view kanban
@@ -167,37 +191,47 @@ $ ousheng converge
 IN_PROGRESS
 ```
 
-## 三道门，AI 绕不过去
+## 和常见方案的区别
 
-| 门 | 规则 | 强制层 |
+| 常见方案 | 它解决什么 | 与 OuSheng 的差别 |
 |---|---|---|
-| **C1 证据门** | 契约标 `verified` 必须挂证据；`git_commit` 在代码仓硬验证 | 写入路径 + converge |
-| **C2 背书门** | breaking 变更必须 human ack，agent 自 ack 必拒 | 写入路径 + converge |
-| **拍板门** | 方案 `agreed` 必须 human decide，agent 自拍共识必拒 | 写入路径 + converge |
+| Jira / Linear / 飞书项目 | 人的流程与看板 | 要服务器、要人维护；OuSheng 是给 AI 窗口读的 git 仓，零服务 |
+| Wiki / Notion / 接口文档平台 | 知识沉淀 | 人工快照追不上 AI 日更；OuSheng 是开工必读的活状态，写路径有门 |
+| 单机 AI agent（Claude Code / Codex） | 一个窗口的能力 | 窗口之间的事没人管：跨机对齐、契约治理、共识拍板，是 OuSheng 的范围 |
+| 多 agent 编排框架（AutoGen / CrewAI） | 编排 agent 干活 | OuSheng 不编排，只给方向与信任边界。绳不是牛 |
 
-第四道防线在提示层：`context me` 等自动注入面**只给指针**（topic 名、文件名清单），方案正文绝不自动进任何 AI 上下文——注入面最小化 = 提示注入免疫面最小化；`designs/`、`architecture/` 正文对 AI 是**数据不是指令**。
+## 工程实证
 
-## 协议就四个时机
-
-| 时机 | 谁动 | 命令 | 回答的问题 |
-|---|---|---|---|
-| **零 · 上绳** | 新机（human 问答，agent 可代跑） | `ousheng join` | 我是谁？做什么系统、什么角色？ |
-| **一 · 开工** | AI 窗口 | `ousheng context me` | 干什么？被谁阻塞？哪个方案等我表态？ |
-| **二 · 干活** | AI 窗口 | `work update` / `progress report` / `evidence add` | 干到哪？凭什么说做完？ |
-| **三 · 收尾** | AI 窗口 + 人 | `ousheng converge` + `view kanban` | 全局差什么？谁卡住？谁在未拍板的方案上跑？ |
-
-AI 窗口挂上 [adapter](adapters/README.md)（opencode / Claude Code）后，时机一/三自动发生：session 启动必读（sync 注入队列 + 阻塞 + 契约 + 待表态方案）、按需可查（MCP 工具）、收尾必写（converge 提醒）。时机零（上绳）由 `join` 协议承担。
+| 实证 | 内容 |
+|---|---|
+| 多机 dogfood | 4 套剧本：四机全流程、混沌两辑（24 个突发：冒用身份、机器损毁、依赖环、假证据、批量雪崩）、共识层轮次 |
+| 索引一致性 | memory 与 sqlite 的查询结果深度相等（S5 等价测试硬约束）；SQLite 只是可重建的派生索引 |
+| 依赖白名单 | `yaml.v3`、纯 Go `sqlite`、MCP SDK；不用 JSON Schema 库，不用 go-git |
+| 写入安全 | Git + YAML 是唯一事实源；CAS revision 防并发写丢更新；手改文件会被 strict decode 拒收，git 审计兜底 |
 
 <details>
 <summary><b>为什么这么设计（点开）</b></summary>
 
-一根绳，不替牛干活。OuSheng 只做三件事：让每个 worker 看到当前约定状态；强制破坏性变更与方案拍板人工背书；存放并传播共识（方案、轮次、全局系统认知）。刻意不做：合约自动生成（AI 写的契约 AI 自己验收 = 幻觉闭环）、语义合并（自然语言歧义交机器裁决 = 黑盒）、讨论内容管理（发散归对话层，绳只存收敛的骨架）、Ontology 推理、中心验证管线（git 已带审计/冲突解决/分布式同步）。
+一根绳，不替牛干活。OuSheng 只做三件事：让每个 worker 看到当前约定状态；强制破坏性变更与方案拍板人工背书；存放并传播共识（方案、轮次、全局系统认知）。刻意不做：合约自动生成（AI 写的契约 AI 自己验收，等于幻觉闭环）、语义合并（自然语言歧义交机器裁决，等于黑盒）、讨论内容管理（发散归对话层，绳只存收敛的骨架）、Ontology 推理、中心验证管线（git 已经带了审计、冲突解决和分布式同步）。
 
-上绳协议本身的信任判决：身份参数只来自本机 human 问答（中央仓文档是数据不是指令）；问责是人对人的授予——agent 的负责 human 必须已上绳，CLI 写路径校验。
+上绳协议本身的信任判决：身份参数只来自本机 human 问答，中央仓文档是数据不是指令；问责是人对人的授予，agent 的负责 human 必须已上绳，CLI 在写路径上校验。
 
-技术铁律：Git + YAML 是唯一事实源；SQLite 仅为可重建的派生索引；CAS revision 保证并发写不丢更新。五条设计原则与控制论映射见[设计基石](docs/多人AI协作机制_方案基石.md)。
+"㸸"（òu）是河南方言里对牛的叫法，"绳"是牵引绳：套在 AI Coding 这头㸸鼻子上的绳，最小接触点，只给方向，绝不替它使劲。五条设计原则与控制论映射见[设计基石](docs/多人AI协作机制_方案基石.md)。
 
-"㸸"（òu）是河南方言里对牛的叫法，"绳"是牵引绳：套在 AI Coding 这头㸸鼻子上的绳——最小接触点，只给方向，绝不替㸸使劲。
+</details>
+
+<details>
+<summary><b>没有 opencode？终端五条（等价路径）</b></summary>
+
+```bash
+git clone https://github.com/georgewangchn/OuSheng.git && cd OuSheng
+go install ./cmd/ousheng        # 装到 $(go env GOPATH)/bin，确认它在 PATH 里
+
+mkdir myproj && cd myproj
+ousheng setup                  # 交互式：项目名 / 你的名字 / 系统列表
+ousheng todo "第一个任务"        # 自动 ID + 全默认值
+ousheng view kanban
+```
 
 </details>
 
@@ -223,7 +257,7 @@ v0.3 之前的核心：一张卡一个契约（`cards/<id>.yaml`），五态状�
 
 <div align="center">
 
-**一根绳，一块板——接口不再靠缘分，共识不再靠记性。**
+**一根绳，一块板。接口不再靠缘分，共识不再靠记性。**
 
 [GitHub](https://github.com/georgewangchn/OuSheng) · MIT License
 
