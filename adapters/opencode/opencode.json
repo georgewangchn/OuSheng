@@ -6,11 +6,5 @@
       "command": ["ousheng-mcp"],
       "enabled": true
     }
-  },
-  "instructions": [
-    {
-      "path": "docs/board-protocol.md",
-      "description": "OuSheng sampling discipline — read before work, write after work, project only C never I"
-    }
-  ]
+  }
 }
