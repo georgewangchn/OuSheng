@@ -36,7 +36,14 @@ const joinProtocol = `时机零：首次上绳协议（ousheng join）
 4. 本机映射：ousheng repo set <system> <代码仓绝对路径>（.ousheng/repos.yaml，
    gitignored——本机路径只能本机配，无人需要知道你的路径）。
 
-5. 挂 plugin（三时机协议：session 启动 / 遇阻 / 收尾——见代码仓 AGENTS.md）。
+5. 挂 plugin 到代码仓（opencode 只从 .opencode/plugins/ 加载——放错位置不报错，
+   插件静默失效）：
+     mkdir -p <代码仓>/.opencode/plugins
+     cp <ousheng 源码>/adapters/opencode/plugin.ts \
+        <代码仓>/.opencode/plugins/ousheng-sampler.ts
+   可选 MCP 工具（须 ousheng-mcp 在 PATH）：
+     cp <ousheng 源码>/adapters/opencode/opencode.json <代码仓>/.opencode/opencode.json
+   升级后重跑本步覆盖同名文件即可同步。代码仓 AGENTS.md 纪律段见 docs 指南附录 A。
 
 6. git push 把注册推上中央仓；其他机器下次 sync 即见。
 
