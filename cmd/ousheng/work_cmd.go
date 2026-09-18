@@ -47,6 +47,7 @@ func workList(args []string, stdout, stderr io.Writer) int {
 	version := fs.String("version", "", "filter target_version")
 	wtype := fs.String("type", "", "filter type")
 	open := fs.Bool("open", false, "only open (not done/cancelled)")
+	unassigned := fs.Bool("unassigned", false, "only items without assignee（PM 巡检：待认领池）")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
@@ -81,6 +82,9 @@ func workList(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		if *open && !model.WorkItemOpen(w.Status) {
+			continue
+		}
+		if *unassigned && w.Assignee != "" {
 			continue
 		}
 		ct := ""

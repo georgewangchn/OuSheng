@@ -2,6 +2,7 @@ schema_version: 2
 id: REQ-UI-001
 type: requirement
 title: DataX UI 增加任务配置页面
+description: 验收：首页可配置同步任务；状态实时刷新；失败任务可一键重试。
 system: datax-ui
 target_version: v2.0
 assignee: ui-agent

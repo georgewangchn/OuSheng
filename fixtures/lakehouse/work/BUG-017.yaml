@@ -2,6 +2,7 @@ schema_version: 2
 id: BUG-017
 type: bug
 title: CDC checkpoint 恢复失败
+description: 复现：CDC 任务中断后恢复，checkpoint 回退到 0。期望：从上次成功位点续传。环境：v2.0 集群 / datax-backend。
 system: datax-backend
 target_version: v2.0
 assignee: backend-agent
