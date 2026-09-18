@@ -127,12 +127,6 @@ func workShow(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprint(stdout, string(b))
-	if len(d.Deps) > 0 {
-		fmt.Fprintln(stdout, "deps:")
-		for _, dep := range d.Deps {
-			fmt.Fprintf(stdout, "  - %s  %s\n", dep.ID, dep.Status)
-		}
-	}
 	return 0
 }
 

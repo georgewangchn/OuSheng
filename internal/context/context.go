@@ -58,29 +58,29 @@ type MyContext struct {
 	Blockers         []string    `json:"blockers,omitempty"`
 
 	// 共识层三通道（v0.4 §4.4，注入面铁律：全是指针，零自由文本）。
-	Knowledge       []string `json:"knowledge,omitempty"`        // architecture 文件名清单（正文自读）
-	PendingReviews  []string `json:"pending_reviews,omitempty"`  // 等我发言的 draft 设计主题（地址化派生）
+	Knowledge      []string `json:"knowledge,omitempty"`       // architecture 文件名清单（正文自读）
+	PendingReviews []string `json:"pending_reviews,omitempty"` // 等我发言的 draft 设计主题（地址化派生）
 }
 
 // WorkBrief 是 active work 的最小条目；progress 标注 reported（§19/§21）。
 type WorkBrief struct {
-	ID            string         `json:"id"`
-	Title         string         `json:"title"`
-	Status        string         `json:"status"`
-	System        string         `json:"system,omitempty"`
-	Priority      string         `json:"priority,omitempty"`
-	DueOn         string         `json:"due_on,omitempty"`
-	ProgressValue float64        `json:"progress_reported,omitempty"`
-	Contract      *ContractBrief `json:"contract,omitempty"`
-	Design        string         `json:"design,omitempty"` // 方案出处指针："export-csv (agreed)"（v0.4 §4.4）
+	ID            string         `json:"id" yaml:"id"`
+	Title         string         `json:"title" yaml:"title"`
+	Status        string         `json:"status" yaml:"status"`
+	System        string         `json:"system,omitempty" yaml:"system,omitempty"`
+	Priority      string         `json:"priority,omitempty" yaml:"priority,omitempty"`
+	DueOn         string         `json:"due_on,omitempty" yaml:"due_on,omitempty"`
+	ProgressValue float64        `json:"progress_reported,omitempty" yaml:"progress_reported,omitempty"`
+	Contract      *ContractBrief `json:"contract,omitempty" yaml:"contract,omitempty"`
+	Design        string         `json:"design,omitempty" yaml:"design,omitempty"` // 方案出处指针："export-csv (agreed)"（v0.4 §4.4）
 }
 
 // ContractBrief 是 WorkItem 内嵌契约的最小信号（S6：接口标准必须进注入信道，
 // agent 在 context me 即知"这单带 live http 契约"，再 work show 取全量 interface）。
 type ContractBrief struct {
-	Kind     string `json:"kind"`
-	Status   string `json:"status"`
-	Breaking bool   `json:"breaking,omitempty"`
+	Kind     string `json:"kind" yaml:"kind"`
+	Status   string `json:"status" yaml:"status"`
+	Breaking bool   `json:"breaking,omitempty" yaml:"breaking,omitempty"`
 }
 
 // workBrief 是 WorkBrief 唯一构造点（曾因多点复制漏字段，见四路验证规则）。
@@ -360,8 +360,8 @@ type DesignBrief struct {
 
 type WorkItemDetail struct {
 	model.WorkItem
-	Deps    []WorkBrief    `json:"deps,omitempty"`    // 直接依赖摘要
-	Designs []DesignBrief  `json:"designs,omitempty"` // 关联方案出处
+	Deps    []WorkBrief   `json:"deps,omitempty" yaml:"deps,omitempty"`       // 直接依赖摘要
+	Designs []DesignBrief `json:"designs,omitempty" yaml:"designs,omitempty"` // 关联方案出处
 }
 
 func (s *Service) GetWorkItem(id string) (*WorkItemDetail, error) {

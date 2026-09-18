@@ -258,3 +258,22 @@ func TestCLICASConflictSurfaces(t *testing.T) {
 		t.Fatalf("expected CAS conflict, code=%d stderr=%q", code, stderr.String())
 	}
 }
+
+// work show 的 detail 层保真锁（2026-09-18 审计 P6）：evidence 类型、
+// 依赖摘要的 due_on/progress_reported 字段名（曾因缺 yaml tag 渲染成
+// dueon/progressvalue），且 deps 不重复渲染。
+func TestWorkShowDetailFidelity(t *testing.T) {
+	dir := testfix.Setup(t)
+	out := runCLI(t, dir, "work", "show", "FEAT-CDC-001")
+	for _, want := range []string{"evidence:", "type: git_commit", "type: test_result", "progress:"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("work show 缺 %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "dueon") || strings.Contains(out, "progressvalue") {
+		t.Fatalf("work show 字段名烂（缺 yaml tag）:\n%s", out)
+	}
+	if n := strings.Count(out, "deps:"); n != 1 {
+		t.Fatalf("work show deps 应只渲染一次，got %d:\n%s", n, out)
+	}
+}

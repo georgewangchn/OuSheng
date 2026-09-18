@@ -2,7 +2,10 @@ package context
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"ousheng/internal/model"
 	"ousheng/internal/state/gityaml"
@@ -200,5 +203,28 @@ func TestGetWorkItem_MissingDepVisible(t *testing.T) {
 	// K8S-003 无依赖；BUG-017 的依赖存在。构造缺失：直接查不存在 id。
 	if _, err := s.GetWorkItem("GHOST-1"); err == nil {
 		t.Fatal("missing work item must error")
+	}
+}
+
+// work show 依赖摘要的字段名保真锁（2026-09-18 审计 P6）：WorkBrief 曾只有
+// json tag，yaml.Marshal 把 DueOn/ProgressValue 渲染成 dueon/progressvalue。
+// 有值字段必须以 due_on / progress_reported 渲染。
+func TestWorkBriefYAMLFieldNames(t *testing.T) {
+	d := WorkItemDetail{
+		Deps: []WorkBrief{{ID: "K8S-003", Title: "x", Status: "doing", System: "s",
+			Priority: "P1", DueOn: "2026-10-01", ProgressValue: 0.5}},
+	}
+	b, err := yaml.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, want := range []string{`due_on: "2026-10-01"`, "progress_reported: 0.5", "priority: P1"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("依赖摘要字段名/值错，缺 %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "dueon") || strings.Contains(s, "progressvalue") {
+		t.Fatalf("字段名烂（缺 yaml tag）:\n%s", s)
 	}
 }
