@@ -1,11 +1,10 @@
-// Package opencode 是 opencode 适配器的目录级机械锁（无运行时代码）。
-//
 // 2026-09-16 事故（rdc-05）：适配器配置的 instructions 写成对象数组
 // {path, description}，而 opencode schema 只接受路径/glob 字符串数组——
 // 文件拷进 .opencode/ 后 opencode 启动即失败（Configuration is invalid:
 // Expected string）。同时使用指南把插件拷到 .opencode/plugin.ts，而
 // opencode 只从 .opencode/plugins/ 加载，插件静默失效。两个 bug 都是
 // "拷进别人机器才炸" 的分发物，故就地加锁。
+
 package opencode
 
 import (
