@@ -138,6 +138,12 @@ func ResolveOwner(repo state.Repository, id, assignee, actingRole, accountableHu
 	if accountableHuman != "" {
 		w.AccountableHuman = accountableHuman
 	}
+	// 与 Service.Update 同门（active 必有主）：role-only 解析会清掉 needs_resolution
+	// 却留下无主 doing/testing/blocked——resolve-owner 是 migrate 无主 active 的
+	// 指定解阻路径，不允许它造出写路径已杜绝的状态。
+	if model.WorkItemActive(w.Status) && w.Assignee == "" {
+		return model.WorkItem{}, fmt.Errorf("%s requires assignee (role-only resolution would leave active work unowned; pass --assignee)", w.Status)
+	}
 	w.LegacyOwner = ""
 	w.MigrationStatus = ""
 	acts := []model.Activity{{

@@ -4,8 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"ousheng/internal/card"
 	"ousheng/internal/index"
 	"ousheng/internal/index/memory"
+	"ousheng/internal/migrate"
 	"ousheng/internal/model"
 	"ousheng/internal/state/gityaml"
 	"ousheng/internal/testfix"
@@ -602,17 +604,33 @@ func TestIncompleteInfoWarns(t *testing.T) {
 	}
 }
 
-// v1 迁移：owner 解析失败（needs_resolution）的 live→doing 单无主 → BLOCK
-// （有意：无主 active 不可执行；先 migrate resolve-owner 再 converge）。
+// v1 迁移链锁：live 卡 owner 解析失败 → MigrateSchema 产出 needs_resolution
+// 无主 doing → converge BLOCK（先 migrate resolve-owner 再 converge）。
+// 用真实 MigrateSchema 产出而非手构 WorkItem——converge 不读 MigrationStatus，
+// 手构版本与 doing 无主用例等价，锁不住链路。
 func TestMigratedNeedsResolutionBlocks(t *testing.T) {
-	w := wi("M-1", model.StatusDoing)
-	w.Assignee = ""
-	w.MigrationStatus = "needs_resolution"
+	dir := testfix.Setup(t)
+	repo := gityaml.Open(dir)
+	cards := []card.Card{{
+		ID: "legacy-live", Owner: "ghost", Task: "v1 遗留 live 卡",
+		Status: card.Live, Version: 1,
+		Contract: card.Contract{Kind: "http"},
+	}}
+	if _, err := migrate.MigrateSchema(repo, cards); err != nil {
+		t.Fatal(err)
+	}
+	w, err := repo.GetWorkItem("legacy-live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Status != model.StatusDoing || w.Assignee != "" || w.MigrationStatus != migrate.StatusNeedsResolution {
+		t.Fatalf("migrate 应产出无主 needs_resolution doing，got %+v", w)
+	}
 	r, err := checkK(t, []model.WorkItem{w})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.Status != Blocked || !contains(r.Blockers, "active work without assignee") {
-		t.Fatalf("needs_resolution 无主 active 必须 BLOCK，got %s (%v)", r.Status, r.Blockers)
+		t.Fatalf("迁移无主 active 必须 BLOCK，got %s (%v)", r.Status, r.Blockers)
 	}
 }
