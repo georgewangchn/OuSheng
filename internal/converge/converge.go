@@ -11,6 +11,7 @@ package converge
 
 import (
 	"fmt"
+	"strings"
 
 	"ousheng/internal/graph"
 	"ousheng/internal/index"
@@ -115,6 +116,21 @@ func Check(idx index.Index, kn Knowledge) (Result, error) {
 			if a, ok := actorByID[w.HumanAck.Approver]; ok && a.Type != model.ActorHuman {
 				blockers = append(blockers, fmt.Sprintf("%s: human_ack by non-human actor %q", w.ID, w.HumanAck.Approver))
 			}
+		}
+
+		// 发布条件（2026-09-18 推演）：可执行单元须可寻址、可问责、可判定。
+		// BLOCKER：active（doing/testing/blocked）无主 = 进行中却是孤儿；
+		// WARNING：backlog/ready 无主 = 待认领池（PM 巡检可见，不拦）。
+		if model.WorkItemOpen(w.Status) && w.Assignee == "" {
+			if model.WorkItemActive(w.Status) {
+				blockers = append(blockers, fmt.Sprintf("%s: active work without assignee", w.ID))
+			} else {
+				warnings = append(warnings, fmt.Sprintf("%s: unassigned (%s, claimable)", w.ID, w.Status))
+			}
+		}
+		// WARNING：ready 起按类型缺最小信息集（执行者/验收者要猜 = 单不可判定）。
+		if miss := incompleteInfo(w); miss != "" {
+			warnings = append(warnings, fmt.Sprintf("%s: incomplete %s — missing %s", w.ID, w.Type, miss))
 		}
 
 		// 不一致警告：done 项最后上报进度 < 1.0（claimed 与 reported 矛盾，§19）。
@@ -242,4 +258,31 @@ func (kn Knowledge) audit(idx index.Index, all []model.WorkItem, blockers, warni
 		}
 	}
 	return blockers, warnings
+}
+
+// incompleteInfo 报告 ready 起（可开工/进行中）按类型缺失的最小信息集。
+// 只曝光不拦：'信息够不够'有判断成分，硬门会逼出"待定"式造假（2026-09-18 反事实）。
+func incompleteInfo(w model.WorkItem) string {
+	if w.Status != model.StatusReady && !model.WorkItemActive(w.Status) {
+		return ""
+	}
+	var miss []string
+	switch w.Type {
+	case model.TypeRequirement, model.TypeFeature, model.TypeTask, model.TypeTest:
+		if w.Description == "" {
+			miss = append(miss, "description")
+		}
+	case model.TypeBug:
+		if w.Description == "" {
+			miss = append(miss, "description")
+		}
+		if w.DetectedBy == "" {
+			miss = append(miss, "detected_by")
+		}
+	case model.TypeRelease, model.TypeDeployment:
+		if w.TargetVersion == "" {
+			miss = append(miss, "target_version")
+		}
+	}
+	return strings.Join(miss, "+")
 }

@@ -80,6 +80,17 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. v0.3 已实现�
 - **死法记录（永久出局）**：join 审批门（无效门——有 push 权者拦不住、无权者本来进不来，federation 退回中心规划）；注册表自动清理（破坏性动作须 human）；responsible-human 活跃度检查（语义，机器测不了）；Web 配置中心/注册服务（零基础设施违例）；repos.yaml 集中上绳（本机路径非共识，状态/共识两分判出局）。
 - **延后清单（记判据防丢）**：`ousheng doctor` 本机健康检查（判据：多人反复踩 repo set 忘配/路径失效）；system list 加 open work 计数列（判据：真有人被僵尸系统坑过）；system 生命周期 schema（判据：派生可见性证明不够）。
 
+### 发布条件（可执行单元，2026-09-18 推演）
+
+- **三条件**：一个发布出去的任务要成立，必须**可寻址**（落在某个系统）、**可问责**（有主，或显式标记待认领）、**可判定**（信息够执行者开工、够验收者判定）。缺一即不可执行——现状的反面不是"所有人都会执行"，而是"没人执行"（无主单不进任何人的 `context me`，静默孤儿）。
+- **单系统单主**：执行单元 = 单 `system` + 单 `assignee`。**多系统需求不是一张单**：标准路径 = `designs/`（systems[] + related_items[]）→ decide → 按系统拆 N 张执行单（各单有主）；`depends_on` 只表达阻塞，不表达分解。禁多 assignee、禁 system 多值（会破坏 architecture 覆盖 / repo 映射 / pending 地址化）。
+- **状态即门槛**（信息门槛挂状态，不挂创建——避免建单摩擦逼出"待定"式造假）：`backlog` 不查；`ready` 起查按类型最小信息集；`doing` **必有主**（写入路径硬门 `doing requires assignee`）；`done` 必有证据（C1）。
+- **类型 → 最小信息集**：requirement/feature/task/test → `description`（验收标准）；bug → `description` + `detected_by`（复现/期望/实际/环境写进 description）；release/deployment → `target_version`。
+- **分层强制**：硬门只挡"进行中无主"（写路径，同 C1/C2 风格）；其余走曝光——converge：active 无主 = BLOCKER、backlog/ready 无主 = warning「待认领」、ready+ 缺信息 = warning。锁：`TestActiveWorkWithoutAssigneeBlocks` / `TestUnassignedReadyWarns` / `TestIncompleteInfoWarns` / `cmd/ousheng/publish_test.go`。
+- **认领协议**：无主池在 `work list --unassigned` 与 `view system` 可见；执行者 `work assign <id> --assignee 我 --role R` 自领（CAS revision 防并发）。
+- **四路判决**：无主/信息不全信号**不进 `context me`**（注入面最小化——执行者不需要知道不归他的单）；进 `work list` + `view system` + converge。锁 `TestUnassignedNotInjectedIntoContextMe`。
+- **延后（记判据）**：severity 字段（判据：priority 不够用、被真实分诊坑过）；父子/分解字段（判据：design 拆单路径被证明不够）。
+
 ## When implementing code (phase 1, v1 layer — historical rules still binding)
 
 The plan in `docs/superpowers/plans/2026-08-09-阶段1-core-lib-cli.md` defines the rules; follow them exactly:

@@ -2,6 +2,7 @@ schema_version: 2
 id: FEAT-CDC-001
 type: feature
 title: CDC 增量同步
+description: 验收：全量+增量同步可跑通；增量延迟 < 5s；断点续传不丢不重。
 system: datax-backend
 target_version: v2.0
 assignee: backend-agent

@@ -215,8 +215,11 @@ func checkK(t *testing.T, items []model.WorkItem) (Result, error) {
 	return Check(idxFrom(t, items), Knowledge{})
 }
 
+// wi 构造「齐备」的任务单（有主 + 有验收描述）——各测试只关心自己的主题；
+// 无主/信息不全的行为由 TestUnassigned*/TestIncompleteInfo* 专项锁定。
 func wi(id string, status model.WorkStatus) model.WorkItem {
-	return model.WorkItem{SchemaVersion: 2, ID: id, Type: model.TypeTask, Title: id, Status: status, Revision: 1}
+	return model.WorkItem{SchemaVersion: 2, ID: id, Type: model.TypeTask, Title: id,
+		Status: status, Revision: 1, Assignee: "be-agent", Description: "验收：x"}
 }
 
 // done 项最后上报进度 < 1.0：警告但不阻塞（信号分辨力）。
@@ -534,5 +537,67 @@ func TestBreakingWithoutAck(t *testing.T) {
 	}
 	if r2.Status != InProgress {
 		t.Fatalf("with ack should be IN_PROGRESS, got %s", r2.Status)
+	}
+}
+
+// --- 发布条件（2026-09-18 推演）：地址 / 执行者 / 可判定 ---
+
+// active 却无主 = 进行中是孤儿：BLOCKER（写路径只挡进入 doing，手改/遗留由审计兜）。
+func TestActiveWorkWithoutAssigneeBlocks(t *testing.T) {
+	for _, st := range []model.WorkStatus{model.StatusDoing, model.StatusTesting, model.StatusBlocked} {
+		w := wi("W-1", st)
+		w.Assignee = ""
+		r, err := checkK(t, []model.WorkItem{w})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Status != Blocked || !contains(r.Blockers, "active work without assignee") {
+			t.Fatalf("%s 无主必须 BLOCK，got %s (%v)", st, r.Status, r.Blockers)
+		}
+	}
+}
+
+// backlog/ready 无主 = 待认领池：只警告（默认指派，认领为补充）。
+func TestUnassignedReadyWarns(t *testing.T) {
+	for _, st := range []model.WorkStatus{model.StatusBacklog, model.StatusReady} {
+		w := wi("W-1", st)
+		w.Assignee = ""
+		r, err := checkK(t, []model.WorkItem{w})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Status != InProgress || !contains(r.Warnings, "unassigned") {
+			t.Fatalf("%s 无主应 warn，got %s (%v)", st, r.Status, r.Warnings)
+		}
+	}
+}
+
+// ready 起按类型缺最小信息集 → warning（backlog 不查：草稿期不逼信息）。
+func TestIncompleteInfoWarns(t *testing.T) {
+	bug := wi("B-1", model.StatusReady)
+	bug.Type = model.TypeBug
+	bug.Description = ""
+	bug.DetectedBy = ""
+	rel := wi("R-1", model.StatusReady)
+	rel.Type = model.TypeRelease
+	rel.TargetVersion = ""
+	draft := wi("B-2", model.StatusBacklog)
+	draft.Type = model.TypeBug
+	draft.Description = ""
+	draft.DetectedBy = ""
+	r, err := checkK(t, []model.WorkItem{bug, rel, draft})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(r.Warnings, "B-1: incomplete bug — missing description+detected_by") {
+		t.Fatalf("bug 缺 description+detected_by 应 warn: %v", r.Warnings)
+	}
+	if !contains(r.Warnings, "R-1: incomplete release — missing target_version") {
+		t.Fatalf("release 缺 target_version 应 warn: %v", r.Warnings)
+	}
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "B-2") {
+			t.Fatalf("backlog 不应查信息完备: %v", r.Warnings)
+		}
 	}
 }

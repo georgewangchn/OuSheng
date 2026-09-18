@@ -16,12 +16,12 @@ func TestJoinProtocol(t *testing.T) {
 		"锁二", "system list", "禁止自由发明", // F2：创造/选择二分
 		"锁四", "responsible-human", "agent 无权创造", // F4：问责门
 		"--actor", "互踩", // me 互踩纪律
-		"re-clone", // N1：灾难恢复复用同协议
-		"work create --accountable", // 第二 human 预警
-		"动土先起 design", // N2：拓扑演化移交共识层
-		"repo set",   // 本机映射不可省
+		"re-clone",                             // N1：灾难恢复复用同协议
+		"work create --accountable",            // 第二 human 预警
+		"动土先起 design",                          // N2：拓扑演化移交共识层
+		"repo set",                             // 本机映射不可省
 		".opencode/plugins/ousheng-sampler.ts", // 插件目录钉死（放错=静默失效）
-		".opencode/opencode.json", // 可选 MCP 配置
+		".opencode/opencode.json",              // 可选 MCP 配置
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("join protocol missing %q:\n%s", want, out)
