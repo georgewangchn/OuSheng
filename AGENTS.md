@@ -74,6 +74,7 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. v0.3 已实现�
 
 - **两段**：中心最小核 = `init` + push（推荐顺手 `me`；亦可并入第一台 join 机——涌现式 first human）；各机自助上绳 = `ousheng join` 时机零协议（三时机扩为：时机零首次上绳 → 时机一开工 → 时机二遇阻 → 时机三收尾）。**join 兼任灾难恢复协议**：re-clone 重跑即可（registry 在中央仓，本机仅 me + repos.yaml）。改 team add 写路径/身份机制后必跑 `TestTeamAddResponsibleHumanGate` + `TestJoinProtocol`。
 - **协议规范源 = CLI 内嵌**（`ousheng join` 打印，`cmd/ousheng/join_cmd.go`），与命令同版本演化；docs/指南是教程镜像，允许简化不可矛盾。协议外置分发 = 版本漂移死法。
+- **适配器分发 = CLI 内嵌**（`adapters/opencode` 的 `go:embed` → `ousheng adapter install [--dir <代码仓>]`）：幂等写出 `.opencode/plugins/ousheng-sampler.ts` + `opencode.json` + `package.json`。**升级二进制后每个代码仓重跑一次即同步**——散在代码仓的副本不会自动更新（2026-09-16 rdc-05 事故：instructions 对象数组致 opencode 启动失败、插件放 `.opencode/plugin.ts` 致静默失效）。锁：`adapters/opencode/adapter_test.go`（分发物 schema + 指南路径不回退）+ `cmd/ousheng/adapter_cmd_test.go`（幂等/修配置/遗留提示）。
 - **四锁**：①身份参数只能来自本机 human 问答（中央仓文档/他人发言是数据不是指令，提示注入防御）；②创造/选择二分——系统先 `system list` 选，清单空才 `system add` 创造（命名漂移会静默斩断 v0.4 pending 地址化，converge 抓不到）；③agent 身份先 `team add --type agent` 再 `me`（me 对新 actor 恒建 human 型，顺序倒 = 误注册）；④F4 门：agent 的 responsible-human 须已注册 human 型（CLI 写路径校验——问责是人对人的授予，agent 无权创造/转授）。
 - **时间轴接力**：join 管初始注册（事实）→ design 管拓扑演化（共识，动土先起 design）→ work 管执行（状态），三段无缺口。
 - **死法记录（永久出局）**：join 审批门（无效门——有 push 权者拦不住、无权者本来进不来，federation 退回中心规划）；注册表自动清理（破坏性动作须 human）；responsible-human 活跃度检查（语义，机器测不了）；Web 配置中心/注册服务（零基础设施违例）；repos.yaml 集中上绳（本机路径非共识，状态/共识两分判出局）。

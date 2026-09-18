@@ -27,9 +27,10 @@ v1 兼容（无 `.ousheng/` 工作区时回退）：
 
 1. 构建：`go build -o ousheng ./cmd/ousheng && go build -o ousheng-mcp ./cmd/mcp`
 2. 二进制入 PATH
-3. 拷贝 `adapters/opencode/plugin.ts` → `.opencode/plugins/ousheng-sampler.ts`
-4. 拷贝/合并 `adapters/opencode/opencode.json`、`package.json`
-5. `cd .opencode && bun install`
+3. 在代码仓执行 `ousheng adapter install --dir <代码仓>`——资产内嵌于 CLI
+   （`adapters/opencode` 的 `go:embed`），幂等写出 `.opencode/plugins/ousheng-sampler.ts`
+   + `.opencode/opencode.json`（MCP）+ `.opencode/package.json`；升级二进制后重跑即同步。
+   （opencode 启动时自动 `bun install` 装插件依赖；MCP 需 `ousheng-mcp` 在 PATH。）
 
 行为：
 - `session.created` → `ousheng sync`（时机①）；v1 回退 `board read`

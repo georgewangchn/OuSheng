@@ -36,6 +36,7 @@ const usage = `ousheng — 轻量工程上下文运行时（Engineering Context 
 
 多机加入（时机零）:
   ousheng join                                     首次上绳协议（新机/新窗口/re-clone 灾难恢复）
+  ousheng adapter install [--dir <code-repo>]       挂/升级 opencode 适配器（内嵌资产，幂等）
 
 用法: ousheng <command> [args]
 
@@ -104,6 +105,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdSetup(args[1:], stdout, stderr)
 	case "join":
 		return cmdJoin(args[1:], stdout, stderr)
+	case "adapter":
+		return cmdAdapter(args[1:], stdout, stderr)
 	case "init":
 		return cmdInit(args[1:], stdout, stderr)
 	case "me":
