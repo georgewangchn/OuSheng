@@ -21,8 +21,8 @@ import (
 
 const cliVersion = "0.3.1"
 
-// 构建元数据：由 scripts/upgrade-fleet.sh 用 -ldflags 注入，车队升级靠它验收
-// 「这台机器跑的是哪个提交」；不带 ldflags 的本地 go build 显示 dev。
+// 构建元数据：车队部署时用 -ldflags 注入（-X main.buildCommit=... -X main.buildDate=...），
+// 验收「这台机器跑的是哪个提交」；不带 ldflags 的本地 go build 显示 dev。
 var (
 	buildCommit = "dev"
 	buildDate   = "dev"
