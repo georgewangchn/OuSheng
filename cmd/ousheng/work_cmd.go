@@ -84,8 +84,8 @@ func workList(args []string, stdout, stderr io.Writer) int {
 		if *open && !model.WorkItemOpen(w.Status) {
 			continue
 		}
-		if *unassigned && w.Assignee != "" {
-			continue
+		if *unassigned && (w.Assignee != "" || !model.WorkItemOpen(w.Status)) {
+			continue // 待认领池只装 open 的无主单（关闭态不是可认领对象）
 		}
 		ct := ""
 		if w.Contract != nil {
