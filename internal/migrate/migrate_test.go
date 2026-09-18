@@ -200,6 +200,11 @@ func TestResolveOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// role-only 解析会留下无主 doing——必须拒（与 Service.Update 同门）
+	if _, err := ResolveOwner(repo, "auth-api", "", "backend", "", "zhangsan"); err == nil {
+		t.Fatal("role-only resolve must be rejected (leaves doing unowned)")
+	}
+
 	w, err := ResolveOwner(repo, "auth-api", "backend-agent", "backend", "zhangsan", "zhangsan")
 	if err != nil {
 		t.Fatal(err)
