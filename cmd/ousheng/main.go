@@ -298,8 +298,18 @@ type fsCommon struct{ dir *string }
 
 func newFS(name string) *flagSetWithDir {
 	fs := &flagSetWithDir{FlagSet: newFlagSet(name)}
-	fs.dir = fs.String("dir", ".", "workspace dir")
+	fs.dir = fs.String("dir", envWorkspaceDir(), "workspace dir (default: $OUSHENG_DIR or .)")
 	return fs
+}
+
+// envWorkspaceDir：--dir 未显式给出时的默认工作区。优先 OUSHENG_DIR——
+// 适配器与指南用它把 CLI 指向上下文仓（2026-09-16 反馈：此前只认 cwd/--dir，
+// plugin 传的 OUSHENG_DIR 形同虚设）。
+func envWorkspaceDir() string {
+	if d := os.Getenv("OUSHENG_DIR"); d != "" {
+		return d
+	}
+	return "."
 }
 
 func (f *flagSetWithDir) Dir() string { return *f.dir }

@@ -582,7 +582,7 @@ func (r *Repo) commitWork(w model.WorkItem, acts []model.Activity, raw []byte, m
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(p, raw, 0o644); err != nil {
+	if err := writeFileMk(p, raw, 0o644); err != nil {
 		return err
 	}
 	if err := r.AppendActivity(acts, ""); err != nil {
@@ -603,7 +603,7 @@ func (r *Repo) commitWork(w model.WorkItem, acts []model.Activity, raw []byte, m
 
 // commitFile 在锁内写单个 registry 文件并提交（onboarding 写命令复用）。
 func (r *Repo) commitFile(path string, raw []byte, msg string) error {
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
+	if err := writeFileMk(path, raw, 0o644); err != nil {
 		return err
 	}
 	if _, err := gitRun(r.Dir, "add", ".ousheng"); err != nil {
@@ -835,5 +835,15 @@ func writeYAML(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	return writeFileMk(path, b, 0o644)
+}
+
+// writeFileMk 写文件前确保父目录存在：空目录不进 git，队友 clone 后
+// .ousheng/work/、.ousheng/actors/ 等可能缺失——缺目录应是「空工作区」，
+// 不是报错（2026-09-16 反馈：bug report 直接 no such file or directory）。
+func writeFileMk(path string, data []byte, perm os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, perm)
 }

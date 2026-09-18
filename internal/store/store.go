@@ -73,6 +73,14 @@ func (s *Store) Init() error {
 
 func (s *Store) List() ([]card.Card, error) {
 	entries, err := os.ReadDir(s.cardsDir())
+	if os.IsNotExist(err) {
+		// 空目录不进 git：clone 后 cards/ 缺失 = 空看板。
+		// 但看板根目录本身不存在是真错误（路径打错不该静默变空看板）。
+		if _, statErr := os.Stat(s.Dir); statErr != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
