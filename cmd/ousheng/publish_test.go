@@ -36,9 +36,13 @@ func TestWorkListUnassigned(t *testing.T) {
 	mustRun(t, dir, "todo", "有主任务", "--system", "api") // todo 默认 assignee=george
 	mkUnassigned(t, dir, "T-9", "requirement")
 
+	// 关闭态的无主单不是可认领对象——--unassigned 隐含 open
+	mkUnassigned(t, dir, "T-8", "task")
+	mustRun(t, dir, "work", "update", "T-8", "--status", "cancelled", "--actor", "george")
+
 	out := mustRun(t, dir, "work", "list", "--unassigned")
-	if !strings.Contains(out, "T-9") || strings.Contains(out, "T-001") {
-		t.Fatalf("--unassigned 过滤错误:\n%s", out)
+	if !strings.Contains(out, "T-9") || strings.Contains(out, "T-001") || strings.Contains(out, "T-8") {
+		t.Fatalf("--unassigned 应只含 open 无主单:\n%s", out)
 	}
 }
 

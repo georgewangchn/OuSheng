@@ -87,7 +87,8 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. v0.3 已实现�
 - **状态即门槛**（信息门槛挂状态，不挂创建——避免建单摩擦逼出"待定"式造假）：`backlog` 不查；`ready` 起查按类型最小信息集；`doing` **必有主**（写入路径硬门 `doing requires assignee`）；`done` 必有证据（C1）。
 - **类型 → 最小信息集**：requirement/feature/task/test → `description`（验收标准）；bug → `description` + `detected_by`（复现/期望/实际/环境写进 description）；release/deployment → `target_version`。
 - **分层强制**：硬门只挡"进行中无主"（写路径，同 C1/C2 风格）；其余走曝光——converge：active 无主 = BLOCKER、backlog/ready 无主 = warning「待认领」、ready+ 缺信息 = warning。锁：`TestActiveWorkWithoutAssigneeBlocks` / `TestUnassignedReadyWarns` / `TestIncompleteInfoWarns` / `cmd/ousheng/publish_test.go`。
-- **认领协议**：无主池在 `work list --unassigned` 与 `view system` 可见；执行者 `work assign <id> --assignee 我 --role R` 自领（CAS revision 防并发）。
+- **认领协议**：无主池在 `work list --unassigned`（可 `--system` 过滤）可见；执行者 `work assign <id> --assignee 我 --role R` 自领（CAS revision 防并发）。注意 `view system` 只列 active（doing/testing/blocked）——backlog/ready 的待认领单不在其中（SystemView 暂不加 Queued 字段；激活判据：真实出现 agent 漏领）。
+- **migrate 与无主 active**：v1 `live` 卡迁移为 `doing`；owner 解析失败时标 `migration_status: needs_resolution` 且无主 → converge **BLOCKED**（有意：无主 active 不可执行），先 `ousheng migrate resolve-owner` 再 converge。锁 `TestMigratedNeedsResolutionBlocks`。
 - **四路判决**：无主/信息不全信号**不进 `context me`**（注入面最小化——执行者不需要知道不归他的单）；进 `work list` + `view system` + converge。锁 `TestUnassignedNotInjectedIntoContextMe`。
 - **延后（记判据）**：severity 字段（判据：priority 不够用、被真实分诊坑过）；父子/分解字段（判据：design 拆单路径被证明不够）。
 

@@ -125,10 +125,12 @@ func (s *Service) Update(w model.WorkItem, expectRevision int, actor string) (mo
 	if cur.Status != w.Status && !model.CanWorkTransition(cur.Status, w.Status) {
 		return model.WorkItem{}, fmt.Errorf("illegal work transition %s -> %s", cur.Status, w.Status)
 	}
-	// 发布条件（2026-09-18 推演）：进行中必须有主——无主 active 等于"进行中"是假的，
-	// 且没有任何执行者的 context me 会收到它。与 C1/C2 同风格的写路径硬门。
-	if w.Status == model.StatusDoing && w.Assignee == "" {
-		return model.WorkItem{}, fmt.Errorf("doing requires assignee (active work must have an owner; keep it ready or run `work assign` first)")
+	// 发布条件（2026-09-18 推演）：进行中（doing/testing/blocked）必须有主——
+	// 无主 active 等于"进行中"是假的：没有任何执行者的 context me 会收到它，
+	// 无人推进也无人回来解阻。统一规则（不为 testing/blocked 开特例）：换人走
+	// `work assign`，从不需要清空主。与 C1/C2 同风格的写路径硬门。
+	if model.WorkItemActive(w.Status) && w.Assignee == "" {
+		return model.WorkItem{}, fmt.Errorf("%s requires assignee (active work must have an owner; keep it ready or run `work assign` first)", w.Status)
 	}
 	if cur.Status != w.Status {
 		acts = append(acts, model.Activity{

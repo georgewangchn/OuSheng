@@ -235,3 +235,29 @@ func TestGitHistoryPerChange(t *testing.T) {
 		t.Fatalf("expected create commit in log:\n%s", log)
 	}
 }
+
+// 发布条件（2026-09-18）：进行中（doing/testing/blocked）必有主——
+// 统一规则，不为 testing/blocked 开特例（换人走 work assign，从不清空主）。
+func TestActiveRequiresAssignee(t *testing.T) {
+	s := openFixtures(t)
+	base, err := s.Repo.GetWorkItem("BUG-017")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base.Assignee == "" {
+		t.Fatal("fixture BUG-017 应有主")
+	}
+	for _, st := range []model.WorkStatus{model.StatusDoing, model.StatusBlocked, model.StatusTesting} {
+		w := base
+		w.Status = st
+		w.Assignee = ""
+		if _, err := s.Update(w, base.Revision, "test-agent"); err == nil || !strings.Contains(err.Error(), "requires assignee") {
+			t.Fatalf("%s 无主必须拒写，err=%v", st, err)
+		}
+	}
+	w := base
+	w.Status = model.StatusTesting
+	if _, err := s.Update(w, base.Revision, "test-agent"); err != nil {
+		t.Fatalf("有主 testing 应可写: %v", err)
+	}
+}

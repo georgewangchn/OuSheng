@@ -601,3 +601,18 @@ func TestIncompleteInfoWarns(t *testing.T) {
 		}
 	}
 }
+
+// v1 迁移：owner 解析失败（needs_resolution）的 live→doing 单无主 → BLOCK
+// （有意：无主 active 不可执行；先 migrate resolve-owner 再 converge）。
+func TestMigratedNeedsResolutionBlocks(t *testing.T) {
+	w := wi("M-1", model.StatusDoing)
+	w.Assignee = ""
+	w.MigrationStatus = "needs_resolution"
+	r, err := checkK(t, []model.WorkItem{w})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != Blocked || !contains(r.Blockers, "active work without assignee") {
+		t.Fatalf("needs_resolution 无主 active 必须 BLOCK，got %s (%v)", r.Status, r.Blockers)
+	}
+}
