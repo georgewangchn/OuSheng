@@ -19,9 +19,18 @@ import (
 	"ousheng/internal/state/gityaml"
 )
 
-const cliVersion = "0.3.0"
+const cliVersion = "0.3.1"
 
-func versionString() string { return "ousheng " + cliVersion }
+// 构建元数据：由 scripts/upgrade-fleet.sh 用 -ldflags 注入，车队升级靠它验收
+// 「这台机器跑的是哪个提交」；不带 ldflags 的本地 go build 显示 dev。
+var (
+	buildCommit = "dev"
+	buildDate   = "dev"
+)
+
+func versionString() string {
+	return fmt.Sprintf("ousheng %s (commit %s, built %s)", cliVersion, buildCommit, buildDate)
+}
 
 const usage = `ousheng — 轻量工程上下文运行时（Engineering Context Runtime）
 
