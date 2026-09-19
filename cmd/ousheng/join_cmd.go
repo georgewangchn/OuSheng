@@ -38,9 +38,12 @@ const joinProtocol = `时机零：首次上绳协议（ousheng join）
 
 5. 挂 plugin 到代码仓（opencode 只从 .opencode/plugins/ 加载——放错位置不报错，
    插件静默失效）：
-     ousheng adapter install --dir <代码仓>
-   写出 .opencode/plugins/ousheng-sampler.ts 与 .opencode/opencode.json（MCP，可选）；
-   升级后重跑本命令即同步。代码仓 AGENTS.md 纪律段见 docs 指南附录 A。
+     ousheng adapter install --dir <代码仓> --workspace <工作区路径>
+   五件套：.opencode/plugins/ousheng-sampler.ts + .opencode/opencode.json（MCP）+
+   .opencode/package.json + .opencode/ousheng.json（机器本地 {workspace, actor}，
+   自动 gitignore）+ AGENTS.md 协议段（标记段自动维护，机器中立）。
+   升级后重跑本命令即同步；workspace 已记忆在 ousheng.json，无需再传 --workspace。
+   工作区检出自带 .ousheng（PM 中枢形态）时 --workspace 可省（同仓自动识别）。
 
 6. git push 把注册推上中央仓；其他机器下次 sync 即见。
 

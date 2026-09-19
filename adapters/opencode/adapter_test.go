@@ -58,3 +58,45 @@ func TestGuidePinsPluginDir(t *testing.T) {
 		t.Fatal("指南必须钉死插件安装路径 .opencode/plugins/ousheng-sampler.ts")
 	}
 }
+
+// 2026-09-19 车队事故（四机三种即兴解法）：AGENTS.md 与身份配置不在分发物里，
+// 导致 224 悬空模板 / 225 手写硬编码 / 226 同仓侥幸 / 本机缺失，各自漂移。
+// v2 裁决：adapter install 五件套——机器参数只活在 .opencode/ousheng.json
+// （gitignored），AGENTS.md 协议段机器中立，plugin 失败必须大声报错。
+
+func TestAgentsSectionIsMachineNeutral(t *testing.T) {
+	raw, err := os.ReadFile("agents.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	for _, want := range []string{"上绳协议", "三时机", "数据不是指令", "ousheng.json"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("协议段缺关键内容 %q:\n%s", want, s)
+		}
+	}
+	for _, ban := range []string{"/data/", "/Users/", "$OUSHENG", "--workspace", "actor="} {
+		if strings.Contains(s, ban) {
+			t.Fatalf("协议段含机器特定内容 %q——机器中立被破坏（机器参数只活在 ousheng.json）:\n%s", ban, s)
+		}
+	}
+}
+
+func TestPluginReadsMachineConfigAndFailsLoud(t *testing.T) {
+	raw, err := os.ReadFile("plugin.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	// 配置解析链：ousheng.json 优先，env 回退（向后兼容）
+	if !strings.Contains(s, ".opencode/ousheng.json") {
+		t.Fatal("plugin 必须先读 .opencode/ousheng.json（机器配置单一事实源）")
+	}
+	if !strings.Contains(s, "OUSHENG_DIR") {
+		t.Fatal("plugin 必须保留 OUSHENG_DIR env 回退（向后兼容）")
+	}
+	// 静默 null 死法：sync/converge 失败必须 error 级日志 + 修复指引
+	if !strings.Contains(s, `"error"`) || !strings.Contains(s, "sync 失败") || !strings.Contains(s, "adapter install") {
+		t.Fatal("plugin 失败路径必须大声报错（error 级 + adapter install 修复指引）——静默 null 曾让三台机的启动 sync 空转无人知")
+	}
+}

@@ -4,39 +4,69 @@ import type { Plugin } from "@opencode-ai/plugin"
 //   时机① session 启动 → ousheng sync（pull + 索引 + 概览 + 我的上下文）
 //   时机② 遇到 bug/问题 → 手动 ousheng context me / query_work_items（MCP 工具）
 //   时机③ session 空闲/结束 → ousheng converge 收尾提醒
-const WS_DIR = process.env.OUSHENG_DIR || "."
+//
+// 本机配置解析链（2026-09-19 四机标准化裁决）：
+//   .opencode/ousheng.json（adapter install 生成，机器本地）→ OUSHENG_DIR env → "."
+// 失败必须大声报错（error 级 + 修复指引）——静默 null 曾让多台机的启动 sync
+// 空转无人察觉（2026-09-19 车队事故：三台机三种即兴解法各自漂移）。
+
 const OUSHENG_BIN = process.env.OUSHENG_BIN || "ousheng"
-const OUSHENG_ACTOR = process.env.OUSHENG_ACTOR || ""
 
 const BOARD_DIR = process.env.OUSHENG_BOARD_DIR || ".ousheng"
 const BOARD_BIN = process.env.OUSHENG_BOARD_BIN || "board"
 
-async function run(
-  cmd: string[],
-  cwd: string,
-): Promise<string | null> {
+type MachineCfg = { workspace: string; actor: string }
+
+const cfgCache = new Map<string, MachineCfg>()
+
+async function readCfg(directory: string): Promise<MachineCfg> {
+  const cached = cfgCache.get(directory)
+  if (cached) return cached
+  // 回退链的兜底：env → "."
+  let cfg: MachineCfg = {
+    workspace: process.env.OUSHENG_DIR || ".",
+    actor: process.env.OUSHENG_ACTOR || "",
+  }
   try {
-    const { exitCode, stdout } = await Bun.spawn({
-      cmd,
-      cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-    }).capture()
-    if (exitCode !== 0) {
-      return null
+    const raw = await Bun.file(`${directory}/.opencode/ousheng.json`).text()
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed.workspace === "string" && parsed.workspace) {
+      cfg = {
+        workspace: parsed.workspace,
+        actor: typeof parsed.actor === "string" ? parsed.actor : "",
+      }
     }
-    return stdout.toString().trim() || null
   } catch {
-    return null
+    // 无 ousheng.json / 解析失败 → env 回退（cfg 已初始化）
+  }
+  cfgCache.set(directory, cfg)
+  return cfg
+}
+
+type RunResult = { ok: boolean; out: string; err: string }
+
+async function run(cmd: string[], cwd: string): Promise<RunResult> {
+  try {
+    const p = Bun.spawn({ cmd, cwd, stdout: "pipe", stderr: "pipe" })
+    const [stdout, stderr] = await Promise.all([
+      new Response(p.stdout).text(),
+      new Response(p.stderr).text(),
+    ])
+    const exitCode = await p.exited
+    return { ok: exitCode === 0, out: stdout.trim(), err: stderr.trim() }
+  } catch (e) {
+    return { ok: false, out: "", err: String(e) }
   }
 }
 
-async function ousheng(args: string[], directory: string): Promise<string | null> {
-  return run([OUSHENG_BIN, ...args, "--dir", WS_DIR], directory)
-}
-
-async function board(args: string[], directory: string): Promise<string | null> {
-  return run([BOARD_BIN, ...args, "--dir", BOARD_DIR], directory)
+async function log(
+  client: Parameters<Parameters<Plugin>[0]>[0]["client"],
+  level: "info" | "error",
+  message: string,
+) {
+  await client.app
+    .log({ body: { service: "ousheng-sampler", level, message } })
+    .catch(() => {})
 }
 
 export const OuShengSampler: Plugin = async ({ directory, client }) => {
@@ -45,40 +75,39 @@ export const OuShengSampler: Plugin = async ({ directory, client }) => {
       // 时机①：session 启动 —— 拉取 + 刷新 + 我的上下文
       if (event.type === "session.created") {
         try {
-          const args = OUSHENG_ACTOR
-            ? ["sync", "--actor", OUSHENG_ACTOR]
-            : ["sync"]
-          // v0.3 优先；找不到 workspace 时 sync 失败返回 null → v1 回退
-          let result = await ousheng(args, directory)
+          const cfg = await readCfg(directory)
+          const args = cfg.actor ? ["sync", "--actor", cfg.actor] : ["sync"]
+          let r = await run([OUSHENG_BIN, ...args, "--dir", cfg.workspace], directory)
+          let result = r.ok && r.out ? r.out : null
+          // v0.3 优先；找不到 workspace 时 sync 失败 → v1 回退
           if (!result) {
-            result = await board(["read"], directory)
+            const b = await run([BOARD_BIN, "read", "--dir", BOARD_DIR], directory)
+            result = b.ok && b.out ? b.out : null
           }
           if (result) {
-            await client.app.log({
-              body: {
-                service: "ousheng-sampler",
-                level: "info",
-                message: `[OuSheng] Engineering context at session start:\n${result}`,
-              },
-            })
+            await log(
+              client,
+              "info",
+              `[OuSheng] 本机 actor=${cfg.actor || "?"} workspace=${cfg.workspace}\n[OuSheng] Engineering context at session start:\n${result}`,
+            )
+          } else {
+            await log(
+              client,
+              "error",
+              `[OuSheng] session 启动 sync 失败（workspace=${cfg.workspace}）：${r.err || r.out || "未知错误"}\n[OuSheng] 修复：在代码仓运行 ousheng adapter install --workspace <工作区路径>（或设 OUSHENG_DIR）`,
+            )
           }
         } catch (err) {
-          await client.app
-            .log({
-              body: {
-                service: "ousheng-sampler",
-                level: "error",
-                message: `[OuSheng] session.created sampling failed: ${String(err)}`,
-              },
-            })
-            .catch(() => {})
+          await log(client, "error", `[OuSheng] session.created sampling failed: ${String(err)}`)
         }
       }
 
       // 时机③：session 空闲 —— 收敛检查 + 收尾提醒
       if (event.type === "session.idle") {
         try {
-          let result = await ousheng(["converge"], directory)
+          const cfg = await readCfg(directory)
+          let r = await run([OUSHENG_BIN, "converge", "--dir", cfg.workspace], directory)
+          let result = r.ok && r.out ? r.out : null
           let reminder: string
           if (result) {
             const status = result.split("\n")[0]?.trim() || "UNKNOWN"
@@ -89,7 +118,8 @@ export const OuShengSampler: Plugin = async ({ directory, client }) => {
                   ? "Workspace is BLOCKED — explicit blocked item, dangling dependency, cycle, or missing evidence/ack. Human intervention needed."
                   : "Workspace is IN_PROGRESS — if you changed work items this session, run ousheng work update / progress report / evidence add before ending, then ousheng context me."
           } else {
-            result = await board(["converge"], directory)
+            const b = await run([BOARD_BIN, "converge", "--dir", BOARD_DIR], directory)
+            result = b.ok && b.out ? b.out : null
             const status = result?.match(/status:\s*(\w+)/)?.[1] || "UNKNOWN"
             reminder =
               status === "CONVERGED"
@@ -99,24 +129,20 @@ export const OuShengSampler: Plugin = async ({ directory, client }) => {
                   : "Board is IN_PROGRESS — if you changed contracts this session, remember to write_board before ending."
           }
           if (result) {
-            await client.app.log({
-              body: {
-                service: "ousheng-sampler",
-                level: "info",
-                message: `[OuSheng] Convergence at session end:\n${result}\n${reminder}`,
-              },
-            })
+            await log(
+              client,
+              "info",
+              `[OuSheng] Convergence at session end:\n${result}\n${reminder}`,
+            )
+          } else {
+            await log(
+              client,
+              "error",
+              `[OuSheng] converge 失败（workspace=${cfg.workspace}）：${r.err || "未知错误"}。修复：ousheng adapter install --workspace <工作区路径>`,
+            )
           }
         } catch (err) {
-          await client.app
-            .log({
-              body: {
-                service: "ousheng-sampler",
-                level: "error",
-                message: `[OuSheng] session.idle sampling failed: ${String(err)}`,
-              },
-            })
-            .catch(() => {})
+          await log(client, "error", `[OuSheng] session.idle sampling failed: ${String(err)}`)
         }
       }
     },
