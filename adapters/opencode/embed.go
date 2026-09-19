@@ -29,3 +29,10 @@ var ConfigJSON []byte
 //
 //go:embed package.json
 var PackageJSON []byte
+
+// AgentsMD 是 AGENTS.md 的受管协议段（机器中立：不含路径/身份/环境变量，
+// 机器参数只活在 .opencode/ousheng.json）。adapter install 以
+// <!-- ousheng:begin --> / <!-- ousheng:end --> 标记幂等写入/替换。
+//
+//go:embed agents.md
+var AgentsMD []byte
