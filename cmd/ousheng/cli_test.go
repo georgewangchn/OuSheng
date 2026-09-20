@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -210,6 +211,44 @@ func TestCLISyncNoRemote(t *testing.T) {
 	}
 	if !strings.Contains(out, "smart-lakehouse") {
 		t.Fatalf("sync summary wrong:\n%s", out)
+	}
+}
+
+// 2026-09-20 BUG-001 事故锁：sync 只 pull 不 push，226 发单后提交烂在本地、
+// 全舰队不可见直至人工推送。sync 必须在 pull 成功后 push 收口（软失败不阻塞）。
+func TestCLISyncPushesLocalCommits(t *testing.T) {
+	dir := testfix.Setup(t)
+	remote := filepath.Join(t.TempDir(), "central.git")
+	g := func(cwd string, args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = cwd
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+	g(dir, "init", "--bare", remote)
+	g(dir, "remote", "add", "origin", remote)
+	g(dir, "push", "-q", "-u", "origin", "main")
+	// ousheng 写路径造本地未推提交（同 BUG-001 事故形态：bug/todo 自动提交后无人推）
+	if err := os.WriteFile(filepath.Join(dir, ".ousheng", "me"), []byte("zhangsan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCLI(t, dir, "bug", "report", "--id", "BUG-100", "--title", "推送收口验证",
+		"--system", "lakehouse-k8s", "--detected-by", "backend-agent")
+	localHead := strings.TrimSpace(g(dir, "rev-parse", "HEAD"))
+	out := runCLI(t, dir, "sync")
+	if strings.Contains(out, "push skipped") {
+		t.Fatalf("push 不应失败:\n%s", out)
+	}
+	if remoteHead := strings.TrimSpace(g(remote, "rev-parse", "main")); remoteHead != localHead {
+		t.Fatalf("sync 未推送本地提交：remote=%s local=%s\n%s", remoteHead, localHead, out)
+	}
+	// 幂等：无新提交时 sync 静默（不误报 push skipped）
+	out = runCLI(t, dir, "sync")
+	if strings.Contains(out, "push skipped") {
+		t.Fatalf("无未推提交的 sync 应静默:\n%s", out)
 	}
 }
 

@@ -84,6 +84,25 @@ func gitPull(dir string) (string, error) {
 	return string(out), nil
 }
 
+// gitPush：推送本地未推提交。收尾闭环（2026-09-20 BUG-001 事故：sync 只 pull
+// 不 push，226 的 bug 单提交后烂在本地，全舰队不可见直至人工推送）。软失败——
+// 推送不在写路径，只随 sync 收口；失败仅提示，不阻塞索引与上下文。
+func gitPush(dir string) (string, error) {
+	cmd := exec.Command("git", "push")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		s := string(out)
+		for _, p := range []string{"no remote repository", "no tracking information", "no upstream"} {
+			if strings.Contains(s, p) {
+				return "", errNoRemote
+			}
+		}
+		return "", fmt.Errorf("%s", strings.TrimSpace(s))
+	}
+	return string(out), nil
+}
+
 // rejectExtra 拒绝多余位置参数。静默吞掉（如忘写 --system 的过滤值）比报错更危险：
 // 用户会基于错误的全量结果做决策（场景测试实锤）。
 func rejectExtra(fs *flagSetWithDir, stderr io.Writer) int {

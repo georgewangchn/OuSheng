@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"ousheng/internal/context"
 	"ousheng/internal/converge"
@@ -59,7 +60,7 @@ workspace:
   repo [set <system-id> <本地代码仓路径>]           多仓拓扑：system→代码仓本机映射
   system add <id> [--name N --parent P]            声明系统
   todo <title> [--system S --version V]            建任务（自动 T-xxx ID + 全默认值）
-  sync [--actor ID]                                git pull + 索引刷新 + 看板/我的上下文
+  sync [--actor ID]                                git pull + push（收尾闭环）+ 索引刷新 + 看板/我的上下文
   converge                                         收敛检查（CONVERGED/IN_PROGRESS/BLOCKED）
   design <list|show|decide|supersede|withdraw>     共识层：整体方案（list 可按 --status/--waiting-for 过滤；decide/supersede 为 human 门；withdraw 为 owner 或 human 门）
 
@@ -263,14 +264,25 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 	}
 	dir := fs.Dir()
 	// 1. git pull（无 remote 则跳过——单机也成立）
-	if out, err := gitPull(dir); err != nil {
-		if errors.Is(err, errNoRemote) {
-			fmt.Fprintln(stdout, "pull skipped (no remote configured)")
-		} else {
-			fmt.Fprintf(stdout, "pull skipped (%v)\n", err)
+	pullOut, pullErr := gitPull(dir)
+	switch {
+	case pullErr == nil:
+		fmt.Fprintf(stdout, "%s", pullOut)
+	case errors.Is(pullErr, errNoRemote):
+		fmt.Fprintln(stdout, "pull skipped (no remote configured)")
+	default:
+		fmt.Fprintf(stdout, "pull skipped (%v)\n", pullErr)
+	}
+	// 1.5 git push：仅 pull 成功后收口（先拉齐再推，分叉态不推）。
+	// 软失败——推送失败只提示，不阻塞 sync；无未推提交时静默。
+	if pullErr == nil {
+		if pushOut, err := gitPush(dir); err != nil {
+			if !errors.Is(err, errNoRemote) {
+				fmt.Fprintf(stdout, "push skipped (%v)\n", err)
+			}
+		} else if s := strings.TrimSpace(pushOut); s != "" && !strings.Contains(s, "Everything up-to-date") {
+			fmt.Fprintf(stdout, "%s", s)
 		}
-	} else {
-		fmt.Fprintf(stdout, "%s", out)
 	}
 	// 2. 索引刷新（= rebuild；SQLite 存在时一并重建）
 	if code := rebuildIndex(dir, stdout, stderr); code != 0 {
