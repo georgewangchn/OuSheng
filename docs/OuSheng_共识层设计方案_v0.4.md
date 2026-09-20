@@ -84,7 +84,7 @@ context me 是 AI 注入面，注入即成本。全局架构文档可能几千�
 
 ```yaml
 # designs/export-csv/design.md 头部
-status: draft                # draft → agreed → superseded（唯一状态字段）
+status: draft                # draft → agreed → superseded；draft → withdrawn（撤回终态）
 owner: api-agent             # 发起人
 systems: [api, ui]           # 受影响系统（地址化：pending 只喊相关系统的 actor）
 related_items: [REQ-API-007, REQ-UI-003]   # 拆单时 PM 写一次
@@ -108,12 +108,14 @@ frontmatter 手写 strict decode（未知键拒、status 枚举校验）——�
 
 ```
 draft ──PM decide──→ agreed ──supersede──→ superseded（指认继任 topic）
+draft ──withdraw──→ withdrawn（撤回终态，owner 或 human）
 ```
 
 - **decide 硬门（C2 精神向设计层的延伸）**：`status: agreed` 的 `decided_by` 必须是注册表 human 型 actor。多系统整体方案被下游当作共识依赖，agent 自拍自抵 = 同 breaking 自 ack 同罪。写入路径校验 + converge 审计双层（复用 v0.3 模式）。
   **真实强度（T10 诚实声明）**：门的"硬" = 写路径校验（CLI 拒非 human）+ 审计线索（activity + git author）；**手改 frontmatter 可绕过写路径**——与契约 C2 ack 手改绕过同罪同级，机器不可修，防线在绳外（git 审计 + 分支保护/写权限）。注册表本身可伪造（傀儡 human，已文档化边界）同理继承。
 - **supersede 同门**：方案翻篇 = 方向变更 = 跨主体影响，与 decide 同级需 human；且必须指认继任者（防知识断链）。
   converge 走链检查：继任者存在（悬空 → warning）；继任者状态 ∈ {agreed, superseded}（draft → 「supersede 未生效」warning，防把权威性甩给未拍板方案）；**链环检测**（镜像依赖环）。
+- **withdraw（2026-09-20 PM 撤回事故补的终态）**：draft 被发起人收回——需求取消/方向作废。**这不是拍板门**：draft 从未获得权威、无共识可转移，故 owner 即可操作（agent 可撤自己的 draft；非 owner 的 agent 撤别人的 = 跨主体拒绝；human 手不卡可撤任意）。withdrawn 须带 `withdrawn_by`、禁 `superseded_by`/`decided_by`（从未拍板、无权威可转移）；终态后不再进 pending_reviews、converge 不再对其 related 工作发超前曝光（死方案持活链接属档案事实，不是噪音）。agreed 的关闭仍走 supersede（权威性转移）。
 - architecture 无状态机（稳态），靠 owner + git 审计软约束（**不加写入门禁**：文档错误成本 = 人看见改回来，git revert 救命；加门禁的复杂度大于收益）。
 
 ### 4.3 轮次评审协议（「轮流发言」的落地）

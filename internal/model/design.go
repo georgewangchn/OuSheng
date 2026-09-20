@@ -7,20 +7,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DesignStatus 是共识层方案的生命周期（v0.4 §4.2）：
-// draft →（PM decide，human 门）→ agreed →（supersede，human 门）→ superseded。
+// DesignStatus 是共识层方案的生命周期（v0.4 §4.2 + 2026-09-20 撤回裁决）：
+// draft →（PM decide，human 门）→ agreed →（supersede，human 门）→ superseded；
+// draft →（withdraw，owner 或 human）→ withdrawn（撤回终态——无权威可转移，
+// 与 supersede 无关；PM 撤回事故前只能手改 frontmatter 贴横幅绕绳）。
 type DesignStatus string
 
 const (
 	DesignDraft      DesignStatus = "draft"
 	DesignAgreed     DesignStatus = "agreed"
 	DesignSuperseded DesignStatus = "superseded"
+	DesignWithdrawn  DesignStatus = "withdrawn"
 )
 
 // DesignDoc 是 designs/<topic>/design.md 的 frontmatter（v0.4 §4.1，移除轴后最小集）。
 //
 // strict decode：未知键拒绝；agreed 必须带 decided_by、superseded 必须带
-// superseded_by（存在性在此层校验，decided_by 的 human 型由写入路径 + converge
+// superseded_by、withdrawn 必须带 withdrawn_by 且禁 superseded_by/decided_by
+// （存在性在此层校验，decided_by/withdrawn_by 的身份由写入路径 + converge
 // 双层校验——与 C2 的分工同构）。
 type DesignDoc struct {
 	Status       DesignStatus `yaml:"status"`
@@ -30,6 +34,8 @@ type DesignDoc struct {
 	DecidedBy    string       `yaml:"decided_by,omitempty"`
 	DecidedAt    string       `yaml:"decided_at,omitempty"`
 	SupersededBy string       `yaml:"superseded_by,omitempty"`
+	WithdrawnBy  string       `yaml:"withdrawn_by,omitempty"`
+	WithdrawnAt  string       `yaml:"withdrawn_at,omitempty"`
 }
 
 // DesignInfo 是共识层只读模型（gityaml.ListDesigns 产出，Snapshot 携带，
@@ -87,9 +93,9 @@ func EncodeDesignDoc(d DesignDoc, body []byte) ([]byte, error) {
 
 func validateDesignDoc(d DesignDoc) error {
 	switch d.Status {
-	case DesignDraft, DesignAgreed, DesignSuperseded:
+	case DesignDraft, DesignAgreed, DesignSuperseded, DesignWithdrawn:
 	case "":
-		return fmt.Errorf("design status is required (draft|agreed|superseded)")
+		return fmt.Errorf("design status is required (draft|agreed|superseded|withdrawn)")
 	default:
 		return fmt.Errorf("invalid design status %q", d.Status)
 	}
@@ -101,6 +107,18 @@ func validateDesignDoc(d DesignDoc) error {
 	}
 	if d.Status == DesignSuperseded && strings.TrimSpace(d.SupersededBy) == "" {
 		return fmt.Errorf("superseded design requires superseded_by")
+	}
+	if d.Status == DesignWithdrawn {
+		if strings.TrimSpace(d.WithdrawnBy) == "" {
+			return fmt.Errorf("withdrawn design requires withdrawn_by")
+		}
+		// withdrawn = 未拍板即收回：无权威可转移（禁 superseded_by）、从未 decide（禁 decided_by）
+		if strings.TrimSpace(d.SupersededBy) != "" {
+			return fmt.Errorf("withdrawn design must not carry superseded_by (nothing to transfer)")
+		}
+		if strings.TrimSpace(d.DecidedBy) != "" {
+			return fmt.Errorf("withdrawn design must not carry decided_by (never decided)")
+		}
 	}
 	seen := map[string]bool{}
 	for _, sys := range d.Systems {

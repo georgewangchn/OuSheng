@@ -61,7 +61,7 @@ workspace:
   todo <title> [--system S --version V]            建任务（自动 T-xxx ID + 全默认值）
   sync [--actor ID]                                git pull + 索引刷新 + 看板/我的上下文
   converge                                         收敛检查（CONVERGED/IN_PROGRESS/BLOCKED）
-  design <list|show|decide|supersede>              共识层：整体方案（list 可按 --status/--waiting-for 过滤；decide/supersede 为 human 门）
+  design <list|show|decide|supersede|withdraw>     共识层：整体方案（list 可按 --status/--waiting-for 过滤；decide/supersede 为 human 门；withdraw 为 owner 或 human 门）
 
 context (查看时机: 每日启动 / 遇到问题 / 任务结束):
   context me [--actor ID] [--json]                 我的工程上下文（第一层）

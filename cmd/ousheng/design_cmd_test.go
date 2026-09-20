@@ -164,3 +164,46 @@ func TestDesignSignalPaths(t *testing.T) {
 		t.Fatalf("unexpected design warnings:\n%s", conv)
 	}
 }
+
+// 撤回门（2026-09-20 PM 撤回事故）：draft 无终态，PM 只能手改 frontmatter 贴横幅绕绳。
+// 补 withdrawn 终态：owner 本人（含 agent——收回自己的提案非跨主体）或 human（手不卡）可撤；
+// 非 owner 的 agent 撤别人的 draft = 跨主体伤害，拒（镜像 F4 哲学）。
+func TestDesignWithdraw(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "george", "--name", "George")
+	mustRun(t, dir, "team", "add", "dev-agent", "--type", "agent", "--responsible-human", "george")
+	writeDesignFile(t, dir, "mq-plan", "status: draft\nowner: george\n", "方案\n")
+
+	if _, se, code := runIn(t, dir, "design", "withdraw", "mq-plan", "--actor", "ghost"); code == 0 || !strings.Contains(se, "unknown actor") {
+		t.Fatalf("unknown actor must be rejected: %d %s", code, se)
+	}
+	if _, se, code := runIn(t, dir, "design", "withdraw", "mq-plan", "--actor", "dev-agent"); code == 0 || !strings.Contains(se, "own draft") {
+		t.Fatalf("non-owner agent withdraw must be rejected: %d %s", code, se)
+	}
+	out := mustRun(t, dir, "design", "withdraw", "mq-plan", "--actor", "george")
+	if !strings.Contains(out, "withdrawn") {
+		t.Fatalf("owner withdraw must pass: %s", out)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, ".ousheng", "designs", "mq-plan", "design.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(raw); !strings.Contains(s, "status: withdrawn") || !strings.Contains(s, "withdrawn_by: george") {
+		t.Fatalf("frontmatter must record withdrawal:\n%s", s)
+	}
+	if _, _, code := runIn(t, dir, "design", "withdraw", "mq-plan", "--actor", "george"); code == 0 {
+		t.Fatal("double withdraw must fail")
+	}
+	// agreed 不能 withdraw（那是 supersede 的领地）
+	writeDesignFile(t, dir, "agreed-plan", "status: draft\nowner: george\n", "x\n")
+	mustRun(t, dir, "design", "decide", "agreed-plan", "--actor", "george")
+	if _, se, code := runIn(t, dir, "design", "withdraw", "agreed-plan", "--actor", "george"); code == 0 || !strings.Contains(se, "only draft") {
+		t.Fatalf("agreed withdraw must be rejected: %d %s", code, se)
+	}
+	// agent 撤自己的 draft → 允许
+	writeDesignFile(t, dir, "agent-plan", "status: draft\nowner: dev-agent\n", "y\n")
+	if out := mustRun(t, dir, "design", "withdraw", "agent-plan", "--actor", "dev-agent"); !strings.Contains(out, "withdrawn") {
+		t.Fatalf("owner agent withdraw own draft must pass: %s", out)
+	}
+}
