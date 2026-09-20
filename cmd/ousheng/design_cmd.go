@@ -13,7 +13,7 @@ import (
 // 内容生成不经绳——design.md/round 由人和 agent 直接写）。
 func cmdDesign(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "usage: ousheng design <list|show|decide|supersede>")
+		fmt.Fprintln(stderr, "usage: ousheng design <list|show|decide|supersede|withdraw>")
 		return 2
 	}
 	switch args[0] {
@@ -25,15 +25,17 @@ func cmdDesign(args []string, stdout, stderr io.Writer) int {
 		return designDecide(args[1:], stdout, stderr)
 	case "supersede":
 		return designSupersede(args[1:], stdout, stderr)
+	case "withdraw":
+		return designWithdraw(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, "usage: ousheng design <list|show|decide|supersede>")
+		fmt.Fprintln(stderr, "usage: ousheng design <list|show|decide|supersede|withdraw>")
 		return 2
 	}
 }
 
 func designList(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("design list")
-	status := fs.String("status", "", "filter: draft|agreed|superseded")
+	status := fs.String("status", "", "filter: draft|agreed|superseded|withdrawn")
 	waitingFor := fs.String("waiting-for", "", "filter: draft designs awaiting this actor's round input")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
@@ -201,5 +203,68 @@ func designSupersede(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "design %s superseded by %s\n", topic, *by)
+	return 0
+}
+
+// designWithdraw：draft → withdrawn（2026-09-20 PM 撤回事故补的终态）。
+//
+// 门（镜像 F4 哲学）：human 手不卡（可撤任意 draft）；agent 只能撤自己的
+// （收回自己的提案非跨主体伤害）；非 owner 的 agent 撤别人的 draft = 拒。
+// 与 decide/supersede 不同——这不是拍板门：draft 从未获得权威，无共识可转移，
+// 故 owner 即可操作。agreed 的关闭仍走 supersede（继任者 + human 门）。
+func designWithdraw(args []string, stdout, stderr io.Writer) int {
+	fs := newFS("design withdraw")
+	actor := fs.String("actor", "", "withdrawing actor (owner or any human)")
+	if err := parseLoose(fs.FlagSet, args); err != nil {
+		return usageErr(stderr, err)
+	}
+	if fs.NArg() != 1 || *actor == "" {
+		fmt.Fprintln(stderr, "usage: ousheng design withdraw <topic> --actor <owner-or-human>")
+		return 2
+	}
+	repo := gityaml.Open(fs.Dir())
+	actors, err := repo.ListActors()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	var typ model.ActorType
+	found := false
+	for _, af := range actors {
+		if af.Actor.ID == *actor {
+			typ, found = af.Actor.Type, true
+			break
+		}
+	}
+	if !found {
+		fmt.Fprintf(stderr, "unknown actor %q\n", *actor)
+		return 1
+	}
+	topic := fs.Arg(0)
+	d, body, err := repo.GetDesignRaw(topic)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if d.Status != model.DesignDraft {
+		fmt.Fprintf(stderr, "design %q is %s, only draft can be withdrawn (agreed 走 supersede)\n", topic, d.Status)
+		return 1
+	}
+	if typ != model.ActorHuman && *actor != d.Owner {
+		fmt.Fprintf(stderr, "agent %q can only withdraw own draft (owner is %q) — human 可撤任意\n", *actor, d.Owner)
+		return 1
+	}
+	d.Status = model.DesignWithdrawn
+	d.WithdrawnBy = *actor
+	d.WithdrawnAt = model.Now()
+	acts := []model.Activity{{
+		TS: model.Now(), Actor: *actor, Action: "design_withdrawn", WorkItem: topic,
+		Detail: "draft → withdrawn",
+	}}
+	if err := repo.UpdateDesign(topic, d, body, acts, "design: withdraw "+topic); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "design %s withdrawn (by %s) — 档案保留，不再注入评审面\n", topic, *actor)
 	return 0
 }

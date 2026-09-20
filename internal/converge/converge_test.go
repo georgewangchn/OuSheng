@@ -167,6 +167,24 @@ func TestWorkAheadOfDraftDesignWarns(t *testing.T) {
 	}
 }
 
+// withdrawn 终态不再"undecided"：挂在其 related_items 上的工作不算超前
+// （2026-09-20 PM 撤回事故：死方案持活链接曾被逼手改切链，终态化后结构自解）。
+func TestWithdrawnDesignNoAheadWarning(t *testing.T) {
+	w := wi("REQ-1", model.StatusDoing)
+	idx := memory.New()
+	if err := idx.Rebuild(index.Snapshot{Actors: castActors, WorkItems: []model.WorkItem{w}}); err != nil {
+		t.Fatal(err)
+	}
+	kn := Knowledge{Designs: []model.DesignInfo{di("mq-plan", "withdrawn", "", "", nil, []string{"REQ-1"})}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(r.Warnings, "running ahead") {
+		t.Fatalf("withdrawn design must not fire ahead warning: %v", r.Warnings)
+	}
+}
+
 func TestRelatedItemsDanglingWarns(t *testing.T) {
 	idx := idxWithActors(t, castActors)
 	kn := Knowledge{Designs: []model.DesignInfo{di("plan", "agreed", "pm", "", nil, []string{"GHOST-1"})}}

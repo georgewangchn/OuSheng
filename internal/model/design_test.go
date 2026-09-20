@@ -127,3 +127,20 @@ func TestParseRoundSpeakers(t *testing.T) {
 		t.Fatal("no headers must return nil (安全默认全员待发言)")
 	}
 }
+
+// withdrawn 终态校验（2026-09-20 PM 撤回事故）：
+// 须 withdrawn_by；禁 superseded_by（无权威可转移）与 decided_by（从未拍板）。
+func TestDesignWithdrawnValidation(t *testing.T) {
+	if err := validateDesignDoc(DesignDoc{Status: DesignWithdrawn, Owner: "pm"}); err == nil || !strings.Contains(err.Error(), "withdrawn_by") {
+		t.Fatalf("withdrawn without withdrawn_by must fail: %v", err)
+	}
+	if err := validateDesignDoc(DesignDoc{Status: DesignWithdrawn, Owner: "pm", WithdrawnBy: "pm", SupersededBy: "x-plan"}); err == nil || !strings.Contains(err.Error(), "superseded_by") {
+		t.Fatalf("withdrawn with superseded_by must fail: %v", err)
+	}
+	if err := validateDesignDoc(DesignDoc{Status: DesignWithdrawn, Owner: "pm", WithdrawnBy: "pm", DecidedBy: "pm"}); err == nil || !strings.Contains(err.Error(), "decided_by") {
+		t.Fatalf("withdrawn with decided_by must fail: %v", err)
+	}
+	if err := validateDesignDoc(DesignDoc{Status: DesignWithdrawn, Owner: "pm", WithdrawnBy: "pm"}); err != nil {
+		t.Fatalf("valid withdrawn doc rejected: %v", err)
+	}
+}
