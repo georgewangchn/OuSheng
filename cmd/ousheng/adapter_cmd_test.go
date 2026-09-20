@@ -181,6 +181,32 @@ func TestAdapterInstallAgentsSection(t *testing.T) {
 	}
 }
 
+// --actor：PM 机形态——AI 会话身份（agent 型）≠ me（human 型），install 落前者。
+// 2026-09-20 越位事故：226 的 AI 会话借 human 身份操作，类型门全失明。
+func TestAdapterInstallActorOverride(t *testing.T) {
+	ws := mkWorkspace(t, "226") // me = 226（human）
+	repo := t.TempDir()
+	mustRun(t, repo, "adapter", "install", "--workspace", ws, "--actor", "226-dev")
+	if cfg := readMachineCfg(t, repo); cfg["actor"] != "226-dev" {
+		t.Fatalf("--actor 应覆盖 me：got %q", cfg["actor"])
+	}
+	// 缺省 = me（执行机常态：agent 自己就是 me）
+	repo2 := t.TempDir()
+	mustRun(t, repo2, "adapter", "install", "--workspace", ws)
+	if cfg := readMachineCfg(t, repo2); cfg["actor"] != "226" {
+		t.Fatalf("缺省应取 me：got %q", cfg["actor"])
+	}
+	// 幂等：同参重跑 unchanged；换 actor → ousheng.json updated
+	out := mustRun(t, repo, "adapter", "install", "--workspace", ws, "--actor", "226-dev")
+	if !strings.Contains(out, "unchanged") {
+		t.Fatalf("同参重跑应幂等:\n%s", out)
+	}
+	mustRun(t, repo, "adapter", "install", "--workspace", ws, "--actor", "226-dev2")
+	if cfg := readMachineCfg(t, repo); cfg["actor"] != "226-dev2" {
+		t.Fatalf("换 actor 应更新：got %q", cfg["actor"])
+	}
+}
+
 func TestAdapterInstallFixesConfigAndFlagsLegacy(t *testing.T) {
 	dir := t.TempDir()
 	oc := filepath.Join(dir, ".opencode")

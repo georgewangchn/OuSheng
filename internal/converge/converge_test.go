@@ -574,6 +574,119 @@ func TestUnassignedReadyWarns(t *testing.T) {
 	}
 }
 
+// --- 越位曝光（2026-09-20 TASK-007 事故）：决策位坐执行位 / 跨域执行 ---
+//
+// 事故：226（human 型）的 AI 会话自建单自侦察生产集群 5m46s，绳上全程合法——
+// 类型门对"披 human 皮的 AI"失明，executor 图（assignments）无任何消费者。
+// 修法镜像分层强制：硬门挡"无主"，曝光挡"错位"。单人项目 human 亲干是
+// 合法常态，故两查都只警告不阻塞。
+
+var seatActors = []model.ActorFile{
+	{Actor: model.Actor{ID: "pm", Type: model.ActorHuman, DisplayName: "pm"}},
+	{Actor: model.Actor{ID: "be-agent", Type: model.ActorAgent, DisplayName: "be"}},
+}
+
+func idxWithSeat(t *testing.T, items []model.WorkItem, actors []model.ActorFile, asgs []model.Assignment) index.Index {
+	t.Helper()
+	snap := index.Snapshot{WorkItems: items, Actors: actors, Assignments: asgs}
+	idx := memory.New()
+	if err := idx.Rebuild(snap); err != nil {
+		t.Fatal(err)
+	}
+	return idx
+}
+
+// active 单 assignee 为 human 型 → warning（决策位不该坐执行位）。
+func TestHumanAssigneeActiveWarns(t *testing.T) {
+	w := wi("W-1", model.StatusDoing)
+	w.Assignee = "pm"
+	r, err := Check(idxWithSeat(t, []model.WorkItem{w}, seatActors, nil), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != InProgress || !contains(r.Warnings, "assigned to human") {
+		t.Fatalf("human 挂 active 应 warn，got %s (%v)", r.Status, r.Warnings)
+	}
+	// agent 执行 = 正常，无此警告
+	w2 := wi("W-2", model.StatusDoing)
+	r2, err := Check(idxWithSeat(t, []model.WorkItem{w2}, seatActors, nil), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(r2.Warnings, "assigned to human") {
+		t.Fatalf("agent 执行不应触发 human 警告: %v", r2.Warnings)
+	}
+	// backlog/ready 上 human 挂名（拍板位）不算执行，不警告
+	w3 := wi("W-3", model.StatusReady)
+	w3.Assignee = "pm"
+	r3, err := Check(idxWithSeat(t, []model.WorkItem{w3}, seatActors, nil), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(r3.Warnings, "assigned to human") {
+		t.Fatalf("ready 挂 human 不应触发执行嫌疑警告: %v", r3.Warnings)
+	}
+	// 未注册 actor 不炸不误报
+	w4 := wi("W-4", model.StatusDoing)
+	w4.Assignee = "ghost"
+	r4, err := Check(idxWithSeat(t, []model.WorkItem{w4}, seatActors, nil), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(r4.Warnings, "assigned to human") {
+		t.Fatalf("未知 actor 不应触发 human 警告: %v", r4.Warnings)
+	}
+}
+
+// active 单 assignee 在该 system 无 executor assignment → warning（跨域执行）。
+// 仅当该 system 已有 executor 图（存在 assignment 行）才查——空图 = 未排班，不查。
+func TestCrossDomainExecutorWarns(t *testing.T) {
+	asgs := []model.Assignment{
+		{Actor: "be-agent", Role: "dev", System: "data", Responsibility: model.ResponsibilityExecutor, Active: true},
+		{Actor: "mlake-agent", Role: "backend", System: "mlake", Responsibility: model.ResponsibilityExecutor, Active: true},
+	}
+	// 域内执行：正常
+	inDomain := wi("W-1", model.StatusDoing)
+	inDomain.System = "data"
+	r, err := Check(idxWithSeat(t, []model.WorkItem{inDomain}, seatActors, asgs), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(r.Warnings, "cross-domain") {
+		t.Fatalf("域内执行不应警告: %v", r.Warnings)
+	}
+	// 跨域执行：be-agent 只在 data 有 executor 位，mlake 已有别的 executor → warn
+	cross := wi("W-2", model.StatusDoing)
+	cross.System = "mlake"
+	r2, err := Check(idxWithSeat(t, []model.WorkItem{cross}, seatActors, asgs), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(r2.Warnings, "cross-domain") {
+		t.Fatalf("跨域执行应 warn: %v", r2.Warnings)
+	}
+	// 空图系统（ui 无任何 assignment 行）：不查不警告
+	noGraph := wi("W-3", model.StatusDoing)
+	noGraph.System = "ui"
+	r3, err := Check(idxWithSeat(t, []model.WorkItem{noGraph}, seatActors, asgs), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(r3.Warnings, "cross-domain") {
+		t.Fatalf("空图系统不应警告: %v", r3.Warnings)
+	}
+	// 非 active（backlog）挂跨域 assignee：未开工不查
+	backlog := wi("W-4", model.StatusBacklog)
+	backlog.System = "mlake"
+	r4, err := Check(idxWithSeat(t, []model.WorkItem{backlog}, seatActors, asgs), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(r4.Warnings, "cross-domain") {
+		t.Fatalf("backlog 不应触发跨域警告: %v", r4.Warnings)
+	}
+}
+
 // ready 起按类型缺最小信息集 → warning（backlog 不查：草稿期不逼信息）。
 func TestIncompleteInfoWarns(t *testing.T) {
 	bug := wi("B-1", model.StatusReady)
