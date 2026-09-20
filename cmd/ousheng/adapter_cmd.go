@@ -33,6 +33,7 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 	fs := &flagSetWithDir{FlagSet: newFlagSet("adapter install")}
 	fs.dir = fs.String("dir", ".", "code repo dir (default: .)")
 	wsFlag := fs.String("workspace", "", "ousheng workspace dir (default: colocated .ousheng > .opencode/ousheng.json > $OUSHENG_DIR)")
+	actorFlag := fs.String("actor", "", "AI 窗口身份写入 ousheng.json（默认 me）——PM 机 AI 会话 ≠ me 时用")
 	if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 		return usageErr(stderr, err)
 	}
@@ -54,7 +55,11 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s 不是 ousheng 工作区（缺 .ousheng/project.yaml）\n", ws)
 		return 1
 	}
-	actor := readWorkspaceActor(ws)
+	// actor：--actor 覆盖 > me（PM 机形态：AI 会话用独立 agent 身份，me 留给 human 终端亲操）
+	actor := strings.TrimSpace(*actorFlag)
+	if actor == "" {
+		actor = readWorkspaceActor(ws)
+	}
 
 	if err := os.MkdirAll(plugins, 0o755); err != nil {
 		fmt.Fprintln(stderr, err)

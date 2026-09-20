@@ -128,6 +128,30 @@ func Check(idx index.Index, kn Knowledge) (Result, error) {
 				warnings = append(warnings, fmt.Sprintf("%s: unassigned (%s, claimable)", w.ID, w.Status))
 			}
 		}
+		// 越位曝光（2026-09-20 TASK-007 事故）：决策位（human 型）坐执行位、
+		// 跨域执行（assignee 在该 system 无 executor assignment）。
+		// 镜像分层强制：硬门挡"无主"，曝光挡"错位"。单人项目 human 亲干是
+		// 合法常态、PM 可有意跨域借人，故两查只警告不阻塞；executor 图
+		// （assignments）自此有了第一个消费方。
+		if model.WorkItemActive(w.Status) && w.Assignee != "" {
+			if a, ok := actorByID[w.Assignee]; ok && a.Type == model.ActorHuman {
+				warnings = append(warnings, fmt.Sprintf("%s: active work assigned to human %q (decision seat, not executor)", w.ID, w.Assignee))
+			}
+			if w.System != "" {
+				if rows, err := idx.AssignmentsBySystem(w.System); err == nil && len(rows) > 0 {
+					executor := false
+					for _, as := range rows {
+						if as.Actor == w.Assignee && as.Active && as.Responsibility == model.ResponsibilityExecutor {
+							executor = true
+							break
+						}
+					}
+					if !executor {
+						warnings = append(warnings, fmt.Sprintf("%s: %q is not an executor of system %q (cross-domain execution)", w.ID, w.Assignee, w.System))
+					}
+				}
+			}
+		}
 		// WARNING：ready 起按类型缺最小信息集（执行者/验收者要猜 = 单不可判定）。
 		if miss := incompleteInfo(w); miss != "" {
 			warnings = append(warnings, fmt.Sprintf("%s: incomplete %s — missing %s", w.ID, w.Type, miss))
