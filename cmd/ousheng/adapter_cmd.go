@@ -121,12 +121,89 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "AGENTS.md     AGENTS.md  %s\n", st)
 
+	// 6. 全局放行：工作区在代码仓之外，opencode 默认 external_directory=ask
+	//（TUI 的 "always" 只活当前会话），不配置则每个新会话访问工作区都弹权限
+	// 询问（2026-09-20 车队反馈：224/225 每次启动都问 /data/kanban）。工作区
+	// 路径是机器本地信息，入库的五件套放不下——落全局配置，软失败不阻塞。
+	pst, perr := upsertGlobalPermission(ws)
+	if perr != nil {
+		fmt.Fprintf(stderr, "全局放行跳过：%v\n", perr)
+	} else {
+		fmt.Fprintf(stdout, "permission    ~/.config/opencode/opencode.json  %s\n", pst)
+	}
+
 	// 历史遗留：旧指南把它放在 .opencode/plugin.ts——opencode 不加载该位置。
 	if _, err := os.Stat(filepath.Join(oc, "plugin.ts")); err == nil {
 		fmt.Fprintln(stdout, "提示：发现 .opencode/plugin.ts（opencode 不加载此位置，插件静默失效），可删除")
 	}
 	fmt.Fprintln(stdout, "完成。opencode 重启后生效；MCP 需 ousheng-mcp 在 PATH。")
 	return 0
+}
+
+// upsertGlobalPermission：把 `permission.external_directory[<workspace>/**]="allow"`
+// 合并进 ~/.config/opencode/opencode.json。合并语义只增不删（key=工作区路径模式，
+// 自标识）；既有键全保留；首次改动前备份 .bak-ousheng；解析失败（JSONC 等）或
+// permission/external_directory 非对象结构时拒绝改写、给人话指引——不碰用户配置。
+func upsertGlobalPermission(ws string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	cfgDir := filepath.Join(home, ".config", "opencode")
+	path := filepath.Join(cfgDir, "opencode.json")
+	pattern := ws + "/**"
+
+	cfg := map[string]any{}
+	existed := false
+	if raw, err := os.ReadFile(path); err == nil {
+		existed = true
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			return "", fmt.Errorf("%s 解析失败（%v）——请手动在 permission.external_directory 加 %q: allow", path, err, pattern)
+		}
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	perm, ok := cfg["permission"].(map[string]any)
+	if existed && cfg["permission"] != nil && !ok {
+		return "", fmt.Errorf("permission 非对象结构，不覆盖——请手动加 external_directory %q: allow", pattern)
+	}
+	if perm == nil {
+		perm = map[string]any{}
+		cfg["permission"] = perm
+	}
+	ext, ok := perm["external_directory"].(map[string]any)
+	if perm["external_directory"] != nil && !ok {
+		return "", fmt.Errorf("permission.external_directory 非对象结构，不覆盖——请手动加 %q: allow", pattern)
+	}
+	if ext == nil {
+		ext = map[string]any{}
+		perm["external_directory"] = ext
+	}
+	if ext[pattern] == "allow" {
+		return "unchanged", nil
+	}
+	if existed {
+		if _, err := os.Stat(path + ".bak-ousheng"); err != nil {
+			if raw, _ := os.ReadFile(path); raw != nil {
+				_ = os.WriteFile(path+".bak-ousheng", raw, 0o644)
+			}
+		}
+	}
+	ext[pattern] = "allow"
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		return "", err
+	}
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
+		return "", err
+	}
+	if existed {
+		return "updated", nil
+	}
+	return "created", nil
 }
 
 // resolveAdapterWorkspace：flag > 同仓检测 > 既有机器配置 > env。

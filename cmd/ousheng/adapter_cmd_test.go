@@ -43,6 +43,7 @@ func readMachineCfg(t *testing.T, repo string) map[string]string {
 }
 
 func TestAdapterInstall(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // install 写全局配置，隔离 HOME 防污染真实机
 	ws := mkWorkspace(t, "224")
 	dir := t.TempDir()
 	out := mustRun(t, dir, "adapter", "install", "--workspace", ws)
@@ -109,6 +110,7 @@ func TestAdapterInstall(t *testing.T) {
 }
 
 func TestAdapterInstallColocated(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	// 226 形态：工作区检出本身就是安装目标 → 自动识别，无需 --workspace
 	repo := mkWorkspace(t, "226")
 	mustRun(t, repo, "adapter", "install")
@@ -122,6 +124,7 @@ func TestAdapterInstallColocated(t *testing.T) {
 }
 
 func TestAdapterInstallEnvFallback(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	ws := mkWorkspace(t, "225")
 	t.Setenv("OUSHENG_DIR", ws)
 	repo := t.TempDir()
@@ -149,6 +152,7 @@ func TestAdapterInstallFailsWithoutWorkspace(t *testing.T) {
 }
 
 func TestAdapterInstallAgentsSection(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	ws := mkWorkspace(t, "224")
 	repo := t.TempDir()
 	// 已有用户内容、无标记段 → 追加且保留用户内容
@@ -184,6 +188,7 @@ func TestAdapterInstallAgentsSection(t *testing.T) {
 // --actor：PM 机形态——AI 会话身份（agent 型）≠ me（human 型），install 落前者。
 // 2026-09-20 越位事故：226 的 AI 会话借 human 身份操作，类型门全失明。
 func TestAdapterInstallActorOverride(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	ws := mkWorkspace(t, "226") // me = 226（human）
 	repo := t.TempDir()
 	mustRun(t, repo, "adapter", "install", "--workspace", ws, "--actor", "226-dev")
@@ -208,6 +213,7 @@ func TestAdapterInstallActorOverride(t *testing.T) {
 }
 
 func TestAdapterInstallFixesConfigAndFlagsLegacy(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	oc := filepath.Join(dir, ".opencode")
 	if err := os.MkdirAll(oc, 0o755); err != nil {
@@ -243,5 +249,69 @@ func TestAdapterInstallFixesConfigAndFlagsLegacy(t *testing.T) {
 	}
 	if cfg["watcher"] == nil {
 		t.Fatal("用户自定义键必须保留")
+	}
+}
+
+// 2026-09-20 车队反馈锁：224/225 每次 opencode 启动都弹工作区 external_directory
+// 权限询问（opencode 默认 ask，TUI "always" 只活当前会话）。install 必须把
+// `permission.external_directory[<workspace>/**]=allow` 合并进全局配置；
+// 工作区路径是机器本地信息，入库的五件套放不下。
+func TestAdapterInstallGrantsWorkspacePermission(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ws := mkWorkspace(t, "225")
+	gcfgDir := filepath.Join(home, ".config", "opencode")
+	if err := os.MkdirAll(gcfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gpath := filepath.Join(gcfgDir, "opencode.json")
+	// 预置用户全局配置（provider 必须原样保留）
+	if err := os.WriteFile(gpath, []byte(`{"provider":{"gate":{"npm":"x"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := t.TempDir()
+	so, se, code := runIn(t, repo, "adapter", "install", "--workspace", ws)
+	if code != 0 || strings.Contains(se, "全局放行跳过") {
+		t.Fatalf("全局放行不应失败：code=%d\nstdout:%s\nstderr:%s", code, so, se)
+	}
+	raw, err := os.ReadFile(gpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("合并后全局配置非法: %v\n%s", err, raw)
+	}
+	if cfg["provider"] == nil {
+		t.Fatal("用户 provider 必须保留")
+	}
+	perm, _ := cfg["permission"].(map[string]any)
+	ext, _ := perm["external_directory"].(map[string]any)
+	if ext[ws+"/**"] != "allow" {
+		t.Fatalf("external_directory 缺工作区放行: %s", raw)
+	}
+	// 首次改动应有备份
+	if _, err := os.Stat(gpath + ".bak-ousheng"); err != nil {
+		t.Fatal("首次改动应备份 .bak-ousheng")
+	}
+	// 幂等：重跑不再改动
+	before, _ := os.ReadFile(gpath)
+	mustRun(t, repo, "adapter", "install", "--workspace", ws)
+	after, _ := os.ReadFile(gpath)
+	if string(before) != string(after) {
+		t.Fatalf("重跑应幂等:\nbefore:%s\nafter:%s", before, after)
+	}
+
+	// permission 非对象结构 → 拒绝改写、软失败不阻塞 install
+	if err := os.WriteFile(gpath, []byte(`{"permission":"allow"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	so, se, code = runIn(t, repo, "adapter", "install", "--workspace", ws)
+	if code != 0 {
+		t.Fatalf("全局放行软失败不应阻塞 install:\n%s", se)
+	}
+	if !strings.Contains(se, "手动") {
+		t.Fatalf("非对象结构应给人话指引:\n%s", se)
 	}
 }
