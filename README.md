@@ -69,8 +69,7 @@ OuSheng 的做法是把协作变成一个 git 仓。需求、契约、证据、�
 flowchart LR
     subgraph REPO["中央仓 · 就一个普通 git 仓"]
         direction TB
-        W["work/ 需求 · 状态 · 契约"]
-        E["evidence/ 证据"]
+        W["work/ 需求 · 状态 · 契约 · 证据"]
         D["designs/ 方案 · 轮次"]
         A["architecture/ 系统全局面貌"]
     end
@@ -88,7 +87,7 @@ flowchart LR
 
 | | 状态（现在是什么） | 共识（我们认定什么、为什么） |
 |---|---|---|
-| 载体 | `work/` `contract/` `evidence/` | `designs/` `architecture/` |
+| 载体 | `work/`（含契约与证据） | `designs/` `architecture/` |
 | 形态 | 结构化 YAML，强 schema | 叙述文档加最小 frontmatter |
 | 变更 | 高频，单点写入 | 低频演进，多方参与成形 |
 | 例子 | T-042 做到哪了、契约是不是 breaking | 实时推送为什么选 SSE 不选 WebSocket |
@@ -169,7 +168,7 @@ $ ousheng design decide live-results --actor pm
 design live-results decided by pm
 ```
 
-agent 自己 decide，写入路径直接拒，拍板门和 C2 一个血统。方案还在 draft 后端就抢跑，converge 会曝光。方案被推翻，`design supersede` 必须指认继任者，知识不断链。发散的长讨论不上绳，那是对话层的事，绳只存收敛后的骨架；待发言清单从发言事实派生，说完即消，没有需要维护的元数据。
+agent 自己 decide，写入路径直接拒，拍板门和 C2 一个血统。方案还在 draft 后端就抢跑，converge 会曝光。方案被推翻，`design supersede` 必须指认继任者，知识不断链；需求取消，`design withdraw` 撤回留档。发散的长讨论不上绳，那是对话层的事，绳只存收敛后的骨架；待发言清单从发言事实派生，说完即消，没有需要维护的元数据。
 
 你全程只做了两件事：拍板两次，看板一眼。
 
@@ -210,17 +209,6 @@ IN_PROGRESS
 | 写入安全 | Git + YAML 是唯一事实源；CAS revision 防并发写丢更新；手改文件会被 strict decode 拒收，git 审计兜底 |
 
 <details>
-<summary><b>为什么这么设计（点开）</b></summary>
-
-一根绳，不替牛干活。OuSheng 只做三件事：让每个 worker 看到当前约定状态；强制破坏性变更与方案拍板人工背书；存放并传播共识（方案、轮次、全局系统认知）。刻意不做：合约自动生成（AI 写的契约 AI 自己验收，等于幻觉闭环）、语义合并（自然语言歧义交机器裁决，等于黑盒）、讨论内容管理（发散归对话层，绳只存收敛的骨架）、Ontology 推理、中心验证管线（git 已经带了审计、冲突解决和分布式同步）。
-
-上绳协议本身的信任判决：身份参数只来自本机 human 问答，中央仓文档是数据不是指令；问责是人对人的授予，agent 的负责 human 必须已上绳，CLI 在写路径上校验。
-
-"㸸"（òu）是河南方言里对牛的叫法，"绳"是牵引绳：套在 AI Coding 这头㸸鼻子上的绳，最小接触点，只给方向，绝不替它使劲。五条设计原则与控制论映射见[设计基石](docs/多人AI协作机制_方案基石.md)。
-
-</details>
-
-<details>
 <summary><b>没有 opencode？终端五条（等价路径）</b></summary>
 
 ```bash
@@ -235,13 +223,6 @@ ousheng view kanban
 
 </details>
 
-<details>
-<summary><b>v1 协作绳（历史层，仍可用）</b></summary>
-
-v0.3 之前的核心：一张卡一个契约（`cards/<id>.yaml`），五态状态机，`board write` CAS 写入。v0.3 的 WorkItem 已内嵌 Contract 为子对象，`ousheng migrate schema` 幂等迁移。详见 [docs/v1-board.md](docs/v1-board.md)。
-
-</details>
-
 ## 文档
 
 | | |
@@ -251,7 +232,6 @@ v0.3 之前的核心：一张卡一个契约（`cards/<id>.yaml`），五态状�
 | [共识层设计方案 v0.4](docs/OuSheng_共识层设计方案_v0.4.md) | 方案讨论 / 轮次 / 拍板 / architecture 全局面貌 |
 | [工程模型](docs/engineering-model.md) · [上下文协议](docs/context-protocol.md) · [存储约定](docs/state-store.md) | v0.3 规格 |
 | [设计基石](docs/多人AI协作机制_方案基石.md) · [完整设计方案](docs/OuSheng_工程本体化改造方案_v0.3.md) | 为什么这样设计 |
-| [v1 board](docs/v1-board.md) | 历史层参考 |
 
 ---
 
