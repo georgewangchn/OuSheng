@@ -100,10 +100,10 @@ func TestPluginReadsMachineConfigAndFailsLoud(t *testing.T) {
 	if !strings.Contains(s, `"error"`) || !strings.Contains(s, "sync 失败") || !strings.Contains(s, "adapter install") {
 		t.Fatal("plugin 失败路径必须大声报错（error 级 + adapter install 修复指引）——静默 null 曾让三台机的启动 sync 空转无人知")
 	}
-	// 未推提交提醒（2026-09-21，档案 §10/§15）：收尾 sync 的结构化兜底——不自动推
-	// （idle 频繁触发，网络动作会变成每 loop 轮询），只大声提醒。
-	if !strings.Contains(s, "rev-list") || !strings.Contains(s, "未推提交") {
-		t.Fatal("plugin 空闲时必须提醒未推提交（未推提交全舰队不可见，BUG-001 事故）")
+	// 未推提交自动收口（2026-09-21 用户反馈 + 档案 §21）：有未推/落后才动网
+	// （本地 rev-list 检查，零网络），分叉/失败大声报错交人（不确定即交互确认）。
+	if !strings.Contains(s, "rev-list") || !strings.Contains(s, "自动同步") || !strings.Contains(s, "分叉") {
+		t.Fatal("plugin 空闲时必须自动收口未推提交（含分叉大声报错）——本地有 commit 未推=不上绳")
 	}
 }
 
