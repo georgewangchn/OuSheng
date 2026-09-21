@@ -401,3 +401,39 @@ func TestCLIConvergeExposesOversizedItem(t *testing.T) {
 		t.Fatalf("converge 应曝光超限项（写冻结）:\n%s", out)
 	}
 }
+
+// 多座位身份归属锁（2026-09-21，档案 §19）：一台机多个 opencode 窗口时，
+// 写路径默认身份必须取 **cwd 座位配置**，而不是机器级 me——否则非 me 的座位
+// 窗口每笔裸写都会错归（226 ui+test 双座位场景）。无座位目录回退 me。
+func TestCLIActorPrefersSeatConfigOverMe(t *testing.T) {
+	dir := testfix.Setup(t)
+	if err := os.WriteFile(filepath.Join(dir, ".ousheng", "me"), []byte("backend-agent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seat := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(seat, ".opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seat, ".opencode", "ousheng.json"),
+		[]byte(`{"workspace":"`+dir+`","actor":"test-agent"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(seat)
+	runCLI(t, dir, "bug", "report", "--id", "BUG-500", "--title", "座位归属",
+		"--system", "datax-backend", "--detected-by", "test-agent")
+	if matches, _ := filepath.Glob(filepath.Join(dir, ".ousheng", "activity", "*", "test-agent.jsonl")); len(matches) == 0 {
+		t.Fatal("写必须归属 cwd 座位身份 test-agent")
+	}
+	if matches, _ := filepath.Glob(filepath.Join(dir, ".ousheng", "activity", "*", "backend-agent.jsonl")); len(matches) > 0 {
+		t.Fatal("不得错归到机器级 me（backend-agent）")
+	}
+
+	// 无座位目录（普通终端）→ 回退机器级 me
+	plain := t.TempDir()
+	t.Chdir(plain)
+	runCLI(t, dir, "bug", "report", "--id", "BUG-501", "--title", "me 回退",
+		"--system", "datax-backend", "--detected-by", "backend-agent")
+	if matches, _ := filepath.Glob(filepath.Join(dir, ".ousheng", "activity", "*", "backend-agent.jsonl")); len(matches) == 0 {
+		t.Fatal("无座位时应回退 me（backend-agent）")
+	}
+}
