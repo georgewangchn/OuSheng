@@ -146,8 +146,10 @@ export const OuShengSampler: Plugin = async ({ directory, client }) => {
         }
       }
 
-      // 时机③（续）：未推提交提醒 —— 收尾 sync 的结构化兜底（2026-09-21，档案 §10/§15）。
-      // 不自动推：idle 每次响应都触发，网络动作挂这里就是每 loop 轮询；只大声提醒。
+      // 时机③（续）：未推提交自动收口（2026-09-21 用户反馈：经常不上绳，本地有 commit 未推）。
+      // 只在有未推/落后时才动网（本地 rev-list 检查，零网络）——不无条件每 idle sync
+      // （idle 每次响应都触发，会变成每响应一次网络往返）。分叉/失败 = 不确定 → 大声
+      // 报错交人处理（交互确认）。
       if (event.type === "session.idle") {
         try {
           const cfg = await readCfg(directory)
@@ -160,18 +162,24 @@ export const OuShengSampler: Plugin = async ({ directory, client }) => {
             const behind = parseInt(f[0] ?? "0", 10) || 0
             const ahead = parseInt(f[1] ?? "0", 10) || 0
             if (ahead > 0 || behind > 0) {
-              const parts: string[] = []
-              if (ahead > 0) parts.push(`有 ${ahead} 个未推提交`)
-              if (behind > 0) parts.push(`落后上游 ${behind} 个提交`)
-              await log(
-                client,
-                "error",
-                `[OuSheng] 工作区${parts.join("、")} —— 跑 ousheng sync 推送/拉齐收口（未推提交全舰队不可见）`,
-              )
+              const r = await run([OUSHENG_BIN, "sync", "--dir", cfg.workspace], directory)
+              if (r.err.includes("分叉") || r.out.includes("分叉")) {
+                await log(
+                  client,
+                  "error",
+                  `[OuSheng] 自动同步未完成——工作区与上游分叉，需人工：${r.out || r.err}`,
+                )
+              } else {
+                await log(
+                  client,
+                  "info",
+                  `[OuSheng] 自动同步（未推 ${ahead} / 落后 ${behind}）完成：\n${r.out || r.err}`,
+                )
+              }
             }
           }
         } catch {
-          // 水位提醒失败无语义影响（doctor 同项可查）
+          // 自动同步失败无语义影响（doctor 水位检查同项可查）
         }
       }
     },
