@@ -101,9 +101,10 @@ func TestPluginReadsMachineConfigAndFailsLoud(t *testing.T) {
 		t.Fatal("plugin 失败路径必须大声报错（error 级 + adapter install 修复指引）——静默 null 曾让三台机的启动 sync 空转无人知")
 	}
 	// 未推提交自动收口（2026-09-21 用户反馈 + 档案 §21）：有未推/落后才动网
-	// （本地 rev-list 检查，零网络），分叉/失败大声报错交人（不确定即交互确认）。
-	if !strings.Contains(s, "rev-list") || !strings.Contains(s, "自动同步") || !strings.Contains(s, "分叉") {
-		t.Fatal("plugin 空闲时必须自动收口未推提交（含分叉大声报错）——本地有 commit 未推=不上绳")
+	// （本地 rev-list 检查，零网络）。失败判定只认 sync 末行机器标记——分叉/网络/
+	// push 失败都以退出码 0 溜过（2026-09-21 review 事故：非分叉失败被打成「完成」）。
+	if !strings.Contains(s, "rev-list") || !strings.Contains(s, "自动同步") || !strings.Contains(s, "sync收口: ok") || !strings.Contains(s, "未收口") {
+		t.Fatal("plugin 空闲自动收口必须以 sync 末行标记判成败（fail-closed）——非分叉失败曾被打成完成")
 	}
 }
 

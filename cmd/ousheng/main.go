@@ -277,6 +277,9 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	dir := fs.Dir()
+	// 收口状态跟踪：末行机器标记（sync收口: ok / 未收口）是唯一机器可判信号——
+	// plugin 不解析 prose（分叉/网络失败都曾以退出码 0 + stdout 提示溜过）。
+	notConverged := ""
 	// 1. git pull（无 remote 则跳过——单机也成立）
 	pullOut, pullErr := gitPull(dir)
 	switch {
@@ -286,8 +289,10 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "pull skipped (no remote configured)")
 	case errors.Is(pullErr, errDiverged):
 		fmt.Fprintf(stdout, "工作区与上游分叉（两端都有未合并提交）——sync 不自动 rebase（冲突需人拍板）。修复：git -C %s pull --rebase，解决冲突后再 ousheng sync\n", dir)
+		notConverged = "与上游分叉——见上方修复指引"
 	default:
 		fmt.Fprintf(stdout, "pull skipped (%v)\n", pullErr)
+		notConverged = fmt.Sprintf("pull 失败：%v", pullErr)
 	}
 	// 1.5 git push：仅 pull 成功后收口（先拉齐再推，分叉态不推）。
 	// 软失败——推送失败只提示，不阻塞 sync；无未推提交时静默。
@@ -295,6 +300,7 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		if pushOut, err := gitPush(dir); err != nil {
 			if !errors.Is(err, errNoRemote) {
 				fmt.Fprintf(stdout, "push skipped (%v)\n", err)
+				notConverged = fmt.Sprintf("push 失败：%v", err)
 			}
 		} else if s := strings.TrimSpace(pushOut); s != "" && !strings.Contains(s, "Everything up-to-date") {
 			fmt.Fprintf(stdout, "%s", s)
@@ -325,6 +331,12 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		printJSON(stdout, mc)
+	}
+	// 末行收口标记（fail-closed：早退路径不打标记 = 消费方按未收口处理）
+	if notConverged != "" {
+		fmt.Fprintf(stdout, "sync收口: 未收口（%s）\n", notConverged)
+	} else {
+		fmt.Fprintln(stdout, "sync收口: ok")
 	}
 	return 0
 }

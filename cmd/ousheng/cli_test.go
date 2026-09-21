@@ -369,6 +369,10 @@ func TestCLISyncDivergenceGuides(t *testing.T) {
 	if !strings.Contains(out, "分叉") || !strings.Contains(out, "pull --rebase") {
 		t.Fatalf("分叉应给人话指引 + 修复命令（不刷裸 git 报错）:\n%s", out)
 	}
+	// 分叉退出码是 0——机器判定只能靠末行标记（plugin 只认标记）
+	if !strings.Contains(out, "sync收口: 未收口") {
+		t.Fatalf("分叉必须打未收口标记:\n%s", out)
+	}
 	// 不自动 rebase：本地提交原样保留
 	if head := strings.TrimSpace(gitRun(t, dir2, "rev-parse", "HEAD")); head != dir2Head {
 		t.Fatalf("sync 不得改动本地提交（自动 rebase 禁止）: %s → %s", dir2Head, head)
@@ -379,6 +383,51 @@ func TestCLISyncDivergenceGuides(t *testing.T) {
 	// 不推分叉态：上游仍停在 A 的提交
 	if up := strings.TrimSpace(gitRun(t, bare, "rev-parse", "main")); up == dir2Head {
 		t.Fatal("分叉态不得推送")
+	}
+}
+
+// sync 收口标记锁（2026-09-21 review 事故）：plugin 只认末行机器标记判成败——
+// 分叉/pull 失败/push 失败打「未收口」，真收口（拉齐/推上/单机无 remote）打「ok」。
+// 退出码不可依赖：分叉与 push 软失败都是 0（此前非分叉失败被 plugin 打成「完成」）。
+func TestCLISyncConvergenceMarker(t *testing.T) {
+	dir1 := testfix.Setup(t)
+	bare := filepath.Join(t.TempDir(), "central.git")
+	gitRun(t, dir1, "init", "--bare", bare)
+	gitRun(t, dir1, "remote", "add", "origin", bare)
+	gitRun(t, dir1, "push", "-q", "-u", "origin", "main")
+	dir2 := filepath.Join(t.TempDir(), "clone2")
+	gitRun(t, t.TempDir(), "clone", "-q", bare, dir2)
+	gitRun(t, dir2, "config", "user.email", "t@t")
+	gitRun(t, dir2, "config", "user.name", "t")
+
+	// 落后 → sync 拉齐 → ok
+	if err := os.WriteFile(filepath.Join(dir1, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir1, "add", "-A")
+	gitRun(t, dir1, "commit", "-qm", "from machine A")
+	gitRun(t, dir1, "push", "-q")
+	if out := runCLI(t, dir2, "sync"); !strings.Contains(out, "sync收口: ok") {
+		t.Fatalf("拉齐收口必须打 ok 标记:\n%s", out)
+	}
+
+	// 有未推 → sync 推上 → ok（ok 必须以真推上为前提）
+	if err := os.WriteFile(filepath.Join(dir2, "b.txt"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir2, "add", "-A")
+	gitRun(t, dir2, "commit", "-qm", "from machine B")
+	if out := runCLI(t, dir2, "sync"); !strings.Contains(out, "sync收口: ok") {
+		t.Fatalf("推送收口必须打 ok 标记:\n%s", out)
+	}
+	if up := strings.TrimSpace(gitRun(t, bare, "rev-parse", "main")); up != strings.TrimSpace(gitRun(t, dir2, "rev-parse", "HEAD")) {
+		t.Fatal("ok 标记必须以真推上为前提")
+	}
+
+	// 单机无 remote——良性，ok
+	dir3 := testfix.Setup(t)
+	if out := runCLI(t, dir3, "sync"); !strings.Contains(out, "sync收口: ok") {
+		t.Fatalf("无 remote 单机必须打 ok 标记:\n%s", out)
 	}
 }
 
