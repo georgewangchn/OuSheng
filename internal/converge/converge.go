@@ -192,10 +192,10 @@ func Check(idx index.Index, kn Knowledge) (Result, error) {
 	return Result{Status: Converged, Warnings: warnings}, nil
 }
 
-// audit 共识层检查（v0.4 §4.2/§4.8 + T10）。
+// audit 共识层检查（v0.4 §4.2/§4.8 + T10 + 档案 §22）。
 // BLOCKER：decided_by 非 human（agent 自拍共识）；supersede 链环。
 // WARNING：继任者悬空/未生效；related_items 悬空；draft 设计上的跑单（超前）；
-// architecture 覆盖不全（注册系统无文档 / 文档无系统）。
+// active feature/requirement 无活方案挂单（共识缺失，§22）；architecture 覆盖不全。
 func (kn Knowledge) audit(idx index.Index, all []model.WorkItem, blockers, warnings []string) ([]string, []string) {
 	byTopic := map[string]model.DesignInfo{}
 	for _, d := range kn.Designs {
@@ -255,6 +255,34 @@ func (kn Knowledge) audit(idx index.Index, all []model.WorkItem, blockers, warni
 					warnings = append(warnings, fmt.Sprintf("%s: work running ahead of undecided design %s", w.ID, d.Topic))
 				}
 			}
+		}
+	}
+
+	// design 落点锁（2026-09-22，档案 §22，实栈 FEAT-001 树事故）：active
+	// feature/requirement 无任何活方案（draft/agreed）挂单 = 共识缺失。绳外
+	// design（代码仓本地 .omo/plans 类）绳不可见、无法机械判定，只锁绳内缺席。
+	// 只曝光不拦：小 feature 不触发「动土先起 design」门槛（多系统/接口破坏/
+	// 整体方案），硬门需要豁免路径反而逼出绕绳（越位事故先例：只曝光不硬门）。
+	anchored := map[string]bool{}
+	for _, d := range kn.Designs {
+		if d.Design.Status != model.DesignDraft && d.Design.Status != model.DesignAgreed {
+			continue
+		}
+		for _, id := range d.Design.RelatedItems {
+			anchored[id] = true
+		}
+	}
+	for _, w := range all {
+		if w.Type != model.TypeFeature && w.Type != model.TypeRequirement {
+			continue
+		}
+		switch w.Status {
+		case model.StatusDoing, model.StatusTesting, model.StatusBlocked:
+		default:
+			continue
+		}
+		if !anchored[w.ID] {
+			warnings = append(warnings, fmt.Sprintf("%s: active %s without consensus design (no draft/agreed design lists it) — design-first, off-rope designs don't count", w.ID, w.Type))
 		}
 	}
 

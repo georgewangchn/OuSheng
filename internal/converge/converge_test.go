@@ -197,6 +197,72 @@ func TestRelatedItemsDanglingWarns(t *testing.T) {
 	}
 }
 
+// design 落点锁（2026-09-22，档案 §22，实栈 FEAT-001 树事故）：active
+// feature/requirement 无任何活方案挂单 → warning。实栈形态：FEAT-001/002
+// 「按变更纪律先起 design」却落在代码仓 .omo/plans（gitignored 绳外）——形式
+// 遵守实质绕绳，design 前提无人审直通生产验收（BUG-016 设计前提被证伪）。
+func TestActiveFeatureWithoutDesignWarns(t *testing.T) {
+	feat := wi("FEAT-1", model.StatusDoing)
+	feat.Type = model.TypeFeature
+	idx := memory.New()
+	if err := idx.Rebuild(index.Snapshot{Actors: castActors, WorkItems: []model.WorkItem{feat}}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Check(idx, Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(r.Warnings, "FEAT-1: active feature without consensus design") {
+		t.Fatalf("unanchored active feature must warn, got %v", r.Warnings)
+	}
+}
+
+// agreed 方案挂单 = 有锚，不警告（正向路径：design-first 全流程走通）。
+func TestActiveFeatureWithAgreedDesignNoWarn(t *testing.T) {
+	feat := wi("FEAT-1", model.StatusDoing)
+	feat.Type = model.TypeFeature
+	idx := memory.New()
+	if err := idx.Rebuild(index.Snapshot{Actors: castActors, WorkItems: []model.WorkItem{feat}}); err != nil {
+		t.Fatal(err)
+	}
+	kn := Knowledge{Designs: []model.DesignInfo{di("plan", "agreed", "pm", "", nil, []string{"FEAT-1"})}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(r.Warnings, "without consensus design") {
+		t.Fatalf("agreed-anchored feature must not warn, got %v", r.Warnings)
+	}
+}
+
+// bug/task 不适用（它们是执行原子/缺陷，不触发「动土先起 design」）；
+// superseded-only 挂单 = 活锚缺席，仍警告（权威已转移，继任者没接住这张单）。
+func TestDesignAnchorScope(t *testing.T) {
+	bug := wi("BUG-1", model.StatusDoing)
+	bug.Type = model.TypeBug
+	req := wi("REQ-1", model.StatusTesting)
+	req.Type = model.TypeRequirement
+	idx := memory.New()
+	if err := idx.Rebuild(index.Snapshot{Actors: castActors, WorkItems: []model.WorkItem{bug, req}}); err != nil {
+		t.Fatal(err)
+	}
+	// bug 有锚？无关——bug 不检查；REQ-1 只被 superseded 方案挂 → 仍缺活锚。
+	kn := Knowledge{Designs: []model.DesignInfo{
+		di("old", "superseded", "pm", "new", nil, []string{"REQ-1"}),
+		di("new", "agreed", "pm", "", nil, []string{"BUG-1"}),
+	}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(r.Warnings, "BUG-1: active bug without consensus design") {
+		t.Fatalf("bug must be exempt from design anchor audit: %v", r.Warnings)
+	}
+	if !contains(r.Warnings, "REQ-1: active requirement without consensus design") {
+		t.Fatalf("superseded-only anchor must still warn, got %v", r.Warnings)
+	}
+}
+
 // architecture 覆盖（T10 §10.5）：注册系统无文档 → warning；文档无系统 → warning。
 func TestArchitectureCoverageWarns(t *testing.T) {
 	snap := index.Snapshot{

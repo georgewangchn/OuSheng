@@ -69,7 +69,7 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. 定位：**牵�
 - **human 门**：design decide/supersede 仅 human actor（注册表为空时拒绝——拍板门没有弱形态）；agent 自 decide = 自拍共识，必拒。手改 frontmatter 可绕过 = 已知边界，git 审计兜底。锁 `TestDesignDecideMustBeHuman`。
 - **动土先起 design**：涉及多系统/接口破坏/整体方案的工作，先建 draft design 再拆单（PM 发单流程 design 先行）。
 - **追认协议**：实现与方案有出入 → **代码可先行，但同一收尾时机必须补 design.md 的 `## 变更记录` 段**（append-only：日期 + actor + 何处不符/超出 + 原因）；结构性出入走 contract 更新（C2）；方案被证伪 → 发起 supersede 或新轮次，禁止沉默超前。
-- **共识信号四路判决**：接入 = `work show`（Designs detail 层）+ `context me`（WorkBrief.design / knowledge / pending_reviews 三通道）；`work list` / `view kanban` 明文出局（扫视层不放深链接）。新共识信号照此：接通两路注入面，或明文判决出局并写明理由。converge 共识审计：非 human decide = BLOCKER；supersede 环 = BLOCKER；悬空/未生效/related_items 悬空/超前曝光（work active × design draft）/architecture 覆盖缺失 = warning。锁 converge_test 9 个 TestDesign*/TestSupersede*。
+- **共识信号四路判决**：接入 = `work show`（Designs detail 层）+ `context me`（WorkBrief.design / knowledge / pending_reviews 三通道）；`work list` / `view kanban` 明文出局（扫视层不放深链接）。新共识信号照此：接通两路注入面，或明文判决出局并写明理由。converge 共识审计：非 human decide = BLOCKER；supersede 环 = BLOCKER；悬空/未生效/related_items 悬空/超前曝光（work active × design draft）/architecture 覆盖缺失 = warning；**active feature/requirement 无活方案挂单（design 落点锁，档案 §22）= warning——绳外 design（代码仓 .omo/plans 类）不算锚**。锁 converge_test 12 个 TestDesign*/TestSupersede*/TestActiveFeature*。
 - **S5 判决**：designs/architecture 只进 `index.Snapshot`（context/converge 直接读），不进 Index 查询面（memory/sqlite Rebuild 忽略）；升查询面判据同 sqlite 激活判据。
 
 ### 两段式配置（join = 时机零）
