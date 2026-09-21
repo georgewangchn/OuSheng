@@ -109,8 +109,16 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "ousheng.json  .opencode/ousheng.json  %s\n", st)
 
-	// 机器配置不入库（同仓克隆到别机后路径必错）。
-	st = ensureLine(filepath.Join(oc, ".gitignore"), "ousheng.json")
+	// 座位资产不入库（2026-09-21 裁决，档案 §13）：资产由二进制内嵌分发（adapter
+	// install 即写出），入库副本必漂移（同「协议外置分发 = 漂移死法」）；且同事
+	// clone 代码仓后开 opencode，插件因无 ousheng.json 每会话大声报错。gitignore
+	// 覆盖全部座位资产，只留 skills/ 等仓库自有内容。
+	st = "unchanged"
+	for _, line := range []string{"ousheng.json", "opencode.json", "package.json", "package-lock.json", "bun.lock", "node_modules/", "plugins/"} {
+		if ls := ensureLine(filepath.Join(oc, ".gitignore"), line); ls != "unchanged" && st == "unchanged" {
+			st = ls
+		}
+	}
 	fmt.Fprintf(stdout, "gitignore     .opencode/.gitignore  %s\n", st)
 
 	// 5. AGENTS.md：机器中立协议段，标记段幂等替换，段外内容不触碰。
