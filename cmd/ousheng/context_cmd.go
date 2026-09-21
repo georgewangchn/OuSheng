@@ -33,7 +33,7 @@ func cmdContext(args []string, stdout, stderr io.Writer) int {
 			return code
 		}
 		if *actor == "" {
-			*actor = defaultActor(fs.Dir())
+			*actor = actingActor(fs.Dir())
 		}
 		if *actor == "" {
 			fmt.Fprintln(stderr, "--actor required (or run `ousheng me <id>` once)")
@@ -495,7 +495,7 @@ func cmdEvidence(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		if *actor == "" {
-			*actor = defaultActor(fs.Dir())
+			*actor = actingActor(fs.Dir())
 		}
 		if *actor == "" {
 			fmt.Fprintln(stderr, "--actor required (or run `ousheng me <id>` once)")

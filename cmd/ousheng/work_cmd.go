@@ -154,7 +154,7 @@ func workCreate(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if *actor == "" {
-		*actor = defaultActor(fs.Dir())
+		*actor = actingActor(fs.Dir())
 	}
 
 	var w model.WorkItem
@@ -221,7 +221,7 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 		return usageErr(stderr, err)
 	}
 	if *actor == "" {
-		*actor = defaultActor(fs.Dir())
+		*actor = actingActor(fs.Dir())
 	}
 	if fs.NArg() != 1 {
 		fmt.Fprintln(stderr, "usage: ousheng work update <id> (--file F --expect N [--ack] | --status S | --priority P | --due D | --description X)")
@@ -302,7 +302,7 @@ func workAssign(args []string, stdout, stderr io.Writer) int {
 		return usageErr(stderr, err)
 	}
 	if *actor == "" {
-		*actor = defaultActor(fs.Dir())
+		*actor = actingActor(fs.Dir())
 	}
 	if fs.NArg() != 1 || *assignee == "" {
 		fmt.Fprintln(stderr, "usage: ousheng work assign <id> --assignee A [--role R]")
@@ -347,7 +347,7 @@ func cmdBug(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if *actor == "" {
-		*actor = defaultActor(fs.Dir())
+		*actor = actingActor(fs.Dir())
 	}
 
 	var w model.WorkItem
@@ -400,7 +400,7 @@ func cmdProgress(args []string, stdout, stderr io.Writer) int {
 		return usageErr(stderr, err)
 	}
 	if *actor == "" {
-		*actor = defaultActor(fs.Dir())
+		*actor = actingActor(fs.Dir())
 	}
 	if fs.NArg() != 1 || *value == "" || *actor == "" {
 		fmt.Fprintln(stderr, "usage: ousheng progress report <id> --value 0.7 [--actor A] [--basis B]")

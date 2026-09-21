@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ousheng/internal/machine"
 	"ousheng/internal/model"
 	"ousheng/internal/state/gityaml"
 	"ousheng/internal/workspace"
@@ -34,12 +35,21 @@ func defaultActor(dir string) string {
 	return strings.TrimSpace(string(b))
 }
 
-// resolveActor：显式 flag > .ousheng/me 默认身份。
+// actingActor：写路径默认身份 = cwd 座位配置（.opencode/ousheng.json）> 工作区 me
+// （空串 = 未解析，由下游守卫拒）。一台机多座位时各窗口按自己目录的座位身份归属
+// （2026-09-21 多座位裁决，档案 §19）；与 MCP 同一实现（machine.ResolveActor）。
+func actingActor(workspace string) string {
+	cwd, _ := os.Getwd()
+	a, _ := machine.ResolveActor("", cwd, workspace)
+	return a
+}
+
+// resolveActor：显式 flag > cwd 座位配置 > .ousheng/me。
 func resolveActor(flagVal, dir string) (string, error) {
 	if flagVal != "" {
 		return flagVal, nil
 	}
-	if id := defaultActor(dir); id != "" {
+	if id := actingActor(dir); id != "" {
 		return id, nil
 	}
 	return "", fmt.Errorf("no acting actor: pass --actor or run `ousheng me <id>` once")
