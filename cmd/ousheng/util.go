@@ -65,6 +65,11 @@ func projectModel(id, name string) model.Project {
 // errNoRemote：git pull 无 remote / 无 tracking——单机常态，非故障。
 var errNoRemote = errors.New("no remote configured")
 
+// errDiverged：工作区与上游两端都有未合并提交（非快进）。sync 的处置边界：
+// 检测 + 给人话指引，绝不自动 rebase——冲突需人拍板（2026-09-21，档案 §16；
+// chaos 剧本实证同单冲突必须人来解，后台自动 rebase 会把工作区卡进中途态）。
+var errDiverged = errors.New("diverged from upstream")
+
 func gitPull(dir string) (string, error) {
 	cmd := exec.Command("git", "pull", "--ff-only")
 	cmd.Dir = dir
@@ -76,6 +81,10 @@ func gitPull(dir string) (string, error) {
 			if strings.Contains(s, p) {
 				return "", errNoRemote
 			}
+		}
+		if strings.Contains(s, "Not possible to fast-forward") ||
+			strings.Contains(s, "not possible to fast-forward") {
+			return "", errDiverged
 		}
 		return "", fmt.Errorf("%s", strings.TrimSpace(s))
 	}
