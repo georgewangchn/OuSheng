@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -102,4 +103,76 @@ func TestDoctorMachineOnly(t *testing.T) {
 	if strings.Contains(so, "[FAIL") {
 		t.Fatalf("裸目录不应 FAIL:\n%s", so)
 	}
+}
+
+func gitRun(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+// 2026-09-21 审计裁决（档案 §15）三项新检查的锁。
+func TestDoctorAuditChecks(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	t.Run("座位资产入库", func(t *testing.T) {
+		ws := mkDoctorWorkspace(t, "data")
+		repo := t.TempDir()
+		mustRun(t, repo, "adapter", "install", "--workspace", ws)
+		gitRun(t, repo, "init", "-b", "main")
+		gitRun(t, repo, "config", "user.email", "t@t")
+		gitRun(t, repo, "config", "user.name", "t")
+		gitRun(t, repo, "add", "-f", ".opencode/opencode.json")
+		gitRun(t, repo, "commit", "-qm", "x")
+		so, _, code := runIn(t, repo, "doctor")
+		if code != 1 || !strings.Contains(so, "座位资产被入库") {
+			t.Fatalf("应 FAIL 座位资产入库:\n%s", so)
+		}
+	})
+
+	t.Run("unknown 审计桶", func(t *testing.T) {
+		ws := mkDoctorWorkspace(t, "data")
+		repo := t.TempDir()
+		mustRun(t, repo, "adapter", "install", "--workspace", ws)
+		d := filepath.Join(ws, ".ousheng", "activity", "2026-09")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "unknown.jsonl"), []byte("{\"actor\":\"\"}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		so, _, _ := runIn(t, repo, "doctor")
+		if !strings.Contains(so, "unknown.jsonl 存在") {
+			t.Fatalf("应 WARN unknown 桶:\n%s", so)
+		}
+	})
+
+	t.Run("未推提交水位", func(t *testing.T) {
+		ws := mkDoctorWorkspace(t, "data")
+		gitRun(t, ws, "init", "-b", "main")
+		gitRun(t, ws, "config", "user.email", "t@t")
+		gitRun(t, ws, "config", "user.name", "t")
+		gitRun(t, ws, "add", "-A")
+		gitRun(t, ws, "commit", "-qm", "base")
+		remote := filepath.Join(t.TempDir(), "r.git")
+		gitRun(t, t.TempDir(), "init", "--bare", remote)
+		gitRun(t, ws, "remote", "add", "origin", remote)
+		gitRun(t, ws, "push", "-q", "-u", "origin", "main")
+		if err := os.WriteFile(filepath.Join(ws, "new.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitRun(t, ws, "add", "-A")
+		gitRun(t, ws, "commit", "-qm", "unpushed")
+		repo := t.TempDir()
+		mustRun(t, repo, "adapter", "install", "--workspace", ws)
+		so, _, _ := runIn(t, repo, "doctor")
+		if !strings.Contains(so, "未推提交") {
+			t.Fatalf("应 WARN 未推提交:\n%s", so)
+		}
+	})
 }

@@ -316,3 +316,24 @@ func TestWorkShowDetailFidelity(t *testing.T) {
 		t.Fatalf("work show deps 应只渲染一次，got %d:\n%s", n, out)
 	}
 }
+
+// 双入口对照锁（档案 §14/§15）：CLI 与 MCP 同一契约——未注册身份拒绝、
+// activity 归属 acting actor。MCP 侧对照见 cmd/mcp TestMCPRejectsUnresolvedActor。
+// 新入口必须复用 internal/* 内核并补两侧对照，不许各自实现（一语义一实现）。
+func TestCLIRejectsUnregisteredActor(t *testing.T) {
+	dir := testfix.Setup(t)
+	so, se, code := runCLIRaw([]string{"bug", "report", "--id", "BUG-401", "--title", "x",
+		"--system", "datax-backend", "--actor", "ghost", "--dir", dir})
+	if code == 0 || !strings.Contains(se, "unknown actor") {
+		t.Fatalf("未注册 actor 必须拒：code=%d\nstdout:%s\nstderr:%s", code, so, se)
+	}
+	if _, se, code := runCLIRaw([]string{"bug", "report", "--id", "BUG-402", "--title", "y",
+		"--system", "datax-backend", "--actor", "", "--dir", dir}); code == 0 || !strings.Contains(se, "actor required") {
+		t.Fatalf("空 actor 必须拒：code=%d\n%s", code, se)
+	}
+	runCLI(t, dir, "bug", "report", "--id", "BUG-403", "--title", "z", "--system", "datax-backend", "--actor", "test-agent")
+	matches, _ := filepath.Glob(filepath.Join(dir, ".ousheng", "activity", "*", "test-agent.jsonl"))
+	if len(matches) == 0 {
+		t.Fatal("activity 应归属 acting actor=test-agent")
+	}
+}

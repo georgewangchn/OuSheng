@@ -701,6 +701,13 @@ func (r *Repo) AppendActivity(acts []model.Activity, msg string) error {
 	if len(acts) == 0 {
 		return nil
 	}
+	// 审计要求每个写有可归属身份：空/非法 actor 一律拒，不许静默归入 unknown 桶
+	// （2026-09-21 审计事件，档案 §14/§15——不可归属的写不如不写）。
+	for _, a := range acts {
+		if !activityActorRe.MatchString(a.Actor) {
+			return fmt.Errorf("activity actor %q 不可归属（空或非法 id）——审计要求可归属身份，拒绝写入", a.Actor)
+		}
+	}
 	if err := os.MkdirAll(r.activityDir(), 0o755); err != nil {
 		return err
 	}
