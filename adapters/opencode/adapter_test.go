@@ -10,6 +10,7 @@ package opencode
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -103,5 +104,19 @@ func TestPluginReadsMachineConfigAndFailsLoud(t *testing.T) {
 	// （idle 频繁触发，网络动作会变成每 loop 轮询），只大声提醒。
 	if !strings.Contains(s, "rev-list") || !strings.Contains(s, "未推提交") {
 		t.Fatal("plugin 空闲时必须提醒未推提交（未推提交全舰队不可见，BUG-001 事故）")
+	}
+}
+
+// 2026-09-21：plugin.ts 此前只有字符串断言、无真编译检查——坏插件会静默瘫掉
+// 所有座位的 session 注入（字符串对 ≠ 语法对）。有 bun 则真编译，无则跳过。
+func TestPluginCompiles(t *testing.T) {
+	bun, err := exec.LookPath("bun")
+	if err != nil {
+		t.Skip("bun 不可用，跳过 plugin 真编译检查")
+	}
+	out, err := exec.Command(bun, "build", "plugin.ts", "--target=bun",
+		"--outfile="+filepath.Join(t.TempDir(), "plugin.js")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("plugin.ts 编译失败（坏插件静默瘫掉所有座位）：%v\n%s", err, out)
 	}
 }
