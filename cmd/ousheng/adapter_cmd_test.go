@@ -85,6 +85,12 @@ func TestAdapterInstall(t *testing.T) {
 	if err != nil || !strings.Contains(string(gi), "ousheng.json") {
 		t.Fatalf(".opencode/.gitignore 应含 ousheng.json（机器配置不入库）: %v %q", err, gi)
 	}
+	// 2026-09-21 裁决（档案 §13）：全部座位资产走 gitignore，只留 skills/ 等仓库内容
+	for _, line := range []string{"ousheng.json", "opencode.json", "package.json", "plugins/"} {
+		if !strings.Contains(string(gi), line) {
+			t.Fatalf(".opencode/.gitignore 应含 %q（座位资产不入库，二进制内嵌分发为单一来源）:\n%s", line, gi)
+		}
+	}
 	ag, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
 	if err != nil {
 		t.Fatalf("AGENTS.md 未写出: %v", err)
