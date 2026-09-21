@@ -16,6 +16,7 @@ import (
 	"ousheng/internal/converge"
 	"ousheng/internal/index"
 	"ousheng/internal/index/memory"
+	"ousheng/internal/model"
 	"ousheng/internal/projection"
 	"ousheng/internal/state/gityaml"
 )
@@ -239,6 +240,16 @@ func cmdConverge(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	// 超限项曝光（2026-09-21）：尺寸门让超限项静默冻结（所有写被拒），只有下次写
+	// 才暴露。收敛检查补曝光——超限 = 写冻结，证据该走指针、正文归外部文档。
+	if files, err := filepath.Glob(filepath.Join(fs.Dir(), ".ousheng", "work", "*.yaml")); err == nil {
+		for _, f := range files {
+			if fi, err := os.Stat(f); err == nil && fi.Size() > int64(model.MaxWorkItemBytes) {
+				res.Warnings = append(res.Warnings, fmt.Sprintf("%s 超限（%dB > %d）= 写冻结：证据改用指针，正文移外部文档",
+					strings.TrimSuffix(filepath.Base(f), ".yaml"), fi.Size(), model.MaxWorkItemBytes))
+			}
+		}
 	}
 	fmt.Fprintln(stdout, res.Status)
 	for _, b := range res.Blockers {

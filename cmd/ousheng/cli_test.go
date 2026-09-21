@@ -381,3 +381,23 @@ func TestCLISyncDivergenceGuides(t *testing.T) {
 		t.Fatal("分叉态不得推送")
 	}
 }
+
+// 超限项曝光锁（2026-09-21，BUG-002 实测）：尺寸门让超限项静默冻结（所有写被拒），
+// 只有下次写才暴露——converge 必须把"超限 = 写冻结"报出来（硬门 + 曝光两层）。
+func TestCLIConvergeExposesOversizedItem(t *testing.T) {
+	dir := testfix.Setup(t)
+	// 直接落一个超限 YAML（绕过写路径——正是超限单的既成事实形态）
+	big := "schema_version: 2\nid: BUG-900\ntype: bug\ntitle: 超限\nstatus: backlog\nsystem: datax-backend\ndescription: |\n  " +
+		strings.Repeat("长", 4200) + "\n"
+	path := filepath.Join(dir, ".ousheng", "work", "BUG-900.yaml")
+	if err := os.WriteFile(path, []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(path); fi.Size() <= 8192 {
+		t.Fatalf("test setup: %d bytes, need > 8192", fi.Size())
+	}
+	out := runCLI(t, dir, "converge")
+	if !strings.Contains(out, "BUG-900 超限") || !strings.Contains(out, "写冻结") {
+		t.Fatalf("converge 应曝光超限项（写冻结）:\n%s", out)
+	}
+}

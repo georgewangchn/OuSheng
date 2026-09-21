@@ -146,7 +146,7 @@ func ValidateWorkItem(w WorkItem, raw []byte) error {
 		}
 	}
 	if len(raw) > MaxWorkItemBytes {
-		return fmt.Errorf("work item exceeds %d bytes", MaxWorkItemBytes)
+		return fmt.Errorf("work item exceeds %d bytes——骨架原则：证据用指针（`evidence add --type document --locator <路径/URL>`），正文与实测归外部文档；或先瘦身本条（长段描述/note 移出）", MaxWorkItemBytes)
 	}
 	for _, f := range forbiddenContent {
 		if strings.Contains(string(raw), f) {
