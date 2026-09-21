@@ -3,16 +3,26 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	gitadapter "ousheng/adapters/git"
 	octx "ousheng/internal/context"
+	"ousheng/internal/machine"
 	"ousheng/internal/model"
 	"ousheng/internal/state/gityaml"
 	"ousheng/internal/workspace"
 )
+
+// resolveActor：显式 > 座位配置（cwd 的 .opencode/ousheng.json，AI 窗口身份）>
+// 工作区 me > 拒绝。2026-09-21 审计事故（档案 §14）：MCP 写工具曾把空 actor 直接
+// 透传 service，activity 静默落 unknown 桶——CLI 有守卫、MCP 没有 = 两套语义。
+func resolveActor(explicit, workspace string) (string, error) {
+	cwd, _ := os.Getwd()
+	return machine.ResolveActor(explicit, cwd, workspace)
+}
 
 // 查看时机协议（三时机，低频事件驱动，不做每 loop 轮询）：
 // ① 每日/session 启动 → get_my_context
@@ -180,6 +190,10 @@ type WorkWriteOutput struct {
 }
 
 func createWorkItem(_ context.Context, _ *mcp.CallToolRequest, in CreateWorkInput) (*mcp.CallToolResult, WorkWriteOutput, error) {
+	actor, err := resolveActor(in.Actor, in.Path)
+	if err != nil {
+		return nil, WorkWriteOutput{}, err
+	}
 	svc := workspace.New(gityaml.Open(in.Path))
 	w, err := svc.Create(model.WorkItem{
 		SchemaVersion:    2,
@@ -193,7 +207,7 @@ func createWorkItem(_ context.Context, _ *mcp.CallToolRequest, in CreateWorkInpu
 		AccountableHuman: in.AccountableHuman,
 		DetectedBy:       in.DetectedBy,
 		DependsOn:        in.DependsOn,
-	}, in.Actor)
+	}, actor)
 	if err != nil {
 		return nil, WorkWriteOutput{}, err
 	}
@@ -201,6 +215,10 @@ func createWorkItem(_ context.Context, _ *mcp.CallToolRequest, in CreateWorkInpu
 }
 
 func reportBug(_ context.Context, _ *mcp.CallToolRequest, in CreateWorkInput) (*mcp.CallToolResult, WorkWriteOutput, error) {
+	actor, err := resolveActor(in.Actor, in.Path)
+	if err != nil {
+		return nil, WorkWriteOutput{}, err
+	}
 	svc := workspace.New(gityaml.Open(in.Path))
 	w, err := svc.Create(model.WorkItem{
 		SchemaVersion:    2,
@@ -214,7 +232,7 @@ func reportBug(_ context.Context, _ *mcp.CallToolRequest, in CreateWorkInput) (*
 		AccountableHuman: in.AccountableHuman,
 		DetectedBy:       in.DetectedBy,
 		DependsOn:        in.DependsOn,
-	}, in.Actor)
+	}, actor)
 	if err != nil {
 		return nil, WorkWriteOutput{}, err
 	}
@@ -230,6 +248,10 @@ type UpdateWorkInput struct {
 }
 
 func updateWorkItem(_ context.Context, _ *mcp.CallToolRequest, in UpdateWorkInput) (*mcp.CallToolResult, WorkWriteOutput, error) {
+	actor, err := resolveActor(in.Actor, in.Path)
+	if err != nil {
+		return nil, WorkWriteOutput{}, err
+	}
 	svc := workspace.New(gityaml.Open(in.Path))
 	cur, err := svc.Repo.GetWorkItem(in.ID)
 	if err != nil {
@@ -242,7 +264,7 @@ func updateWorkItem(_ context.Context, _ *mcp.CallToolRequest, in UpdateWorkInpu
 	if in.Status != "" {
 		cur.Status = model.WorkStatus(in.Status)
 	}
-	w, err := svc.Update(cur, expect, in.Actor)
+	w, err := svc.Update(cur, expect, actor)
 	if err != nil {
 		return nil, WorkWriteOutput{}, err
 	}
@@ -259,6 +281,10 @@ type AssignWorkInput struct {
 }
 
 func assignWorkItem(_ context.Context, _ *mcp.CallToolRequest, in AssignWorkInput) (*mcp.CallToolResult, WorkWriteOutput, error) {
+	actor, err := resolveActor(in.Actor, in.Path)
+	if err != nil {
+		return nil, WorkWriteOutput{}, err
+	}
 	svc := workspace.New(gityaml.Open(in.Path))
 	cur, err := svc.Repo.GetWorkItem(in.ID)
 	if err != nil {
@@ -268,7 +294,7 @@ func assignWorkItem(_ context.Context, _ *mcp.CallToolRequest, in AssignWorkInpu
 	if expect <= 0 {
 		expect = cur.Revision
 	}
-	w, err := svc.Assign(in.ID, in.Assignee, in.ActingRole, expect, in.Actor)
+	w, err := svc.Assign(in.ID, in.Assignee, in.ActingRole, expect, actor)
 	if err != nil {
 		return nil, WorkWriteOutput{}, err
 	}
@@ -285,6 +311,10 @@ type ProgressInput struct {
 }
 
 func reportProgress(_ context.Context, _ *mcp.CallToolRequest, in ProgressInput) (*mcp.CallToolResult, WorkWriteOutput, error) {
+	actor, err := resolveActor(in.Actor, in.Path)
+	if err != nil {
+		return nil, WorkWriteOutput{}, err
+	}
 	svc := workspace.New(gityaml.Open(in.Path))
 	cur, err := svc.Repo.GetWorkItem(in.ID)
 	if err != nil {
@@ -299,7 +329,7 @@ func reportProgress(_ context.Context, _ *mcp.CallToolRequest, in ProgressInput)
 		basis = string(model.BasisManual)
 	}
 	p := model.ProgressReport{
-		Value: in.Value, Actor: in.Actor,
+		Value: in.Value, Actor: actor,
 		ReportedAt: time.Now().Format(time.RFC3339), Basis: model.ProgressBasis(basis),
 	}
 	w, err := svc.ReportProgress(in.ID, p, expect)
@@ -322,6 +352,10 @@ type AddEvidenceInput struct {
 }
 
 func addEvidence(_ context.Context, _ *mcp.CallToolRequest, in AddEvidenceInput) (*mcp.CallToolResult, WorkWriteOutput, error) {
+	actor, err := resolveActor(in.Actor, in.Path)
+	if err != nil {
+		return nil, WorkWriteOutput{}, err
+	}
 	svc := workspace.New(gityaml.Open(in.Path))
 	cur, err := svc.Repo.GetWorkItem(in.WorkID)
 	if err != nil {
@@ -335,9 +369,11 @@ func addEvidence(_ context.Context, _ *mcp.CallToolRequest, in AddEvidenceInput)
 		Type: model.EvidenceType(in.Type), Source: in.Source, Locator: in.Locator,
 		Result: in.Result, Note: in.Note, ObservedAt: time.Now().Format(time.RFC3339),
 	}
-	// git_commit：经 adapter 验证存在性
+	// git_commit：在 system 映射的本机代码仓里验证（同 CLI 语义——2026-09-21 审计
+	// 裁决：MCP 曾用工作区仓验证，与 repos.yaml 映射漂移；档案 §14）
 	if ev.Type == model.EvidenceGitCommit {
-		verified, err := gitadapter.EvidenceForCommit(in.Path, in.Locator)
+		repoDir := machine.RepoDirForSystem(in.Path, cur.System)
+		verified, err := gitadapter.EvidenceForCommit(repoDir, in.Locator)
 		if err != nil {
 			return nil, WorkWriteOutput{}, fmt.Errorf("verify git_commit: %w", err)
 		}
@@ -348,7 +384,7 @@ func addEvidence(_ context.Context, _ *mcp.CallToolRequest, in AddEvidenceInput)
 			ev.Source = "git"
 		}
 	}
-	w, err := svc.AddEvidence(in.WorkID, ev, expect, in.Actor)
+	w, err := svc.AddEvidence(in.WorkID, ev, expect, actor)
 	if err != nil {
 		return nil, WorkWriteOutput{}, err
 	}

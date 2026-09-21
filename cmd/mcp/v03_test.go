@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"ousheng/internal/model"
@@ -69,17 +72,17 @@ func TestMCPWorkLifecycle(t *testing.T) {
 	}
 
 	// update: backlog → ready → doing
-	_, u1, err := updateWorkItem(context.Background(), nil, UpdateWorkInput{Path: dir, ID: "FEAT-200", Status: "ready", Expect: 1})
+	_, u1, err := updateWorkItem(context.Background(), nil, UpdateWorkInput{Path: dir, ID: "FEAT-200", Status: "ready", Expect: 1, Actor: "backend-agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if u1.Revision != 2 {
 		t.Fatalf("update rev wrong: %+v", u1)
 	}
-	if _, _, err := updateWorkItem(context.Background(), nil, UpdateWorkInput{Path: dir, ID: "FEAT-200", Status: "doing", Expect: 1}); err == nil {
+	if _, _, err := updateWorkItem(context.Background(), nil, UpdateWorkInput{Path: dir, ID: "FEAT-200", Status: "doing", Expect: 1, Actor: "backend-agent"}); err == nil {
 		t.Fatal("stale expect must conflict")
 	}
-	_, u2, err := updateWorkItem(context.Background(), nil, UpdateWorkInput{Path: dir, ID: "FEAT-200", Status: "doing", Expect: 2})
+	_, u2, err := updateWorkItem(context.Background(), nil, UpdateWorkInput{Path: dir, ID: "FEAT-200", Status: "doing", Expect: 2, Actor: "backend-agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +139,7 @@ func TestMCPWorkLifecycle(t *testing.T) {
 
 	// assign
 	_, a, err := assignWorkItem(context.Background(), nil, AssignWorkInput{
-		Path: dir, ID: "BUG-201", Assignee: "backend-agent", ActingRole: "backend",
+		Path: dir, ID: "BUG-201", Assignee: "backend-agent", ActingRole: "backend", Actor: "backend-agent",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -153,4 +156,61 @@ func TestMCPWorkLifecycle(t *testing.T) {
 	if len(av.Agents) != 1 || av.Agents[0] != "backend-agent" {
 		t.Fatalf("actor view wrong: %+v", av)
 	}
+}
+
+// 2026-09-21 审计事故锁（档案 §14）：MCP 写工具曾把空 actor 直接透传 service，
+// activity 静默落 unknown 桶（CLI 有守卫、MCP 没有 = 两套语义）。身份解析链：
+// 显式 > 座位配置 .opencode/ousheng.json（AI 窗口身份）> 工作区 me > 拒绝。
+func TestMCPRejectsUnresolvedActor(t *testing.T) {
+	dir := testfix.Setup(t) // fixture 无 me；cwd 无座位配置
+	if _, _, err := createWorkItem(context.Background(), nil, CreateWorkInput{
+		Path: dir, ID: "FEAT-300", Type: "feature", Title: "无身份", System: "datax-backend",
+	}); err == nil || !strings.Contains(err.Error(), "actor") {
+		t.Fatalf("三来源皆无必须拒绝，got err=%v", err)
+	}
+}
+
+func TestMCPResolvesActorFromWorkspaceMe(t *testing.T) {
+	dir := testfix.Setup(t)
+	if err := os.WriteFile(filepath.Join(dir, ".ousheng", "me"), []byte("backend-agent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := createWorkItem(context.Background(), nil, CreateWorkInput{
+		Path: dir, ID: "FEAT-301", Type: "feature", Title: "me 解析", System: "datax-backend",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !activityExists(t, dir, "backend-agent") {
+		t.Fatal("activity 应归属 me=backend-agent")
+	}
+}
+
+func TestMCPResolvesActorFromSeatConfig(t *testing.T) {
+	dir := testfix.Setup(t)
+	seat := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(seat, ".opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seat, ".opencode", "ousheng.json"),
+		[]byte(`{"workspace":"`+dir+`","actor":"test-agent"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(seat)
+	if _, _, err := createWorkItem(context.Background(), nil, CreateWorkInput{
+		Path: dir, ID: "FEAT-302", Type: "feature", Title: "座位解析", System: "datax-backend",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !activityExists(t, dir, "test-agent") {
+		t.Fatal("activity 应归属座位身份 test-agent（AI 窗口身份优先于 me）")
+	}
+}
+
+func activityExists(t *testing.T, workspace, actor string) bool {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(workspace, ".ousheng", "activity", "*", actor+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(matches) > 0
 }

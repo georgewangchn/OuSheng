@@ -97,8 +97,33 @@ func (s *Service) validateRefs(w model.WorkItem) error {
 	return nil
 }
 
+// requireActor：写路径身份硬门（2026-09-21 审计事故，档案 §14）。activity 是审计
+// 线索，空 actor 曾由 MCP 入口静默落 unknown 桶；注册表非空时 acting actor 还须
+// 已注册——未注册身份写入让审计与 context 对不上。
+func (s *Service) requireActor(actor string) error {
+	if strings.TrimSpace(actor) == "" {
+		return fmt.Errorf("acting actor required（传 --actor，或先 `ousheng me <id>`；MCP 工具请在调用里传 actor）")
+	}
+	actors, err := s.Repo.ListActors()
+	if err != nil {
+		return err
+	}
+	if len(actors) == 0 {
+		return nil
+	}
+	for _, f := range actors {
+		if f.Actor.ID == actor {
+			return nil
+		}
+	}
+	return fmt.Errorf("unknown actor %q (try: ousheng actor list)", actor)
+}
+
 // Create 创建 WorkItem。新工作必须从 backlog 起步（对应 v1 新卡必须 proposed）。
 func (s *Service) Create(w model.WorkItem, actor string) (model.WorkItem, error) {
+	if err := s.requireActor(actor); err != nil {
+		return model.WorkItem{}, err
+	}
 	if w.Status != "" && w.Status != model.StatusBacklog {
 		return model.WorkItem{}, fmt.Errorf("new work item must start in backlog (got %s)", w.Status)
 	}
@@ -117,6 +142,9 @@ func (s *Service) Create(w model.WorkItem, actor string) (model.WorkItem, error)
 
 // Update 以 CAS 语义更新 WorkItem，并强制执行两个独立生命周期迁移规则。
 func (s *Service) Update(w model.WorkItem, expectRevision int, actor string) (model.WorkItem, error) {
+	if err := s.requireActor(actor); err != nil {
+		return model.WorkItem{}, err
+	}
 	cur, err := s.Repo.GetWorkItem(w.ID)
 	if err != nil {
 		return model.WorkItem{}, err
@@ -180,6 +208,9 @@ func (s *Service) Assign(id string, assignee, actingRole string, expectRevision 
 
 // ReportProgress 更新 ProgressReport（reported state，非 fact）。
 func (s *Service) ReportProgress(id string, p model.ProgressReport, expectRevision int) (model.WorkItem, error) {
+	if err := s.requireActor(p.Actor); err != nil {
+		return model.WorkItem{}, err
+	}
 	w, err := s.Repo.GetWorkItem(id)
 	if err != nil {
 		return model.WorkItem{}, err
@@ -195,6 +226,9 @@ func (s *Service) ReportProgress(id string, p model.ProgressReport, expectRevisi
 
 // AddEvidence 追加 typed evidence（append-only）。
 func (s *Service) AddEvidence(id string, ev model.Evidence, expectRevision int, actor string) (model.WorkItem, error) {
+	if err := s.requireActor(actor); err != nil {
+		return model.WorkItem{}, err
+	}
 	w, err := s.Repo.GetWorkItem(id)
 	if err != nil {
 		return model.WorkItem{}, err
@@ -210,6 +244,9 @@ func (s *Service) AddEvidence(id string, ev model.Evidence, expectRevision int, 
 
 // Ack 记录 human ack。approver 必须是已注册 human actor（注册表非空时）。
 func (s *Service) Ack(id string, approver, note string, expectRevision int) (model.WorkItem, error) {
+	if err := s.requireActor(approver); err != nil {
+		return model.WorkItem{}, err
+	}
 	w, err := s.Repo.GetWorkItem(id)
 	if err != nil {
 		return model.WorkItem{}, err
