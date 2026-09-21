@@ -261,3 +261,32 @@ func TestActiveRequiresAssignee(t *testing.T) {
 		t.Fatalf("有主 testing 应可写: %v", err)
 	}
 }
+
+// 2026-09-21 审计事故锁（档案 §14）：activity 是审计线索，写路径身份硬门——
+// 空 actor 曾由 MCP 入口静默写入 unknown 桶；未注册身份同样拒（审计与
+// context 对不上）。CLI 与 MCP 共用此咽喉，故锁在这一层。
+func TestWriteRequiresActor(t *testing.T) {
+	s := openFixtures(t)
+
+	// 空 actor → 拒（fail-closed，不许静默落 unknown 桶）
+	if _, err := s.Create(newBug(), ""); err == nil || !strings.Contains(err.Error(), "acting actor required") {
+		t.Fatalf("空 actor 必须拒，got err=%v", err)
+	}
+	// 未注册 actor → 拒
+	if _, err := s.Create(newBug(), "ghost"); err == nil || !strings.Contains(err.Error(), "unknown actor") {
+		t.Fatalf("未注册 actor 必须拒，got err=%v", err)
+	}
+	// 已注册 actor → 通过
+	if _, err := s.Create(newBug(), "backend-agent"); err != nil {
+		t.Fatalf("已注册 actor 应通过：%v", err)
+	}
+
+	// evidence 路径同门
+	if _, err := s.AddEvidence("BUG-100", model.Evidence{Type: model.EvidenceManualCheck, Locator: "x"}, -1, ""); err == nil {
+		t.Fatal("evidence 空 actor 必须拒")
+	}
+	// progress 路径（p.Actor）同门
+	if _, err := s.ReportProgress("BUG-100", model.ProgressReport{Value: 0.5, Actor: "", Basis: model.BasisManual}, -1); err == nil {
+		t.Fatal("progress 空 actor 必须拒")
+	}
+}
