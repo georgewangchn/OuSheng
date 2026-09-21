@@ -44,7 +44,7 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. 定位：**牵�
 
 设计依据：`docs/OuSheng_工程本体化改造方案_v0.3.md`（权威）+ `docs/engineering-model.md`。铁律：
 
-- **实栈纪律（2026-09-21 裁决，档案 §15）**：224/225/226/本机 = **实栈验证场**（跑真活、暴露真缺口），产品仓 = 规则的唯一权威。事故唯一合法归宿链：**实栈发现 → 产品裁决（档案）→ 机械锁 → doctor 可查 → 二进制升级 → 实栈重跑**；没变成锁的事故不算修完。方向锚 = 卡点不变式——实栈的痛不构成扩权理由。**一语义一实现**：CLI/MCP 等入口只做参数适配，语义收 `internal/*` 共享（新入口必须复用，且补两侧对照测试）。**不确定即拒绝**（fail-closed）：空/非法身份、不可归属的 activity 一律拒，不许静默降级（unknown 桶教训，§14）。
+- **实栈纪律（2026-09-21 裁决，档案 §15）**：224/225/226/本机 = **实栈验证场**（跑真活、暴露真缺口），产品仓 = 规则的唯一权威。事故唯一合法归宿链：**实栈发现 → 产品裁决（档案）→ 机械锁 → doctor 可查 → 二进制升级 → 实栈重跑**；没变成锁的事故不算修完。方向锚 = 卡点不变式——实栈的痛不构成扩权理由。**一语义一实现**：CLI/MCP 等入口只做参数适配，语义收 `internal/*` 共享（新入口必须复用，且补两侧对照测试）。**不确定即拒绝**（fail-closed）：空/非法身份、不可归属的 activity 一律拒，不许静默降级（unknown 桶教训，§14）。**验证分层**：机制面→Go 锁（离线可 CI）；流程面→dogfood 剧本；真机面→实栈验证场。**不为已锁机制再造脚本**（冗余验证层会腐烂，§17）。
 - **模块路径** `ousheng`；新外部依赖白名单：`gopkg.in/yaml.v3`、`modernc.org/sqlite`（纯 Go，仅派生索引）、MCP SDK。仍禁 JSON Schema 库、go-git。
 - **v0.3 布局**：`internal/{model,state,state/gityaml,index/{memory,sqlite},context,projection,converge,migrate,workspace}`、`cmd/{board,mcp,ousheng}`、`adapters/{git,claude,opencode}`。
 - **双状态机**：WorkItem 7 态（backlog/ready/doing/blocked/testing/done/cancelled）与 Contract 5 态分离；`revision`（CAS）≠ `target_version`（产品版本），永不混用。
