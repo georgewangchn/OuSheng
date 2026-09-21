@@ -145,6 +145,35 @@ export const OuShengSampler: Plugin = async ({ directory, client }) => {
           await log(client, "error", `[OuSheng] session.idle sampling failed: ${String(err)}`)
         }
       }
+
+      // 时机③（续）：未推提交提醒 —— 收尾 sync 的结构化兜底（2026-09-21，档案 §10/§15）。
+      // 不自动推：idle 每次响应都触发，网络动作挂这里就是每 loop 轮询；只大声提醒。
+      if (event.type === "session.idle") {
+        try {
+          const cfg = await readCfg(directory)
+          const u = await run(
+            ["git", "-C", cfg.workspace, "rev-list", "--left-right", "--count", "@{u}...HEAD"],
+            directory,
+          )
+          if (u.ok) {
+            const f = u.out.trim().split(/\s+/)
+            const behind = parseInt(f[0] ?? "0", 10) || 0
+            const ahead = parseInt(f[1] ?? "0", 10) || 0
+            if (ahead > 0 || behind > 0) {
+              const parts: string[] = []
+              if (ahead > 0) parts.push(`有 ${ahead} 个未推提交`)
+              if (behind > 0) parts.push(`落后上游 ${behind} 个提交`)
+              await log(
+                client,
+                "error",
+                `[OuSheng] 工作区${parts.join("、")} —— 跑 ousheng sync 推送/拉齐收口（未推提交全舰队不可见）`,
+              )
+            }
+          }
+        } catch {
+          // 水位提醒失败无语义影响（doctor 同项可查）
+        }
+      }
     },
   }
 }

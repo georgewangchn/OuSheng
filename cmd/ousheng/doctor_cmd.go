@@ -120,6 +120,17 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		} else {
 			check("PASS", "AGENTS.md 协议段 = 当前版本")
 		}
+
+		// 座位资产不得入库（2026-09-21 裁决，档案 §13）：二进制内嵌分发为单一来源，
+		// 入库副本必漂移；gitignore 不回溯已跟踪文件，故单列检查。
+		if out, err := gitOut(dir, "ls-files", "--", ".opencode/opencode.json", ".opencode/ousheng.json",
+			".opencode/package.json", ".opencode/package-lock.json", ".opencode/bun.lock", ".opencode/plugins"); err == nil {
+			if tracked := strings.TrimSpace(out); tracked != "" {
+				check("FAIL", "座位资产被入库（"+strings.ReplaceAll(tracked, "\n", " ")+"）→ git rm --cached <路径>（档案 §13）")
+			} else {
+				check("PASS", "座位资产未入库（gitignore 生效）")
+			}
+		}
 	}
 
 	// --- 工作区级：me / repo 映射 ---
@@ -143,6 +154,38 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 					check("FAIL", fmt.Sprintf("repo 映射 %s → %s 失效（非 git 仓或不存在）→ ousheng repo set %s <路径>", sys, path, sys))
 				} else {
 					check("PASS", "repo 映射 "+sys+" → "+path)
+				}
+			}
+			// 审计桶（2026-09-21，档案 §14）：不可归属写的机器可查形态。历史条目存在
+			// 不 FAIL（审计记录不可删），但新写不应再产生（身份解析 + 写路径硬门已修）。
+			if files, _ := filepath.Glob(filepath.Join(ws, ".ousheng", "activity", "*", "unknown.jsonl")); len(files) > 0 {
+				lines := 0
+				for _, f := range files {
+					if b, err := os.ReadFile(f); err == nil {
+						if s := strings.TrimSpace(string(b)); s != "" {
+							lines += strings.Count(s, "\n") + 1
+						}
+					}
+				}
+				check("WARN", fmt.Sprintf("审计桶 unknown.jsonl 存在（%d 文件 / %d 条）——历史不可归属写；新写已被拒，查身份解析链", len(files), lines))
+			} else {
+				check("PASS", "无 unknown 审计桶（所有 activity 可归属）")
+			}
+			// 水位（无 fetch，按本地上游引用给建议）：未推/落后/分叉都是协作断点
+			// （BUG-001 事故：工单烂在本地全舰队不可见，档案 §10）。
+			if out, err := gitOut(ws, "rev-list", "--left-right", "--count", "@{u}...HEAD"); err == nil {
+				if f := strings.Fields(out); len(f) == 2 {
+					behind, ahead := atoiSafe(f[0]), atoiSafe(f[1])
+					switch {
+					case ahead > 0 && behind > 0:
+						check("WARN", fmt.Sprintf("工作区与上游分叉（未推 %d / 落后 %d）→ 人工 git pull --rebase 后再 sync", ahead, behind))
+					case ahead > 0:
+						check("WARN", fmt.Sprintf("工作区有 %d 个未推提交 → ousheng sync 推送收口（未推提交全舰队不可见）", ahead))
+					case behind > 0:
+						check("WARN", fmt.Sprintf("工作区落后上游 %d 个提交 → ousheng sync 拉齐", behind))
+					default:
+						check("PASS", "工作区水位与上游一致")
+					}
 				}
 			}
 		}
@@ -196,4 +239,22 @@ func globalPermissionStatus(ws string) string {
 		return "allow"
 	}
 	return "missing"
+}
+
+// gitOut：在 dir 跑 git 子命令并返回 stdout（非 git 仓/无 upstream 等由调用方忽略）。
+func gitOut(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.Output()
+	return string(out), err
+}
+
+func atoiSafe(s string) int {
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
 }
