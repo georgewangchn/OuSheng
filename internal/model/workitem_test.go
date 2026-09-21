@@ -155,6 +155,10 @@ func TestValidateWorkItemSizeGate(t *testing.T) {
 	}
 	if err := ValidateWorkItem(w, raw); err == nil {
 		t.Fatal("expected size rejection")
+	} else if !strings.Contains(err.Error(), "骨架原则") || !strings.Contains(err.Error(), "--locator") {
+		// 2026-09-21：尺寸门必须给溢出路径（fail-closed 也要给下一步）——
+		// 裸报"exceeds 8192"让使用者对着冻结单无路可走（BUG-002 实测事故）。
+		t.Fatalf("尺寸门报错必须带溢出路径指引（指针证据/外部文档），got: %v", err)
 	}
 }
 
