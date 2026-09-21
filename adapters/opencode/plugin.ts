@@ -148,8 +148,9 @@ export const OuShengSampler: Plugin = async ({ directory, client }) => {
 
       // 时机③（续）：未推提交自动收口（2026-09-21 用户反馈：经常不上绳，本地有 commit 未推）。
       // 只在有未推/落后时才动网（本地 rev-list 检查，零网络）——不无条件每 idle sync
-      // （idle 每次响应都触发，会变成每响应一次网络往返）。分叉/失败 = 不确定 → 大声
-      // 报错交人处理（交互确认）。
+      // （idle 每次响应都触发，会变成每响应一次网络往返）。失败判定只认 sync 末行
+      // 机器标记「sync收口: ok」——分叉/网络/push 失败都以退出码 0 + prose 溜过
+      // （2026-09-21 review 事故），缺标记 = 未收口，fail-closed 大声报错交人。
       if (event.type === "session.idle") {
         try {
           const cfg = await readCfg(directory)
@@ -163,17 +164,17 @@ export const OuShengSampler: Plugin = async ({ directory, client }) => {
             const ahead = parseInt(f[1] ?? "0", 10) || 0
             if (ahead > 0 || behind > 0) {
               const r = await run([OUSHENG_BIN, "sync", "--dir", cfg.workspace], directory)
-              if (r.err.includes("分叉") || r.out.includes("分叉")) {
+              if (r.ok && r.out.includes("sync收口: ok")) {
                 await log(
                   client,
-                  "error",
-                  `[OuSheng] 自动同步未完成——工作区与上游分叉，需人工：${r.out || r.err}`,
+                  "info",
+                  `[OuSheng] 自动同步（未推 ${ahead} / 落后 ${behind}）完成：\n${r.out}`,
                 )
               } else {
                 await log(
                   client,
-                  "info",
-                  `[OuSheng] 自动同步（未推 ${ahead} / 落后 ${behind}）完成：\n${r.out || r.err}`,
+                  "error",
+                  `[OuSheng] 自动同步未收口——需人工处理（分叉/网络/权限），修复后跑 ousheng sync：\n${r.out || r.err}`,
                 )
               }
             }
