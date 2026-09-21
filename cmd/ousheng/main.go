@@ -273,6 +273,8 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%s", pullOut)
 	case errors.Is(pullErr, errNoRemote):
 		fmt.Fprintln(stdout, "pull skipped (no remote configured)")
+	case errors.Is(pullErr, errDiverged):
+		fmt.Fprintf(stdout, "工作区与上游分叉（两端都有未合并提交）——sync 不自动 rebase（冲突需人拍板）。修复：git -C %s pull --rebase，解决冲突后再 ousheng sync\n", dir)
 	default:
 		fmt.Fprintf(stdout, "pull skipped (%v)\n", pullErr)
 	}

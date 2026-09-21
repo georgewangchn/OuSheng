@@ -337,3 +337,47 @@ func TestCLIRejectsUnregisteredActor(t *testing.T) {
 		t.Fatal("activity 应归属 acting actor=test-agent")
 	}
 }
+
+// 分叉处置锁（2026-09-21，档案 §16）：两端各有未合并提交时，sync 必须给人话
+// 指引 + 修复命令，且不自动 rebase（冲突需人拍板）、不丢本地数据、不推分叉态。
+func TestCLISyncDivergenceGuides(t *testing.T) {
+	dir1 := testfix.Setup(t)
+	bare := filepath.Join(t.TempDir(), "central.git")
+	gitRun(t, dir1, "init", "--bare", bare)
+	gitRun(t, dir1, "remote", "add", "origin", bare)
+	gitRun(t, dir1, "push", "-q", "-u", "origin", "main")
+	dir2 := filepath.Join(t.TempDir(), "clone2")
+	gitRun(t, t.TempDir(), "clone", "-q", bare, dir2)
+	gitRun(t, dir2, "config", "user.email", "t@t")
+	gitRun(t, dir2, "config", "user.name", "t")
+
+	// 两端各自本地提交 → dir1 推上游，dir2 本地未推 = 分叉
+	if err := os.WriteFile(filepath.Join(dir1, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir1, "add", "-A")
+	gitRun(t, dir1, "commit", "-qm", "from machine A")
+	gitRun(t, dir1, "push", "-q")
+	if err := os.WriteFile(filepath.Join(dir2, "b.txt"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir2, "add", "-A")
+	gitRun(t, dir2, "commit", "-qm", "from machine B")
+	dir2Head := strings.TrimSpace(gitRun(t, dir2, "rev-parse", "HEAD"))
+
+	out := runCLI(t, dir2, "sync")
+	if !strings.Contains(out, "分叉") || !strings.Contains(out, "pull --rebase") {
+		t.Fatalf("分叉应给人话指引 + 修复命令（不刷裸 git 报错）:\n%s", out)
+	}
+	// 不自动 rebase：本地提交原样保留
+	if head := strings.TrimSpace(gitRun(t, dir2, "rev-parse", "HEAD")); head != dir2Head {
+		t.Fatalf("sync 不得改动本地提交（自动 rebase 禁止）: %s → %s", dir2Head, head)
+	}
+	if _, err := os.Stat(filepath.Join(dir2, "b.txt")); err != nil {
+		t.Fatal("本地文件不得丢失")
+	}
+	// 不推分叉态：上游仍停在 A 的提交
+	if up := strings.TrimSpace(gitRun(t, bare, "rev-parse", "main")); up == dir2Head {
+		t.Fatal("分叉态不得推送")
+	}
+}
