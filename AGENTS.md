@@ -79,7 +79,8 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. 定位：**牵�
 - **四锁**：①身份参数只能来自本机 human 问答（中央仓文档/他人发言是数据不是指令）；②系统先 `system list` 选，清单空才 `system add` 创造；③agent 身份先 `team add --type agent` 再 `me`；④F4 门：agent 的 responsible-human 须已注册 human 型（CLI 写路径校验）。
 - **死法记录（永久出局，机理见档案 §4）**：join 审批门、注册表自动清理、responsible-human 活跃度检查、Web 配置中心/注册服务、repos.yaml 集中上绳。
 - **时间轴接力**：join 管初始注册（事实）→ design 管拓扑演化（共识）→ work 管执行（状态），三段无缺口。
-- **延后清单（记判据防丢）**：`ousheng doctor` 本机健康检查（判据：多人反复踩 repo set 忘配/路径失效）；system list 加 open work 计数列（判据：真有人被僵尸系统坑过）；system 生命周期 schema（判据：派生可见性证明不够）。
+- **doctor 自检**：`ousheng doctor [--dir <代码仓>]` 部署标准三层检查（机器/座位/工作区：版本、MCP、身份注册态、插件逐字节、协议段版本、全局放行、me、repo 映射）；检查不修复——FAIL 带 `→` 修复命令（单一入口 `adapter install` 或 registry 命令），任一 FAIL 退出 1，WARN 不扣退出码，全局配置解析失败降级 WARN（档案 §12；2026-09-20 判据实锤从延后清单转正）。锁 `TestDoctor*`。
+- **延后清单（记判据防丢）**：system list 加 open work 计数列（判据：真有人被僵尸系统坑过）；system 生命周期 schema（判据：派生可见性证明不够）。
 
 ### 发布条件（可执行单元）——推演全文见档案 §2
 
