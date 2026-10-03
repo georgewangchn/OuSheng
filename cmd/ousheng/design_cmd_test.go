@@ -236,6 +236,19 @@ func TestHumanIdentityBorrowRejectedOnAgentMachine(t *testing.T) {
 	if out := mustRun(t, dir, "design", "withdraw", "agent-plan", "--actor", "dev-agent"); !strings.Contains(out, "withdrawn") {
 		t.Fatalf("agent withdraw own draft must pass: %s", out)
 	}
+
+	// C2 --ack 借用 human 身份：类型门放行 human（george 已注册），本地性门必拦
+	// （锁 ack 路径的类型条件逻辑——humanActor==nil 才套本地性，重构丢了即红）。
+	mustRun(t, dir, "system", "add", "datax-server")
+	mustRun(t, dir, "todo", "引擎切换", "--system", "datax-server")
+	swap := filepath.Join(dir, "swap.yaml")
+	swapYAML := "schema_version: 2\nid: T-001\ntype: task\ntitle: 引擎切换\nsystem: datax-server\nassignee: dev-agent\nacting_role: dev\naccountable_human: george\nstatus: ready\nrevision: 1\ncontract:\n  kind: lib\n  status: proposed\n  breaking: true\n"
+	if err := os.WriteFile(swap, []byte(swapYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, se, code := runIn(t, dir, "work", "update", "T-001", "--file", swap, "--expect", "1", "--ack", "--actor", "george"); code == 0 || !strings.Contains(se, "拍板权在 human 本人机器") {
+		t.Fatalf("agent-machine borrow human ack must be rejected, got code=%d err=%s", code, se)
+	}
 }
 
 // PM 机形态（me = human）：AI 会话奉用户明示代执合法——decide --actor me 照常。
