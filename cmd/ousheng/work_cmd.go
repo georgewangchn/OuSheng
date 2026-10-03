@@ -236,7 +236,7 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		if *ack && *actor == "" {
-			fmt.Fprintln(stderr, "--ack requires --actor or ousheng me (ack 必须落到 human 身份上)")
+			fmt.Fprintln(stderr, "--ack requires --actor <human>（ack 必须显式落到 human 身份上——本地性门以本机 me 校验，档案 §23）")
 			return 2
 		}
 		// 拍板身份本地化（档案 §23）：C2 ack 的 human 身份不得在 agent 座位机
