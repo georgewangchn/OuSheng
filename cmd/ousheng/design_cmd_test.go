@@ -207,3 +207,46 @@ func TestDesignWithdraw(t *testing.T) {
 		t.Fatalf("owner agent withdraw own draft must pass: %s", out)
 	}
 }
+
+// 拍板身份本地化（2026-10-03 实栈事故 + 档案 §23）：mlake（agent 座位机）主动
+// 想切换 pm 身份执行拍板。写路径硬门——human 身份仅当 = 本机 me（PM 机形态）；
+// me 为 agent 的机器上，--actor <human> = 跨机冒用拍板权，fail-closed 拒。
+func TestHumanIdentityBorrowRejectedOnAgentMachine(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "george", "--name", "George")
+	mustRun(t, dir, "team", "add", "dev-agent", "--type", "agent", "--responsible-human", "george")
+	writeDesignFile(t, dir, "csv-plan", "status: draft\nowner: george\n", "# 方案\n")
+
+	// 把这台机变成 agent 座位机（me = dev-agent）——模拟 225/mlake 形态
+	if err := os.WriteFile(filepath.Join(dir, ".ousheng", "me"), []byte("dev-agent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// decide 借用 human 身份：必拒 + 指引
+	if _, se, code := runIn(t, dir, "design", "decide", "csv-plan", "--actor", "george"); code == 0 || !strings.Contains(se, "拍板权在 human 本人机器") {
+		t.Fatalf("agent-machine borrow human decide must be rejected, got code=%d err=%s", code, se)
+	}
+	// withdraw 的 human 路径借用：必拒
+	if _, se, code := runIn(t, dir, "design", "withdraw", "csv-plan", "--actor", "george"); code == 0 || !strings.Contains(se, "拍板权在 human 本人机器") {
+		t.Fatalf("agent-machine borrow human withdraw must be rejected, got code=%d err=%s", code, se)
+	}
+	// agent 撤自己的 draft（owner=george 不行）——先造 agent 自己的 draft
+	writeDesignFile(t, dir, "agent-plan", "status: draft\nowner: dev-agent\n", "# v\n")
+	if out := mustRun(t, dir, "design", "withdraw", "agent-plan", "--actor", "dev-agent"); !strings.Contains(out, "withdrawn") {
+		t.Fatalf("agent withdraw own draft must pass: %s", out)
+	}
+}
+
+// PM 机形态（me = human）：AI 会话奉用户明示代执合法——decide --actor me 照常。
+func TestHumanIdentityLocalOnPMMachineAllowed(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "george", "--name", "George")
+	mustRun(t, dir, "team", "add", "dev-agent", "--type", "agent", "--responsible-human", "george")
+	writeDesignFile(t, dir, "csv-plan", "status: draft\nowner: dev-agent\n", "# 方案\n")
+
+	if out := mustRun(t, dir, "design", "decide", "csv-plan", "--actor", "george"); !strings.Contains(out, "decided by george") {
+		t.Fatalf("PM-machine decide as own me must pass: %s", out)
+	}
+}

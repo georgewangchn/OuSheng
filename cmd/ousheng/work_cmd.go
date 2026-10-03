@@ -236,8 +236,19 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		if *ack && *actor == "" {
-			fmt.Fprintln(stderr, "--ack requires --actor or ousheng me (ack 必须落到 human 身上)")
+			fmt.Fprintln(stderr, "--ack requires --actor or ousheng me (ack 必须落到 human 身份上)")
 			return 2
+		}
+		// 拍板身份本地化（档案 §23）：C2 ack 的 human 身份不得在 agent 座位机
+		// 借用。仅当 actor 为合法 human 时套本地性门——agent 型 actor 仍走
+		// 深层类型校验（"must be human"语义不变，锁 TestAckMustBeHuman）。
+		if *ack && *actor != "" {
+			if humanActor(gityaml.Open(fs.Dir()), *actor) == nil {
+				if err := assertHumanIdentityLocal(fs.Dir(), *actor); err != nil {
+					fmt.Fprintln(stderr, err)
+					return 1
+				}
+			}
 		}
 		raw, err := os.ReadFile(*file)
 		if err != nil {

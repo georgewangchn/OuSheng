@@ -132,6 +132,11 @@ func designDecide(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	// 拍板身份本地化（档案 §23）：agent 座位机（me=agent）借用 human 身份必拒。
+	if err := assertHumanIdentityLocal(fs.Dir(), *actor); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	topic := fs.Arg(0)
 	d, body, err := repo.GetDesignRaw(topic)
 	if err != nil {
@@ -170,6 +175,11 @@ func designSupersede(args []string, stdout, stderr io.Writer) int {
 	}
 	repo := gityaml.Open(fs.Dir())
 	if err := humanActor(repo, *actor); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	// 拍板身份本地化（档案 §23）。
+	if err := assertHumanIdentityLocal(fs.Dir(), *actor); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -239,6 +249,13 @@ func designWithdraw(args []string, stdout, stderr io.Writer) int {
 	if !found {
 		fmt.Fprintf(stderr, "unknown actor %q\n", *actor)
 		return 1
+	}
+	// 拍板身份本地化（档案 §23）：human 路径（撤他人 draft）同样不得跨机借用。
+	if typ == model.ActorHuman {
+		if err := assertHumanIdentityLocal(fs.Dir(), *actor); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
 	}
 	topic := fs.Arg(0)
 	d, body, err := repo.GetDesignRaw(topic)

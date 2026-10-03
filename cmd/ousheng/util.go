@@ -156,3 +156,17 @@ func gitAdapterEvidence(dir, commit string) (*model.Evidence, error) {
 	}
 	return &ev, nil
 }
+
+// assertHumanIdentityLocal 拍板身份本地化门（2026-10-03 实栈事故 + 档案 §23）：
+// human 身份的拍板类操作（decide/supersede/withdraw-human/--ack）仅当该 human =
+// 本机 me 时可执行——me=human 的机器（PM 机）上，AI 会话奉用户明示代执合法；
+// me 为 agent 的座位机上，显式 --actor <human> = 跨机冒用拍板权，fail-closed 拒。
+// 已知边界：me 缺失（未 join 的旧工作区）放行——git 提交作者字段是事后审计兜底
+// （与「手改 frontmatter 可绕过」同一边界族）。
+func assertHumanIdentityLocal(dir, actor string) error {
+	me := readWorkspaceActor(dir)
+	if me != "" && me != actor {
+		return fmt.Errorf("human 身份 %q ≠ 本机 me %q——拍板权在 human 本人机器（me=human）；agent 座位机借用 human 身份被拒（档案 §23），需拍板回 PM 机执行", actor, me)
+	}
+	return nil
+}
