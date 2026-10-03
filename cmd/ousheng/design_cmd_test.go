@@ -263,3 +263,17 @@ func TestHumanIdentityLocalOnPMMachineAllowed(t *testing.T) {
 		t.Fatalf("PM-machine decide as own me must pass: %s", out)
 	}
 }
+
+// me 缺失（未声明身份的机器，如裸 clone）→ fail-closed 拒（铁律复查收紧：
+// 不确定即拒绝——未声明机器不得挥舞 human 拍板权，防新机裸 clone 借用）。
+func TestUndeclaredMachineHumanBorrowRejected(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "team", "add", "george", "--type", "human") // 注册但不 me——机器未声明
+	mustRun(t, dir, "team", "add", "dev-agent", "--type", "agent", "--responsible-human", "george")
+	writeDesignFile(t, dir, "csv-plan", "status: draft\nowner: dev-agent\n", "# 方案\n")
+
+	if _, se, code := runIn(t, dir, "design", "decide", "csv-plan", "--actor", "george"); code == 0 || !strings.Contains(se, "本机未声明身份") {
+		t.Fatalf("undeclared machine borrow must be rejected, got code=%d err=%s", code, se)
+	}
+}
