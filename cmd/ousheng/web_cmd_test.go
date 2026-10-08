@@ -364,3 +364,19 @@ func TestWebSuggestionPanel(t *testing.T) {
 		}
 	}
 }
+
+// TestWebNoStoreHeader：实时看板禁缓存——陈旧页 = 陈旧决策（档案 §24）。
+func TestWebNoStoreHeader(t *testing.T) {
+	dir := t.TempDir()
+	webSetup(t, dir)
+	srv := httptest.NewServer(withNoStore(newWebMux(dir)))
+	defer srv.Close()
+	resp, err := srv.Client().Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("board must be no-store, got %q", cc)
+	}
+}

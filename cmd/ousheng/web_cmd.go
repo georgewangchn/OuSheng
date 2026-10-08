@@ -64,7 +64,7 @@ func cmdWeb(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	mux := newWebMux(dir)
+	mux := withNoStore(newWebMux(dir))
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -76,6 +76,15 @@ func cmdWeb(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// withNoStore：实时看板禁缓存（PM 实用反馈：浏览器吃旧页看不到新面板）——
+// 陈旧看板 = 基于旧状态拍板，缓存对决策面是正确性问题而非体验问题。
+func withNoStore(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		h.ServeHTTP(w, r)
+	})
 }
 
 // validateLoopback：web 只绑回环地址（档案 §24 ③）。LAN 暴露 = §23 拍板身份
