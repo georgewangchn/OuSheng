@@ -316,7 +316,7 @@ func TestWebBoardRenders(t *testing.T) {
 	mustRun(t, dir, "work", "create", "--id", "T-002", "--title", "无主单", "--type", "task", "--system", "datax-server")
 	writeDesignFile(t, dir, "csv-plan", "status: draft\nowner: dev-agent\n", "# 方案\n")
 	page := webGet(t, dir, "/")
-	for _, want := range []string{"T-001", "backlog", "拍板队列", "csv-plan", "待认领", "datax-server"} {
+	for _, want := range []string{"T-001", "backlog", "你的下一步", "csv-plan", "待认领", "datax-server"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("board page missing %q", want)
 		}
@@ -324,5 +324,43 @@ func TestWebBoardRenders(t *testing.T) {
 	detail := webGet(t, dir, "/work/T-001")
 	if !strings.Contains(detail, "任务一") || !strings.Contains(detail, "backlog") {
 		t.Fatalf("detail page missing item info")
+	}
+}
+
+// TestWebSuggestionPanel：「你的下一步」= 规则性关注聚合（档案 §24 追记）——
+// 拍板/卡住/无主/超期/依赖被砍 五类信号确定性推导，无语义排序。
+func TestWebSuggestionPanel(t *testing.T) {
+	dir := t.TempDir()
+	webSetup(t, dir)
+	// 卡住：T-001 → ready → doing → blocked（activity 审计流留痕，天数=0）
+	mustRun(t, dir, "work", "update", "T-001", "--status", "ready", "--expect", "1", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "doing", "--expect", "2", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "blocked", "--expect", "3", "--actor", "george")
+	// 超期：T-002 截止日已过
+	mustRun(t, dir, "todo", "超期任务", "--system", "datax-server", "--due", "2020-01-01", "--assignee", "dev-agent")
+	// 依赖被砍：T-003 依赖 T-004，T-004 作废
+	mustRun(t, dir, "work", "create", "--id", "T-003", "--title", "依赖者", "--type", "task", "--system", "datax-server", "--depends-on", "T-004", "--actor", "george")
+	mustRun(t, dir, "work", "create", "--id", "T-004", "--title", "被砍依赖", "--type", "task", "--system", "datax-server", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-004", "--status", "cancelled", "--expect", "1", "--actor", "george")
+	// active 无主：写路径硬门挡（active requires assignee），手改模拟（真实来源=手改/迁移）
+	mustRun(t, dir, "work", "create", "--id", "T-005", "--title", "无主进行中", "--type", "task", "--system", "datax-server", "--assignee", "dev-agent", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-005", "--status", "ready", "--expect", "1", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-005", "--status", "doing", "--expect", "2", "--actor", "george")
+	p := filepath.Join(dir, ".ousheng", "work", "T-005.yaml")
+	raw, _ := os.ReadFile(p)
+	os.WriteFile(p, bytes.ReplaceAll(raw, []byte("assignee: dev-agent\n"), []byte("")), 0o644)
+
+	page := webGet(t, dir, "/")
+	for _, want := range []string{
+		"你的下一步",
+		"卡住了的活", "T-001", "今天刚卡住",
+		"已超期", "T-002", "2020-01-01",
+		"依赖被砍", "T-003",
+		"进行中却没人负责", "T-005",
+		"待认领池",
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("suggestion panel missing %q", want)
+		}
 	}
 }
