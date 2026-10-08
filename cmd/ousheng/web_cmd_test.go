@@ -420,3 +420,19 @@ func TestWebArchiveRenders(t *testing.T) {
 		}
 	}
 }
+
+// TestWebAgreedSupersedeRenders：已生效方案的 supersede 下拉分支（真实事故：
+// 命名类型 eq 在此分支执行中断致页面截断，测试环境无 agreed 方案漏盖）。
+func TestWebAgreedSupersedeRenders(t *testing.T) {
+	dir := t.TempDir()
+	webSetup(t, dir)
+	writeDesignFile(t, dir, "old-plan", "status: draft\nowner: dev-agent\n", "# 旧方案\n")
+	mustRun(t, dir, "design", "decide", "old-plan", "--actor", "george") // → agreed
+	writeDesignFile(t, dir, "new-plan", "status: draft\nowner: dev-agent\n", "# 新方案\n")
+	page := webGet(t, dir, "/")
+	for _, want := range []string{"old-plan", "new-plan（草案）", "废止并由它接替", "看方案 →", "历史归档"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("agreed/supersede/archive branch missing %q", want)
+		}
+	}
+}
