@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -171,14 +172,111 @@ func (s *webServer) fail(w http.ResponseWriter, code int, title, msg string) {
 // ---------------------------------------------------------------------------
 // 读路径
 
+// 呈现层词汇表（数据层保持工程语义，呈现层中文——PM 不学术语，页面亮中文）。
+var webStatusZh = map[string]string{
+	"backlog":   "待排期",
+	"ready":     "待开工",
+	"doing":     "进行中",
+	"blocked":   "卡住了",
+	"testing":   "验收中",
+	"done":      "已完成",
+	"cancelled": "已作废",
+}
+
+var webTypeZh = map[string]string{
+	"task":       "任务",
+	"bug":        "缺陷",
+	"feature":    "功能",
+	"requirement": "需求",
+	"test":       "测试",
+	"deployment": "部署",
+	"release":    "发布",
+}
+
+var webNextActionZh = map[string]string{
+	"backlog":   "转待开工",
+	"ready":     "开工",
+	"doing":     "进行",
+	"blocked":   "标记卡住",
+	"testing":   "转验收",
+	"done":      "完成",
+	"cancelled": "作废",
+}
+
+// webTestingExtraZh：testing 下的两个高频去向给更贴切的话术。
+var webActionAliasZh = map[string]map[string]string{
+	"testing":  {"doing": "打回返工", "done": "验收通过"},
+	"blocked":  {"doing": "解除卡住"},
+	"done":     {"doing": "重开"},
+	"cancelled": {"backlog": "重新排队"},
+}
+
+var webEvidenceZh = map[string]string{
+	"git_commit":   "代码提交",
+	"test_result":  "测试结果",
+	"manual_check": "人工检查",
+	"document":     "文档记录",
+	"ci_run":       "CI 运行",
+	"deployment":   "部署记录",
+	"pull_request": "代码合入",
+	"log":          "日志",
+}
+
+var webBasisZh = map[string]string{
+	"manual":                  "人工判断",
+	"implementation-checklist": "实现清单",
+	"test-cases":              "测试用例",
+	"subtasks":                "子任务",
+	"story-points":            "故事点",
+	"milestone":               "里程碑",
+}
+
+var webContractZh = map[string]string{
+	"http": "接口", "cli": "CLI", "lib": "库", "event": "事件",
+}
+
+var webContractStatusZh = map[string]string{
+	"proposed": "提案中", "agreed": "已定", "live": "生效中", "verified": "已验证", "deprecated": "已废弃",
+}
+
+// webNextActions：合法后继状态 + 中文动作标签（复用 model 公开的
+// CanWorkTransition——不复制边表，一语义一实现）。
+func webNextActions(cur model.WorkStatus) []webAction {
+	var out []webAction
+	for _, st := range []model.WorkStatus{model.StatusBacklog, model.StatusReady, model.StatusDoing, model.StatusBlocked, model.StatusTesting, model.StatusDone, model.StatusCancelled} {
+		if st == cur || !model.CanWorkTransition(cur, st) {
+			continue
+		}
+		label := webNextActionZh[string(st)]
+		if alias, ok := webActionAliasZh[string(cur)][string(st)]; ok {
+			label = alias
+		}
+		out = append(out, webAction{To: string(st), Label: label})
+	}
+	return out
+}
+
+type webAction struct {
+	To    string
+	Label string
+}
+
 type webCol struct {
-	Name  string
+	Name string // 英文原始值（测试锚点 + 工程对照）
+	Zh   string
 	Items []model.WorkItem
+}
+
+type webCardBadge struct {
+	Text  string
+	Class string
 }
 
 type boardData struct {
 	Project     string
 	Me          string
+	SyncTime    string
+	SyncOK      bool
 	SyncLine    string
 	Water       string
 	CurSystem   string
@@ -189,17 +287,27 @@ type boardData struct {
 	ConvergeOut string
 	Cols        []webCol
 	DoneCount   int
+	QueueCount  int
+	Now         string
+}
+
+func webOverdue(w model.WorkItem, today string) bool {
+	return w.DueOn != "" && w.DueOn < today && model.WorkItemOpen(w.Status)
 }
 
 func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 	code, convOut, _ := s.exec("converge")
 	_ = code // converge 面板纯展示（BLOCKER/WARNING 行文本自明）
+	syncLine := s.sync()
 	bd := boardData{
-		Me:          s.me,
-		SyncLine:    s.sync(),
-		Water:       s.water(),
-		CurSystem:   r.URL.Query().Get("system"),
+		Me:        s.me,
+		SyncTime:  time.Now().Format("15:04:05"),
+		SyncOK:    strings.Contains(syncLine, "sync收口: ok"),
+		SyncLine:  syncLine,
+		Water:     s.water(),
+		CurSystem: r.URL.Query().Get("system"),
 		ConvergeOut: strings.TrimSpace(convOut),
+		Now:       time.Now().Format("2006-01-02"),
 	}
 	repo := gityaml.Open(s.dir)
 	if proj, err := repo.GetProject(); err == nil {
@@ -245,16 +353,27 @@ func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 			bd.C2Pending = append(bd.C2Pending, w)
 		}
 	}
+	bd.QueueCount = len(bd.Drafts) + len(bd.C2Pending)
 	for _, st := range []string{"backlog", "ready", "doing", "blocked", "testing"} {
-		bd.Cols = append(bd.Cols, webCol{Name: st, Items: byStatus[st]})
+		bd.Cols = append(bd.Cols, webCol{Name: st, Zh: webStatusZh[st], Items: byStatus[st]})
 	}
 	webBoardTmpl.Execute(w, bd)
 }
 
 type detailData struct {
-	D        *context.WorkItemDetail
-	Me       string
-	Statuses []string
+	D          *context.WorkItemDetail
+	Me         string
+	Actions    []webAction
+	Actors     []webActorOpt
+	StatusZh   string
+	TypeZh     string
+	Overdue    bool
+	ContractZh string
+}
+
+type webActorOpt struct {
+	ID   string
+	Type string
 }
 
 func (s *webServer) handleDetail(w http.ResponseWriter, r *http.Request) {
@@ -269,11 +388,28 @@ func (s *webServer) handleDetail(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusNotFound, "工单不存在", err.Error())
 		return
 	}
-	webDetailTmpl.Execute(w, detailData{
+	var actors []webActorOpt
+	if afs, err := gityaml.Open(s.dir).ListActors(); err == nil {
+		for _, af := range afs {
+			actors = append(actors, webActorOpt{ID: af.Actor.ID, Type: string(af.Actor.Type)})
+		}
+	}
+	dd := detailData{
 		D:        d,
 		Me:       s.me,
-		Statuses: []string{"backlog", "ready", "doing", "blocked", "testing", "done", "cancelled"},
-	})
+		Actions:  webNextActions(d.Status),
+		Actors:   actors,
+		StatusZh: webStatusZh[string(d.Status)],
+		TypeZh:   webTypeZh[string(d.Type)],
+		Overdue:  webOverdue(d.WorkItem, time.Now().Format("2006-01-02")),
+	}
+	if d.Contract != nil {
+		dd.ContractZh = webContractZh[d.Contract.Kind] + " 契约 · " + webContractStatusZh[string(d.Contract.Status)]
+		if d.Contract.Breaking {
+			dd.ContractZh += " · 破坏性"
+		}
+	}
+	webDetailTmpl.Execute(w, dd)
 }
 
 // ---------------------------------------------------------------------------
@@ -437,145 +573,261 @@ func (s *webServer) handleWithdraw(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 // 模板（stdlib html/template，自动转义；无外部资产，无前端构建链）
 
-var webBoardTmpl = template.Must(template.New("board").Parse(`<!doctype html>
+var webBoardTmpl = template.Must(template.New("board").Funcs(webFuncs).Parse(`<!doctype html>
 <html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>㸸绳看板 · {{.Project}}</title>
 <style>
-:root{--ink:#1a1a1a;--dim:#777;--line:#e3e3e3;--acc:#0a6c5a;--warn:#a33;--bg:#fafafa}
-*{box-sizing:border-box}body{margin:0;font:14px/1.55 -apple-system,"PingFang SC",sans-serif;color:var(--ink);background:var(--bg)}
-header{padding:14px 20px;background:#fff;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
-header h1{font-size:16px;margin:0}
-.tag{font-size:12px;color:var(--dim)}
-main{padding:16px 20px;max-width:1280px;margin:0 auto}
-h2{font-size:14px;color:var(--dim);margin:20px 0 8px;font-weight:600}
-.q{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-.q b{font-family:ui-monospace,monospace}
-.board{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
-.col{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px}
-.col h3{font-size:12px;color:var(--dim);margin:2px 4px 8px;text-transform:uppercase;letter-spacing:.05em}
-.card{display:block;border:1px solid var(--line);border-radius:6px;padding:7px 9px;margin-bottom:7px;text-decoration:none;color:var(--ink);background:#fff}
-.card:hover{border-color:var(--acc)}
-.card .id{font-family:ui-monospace,monospace;font-size:12px;color:var(--acc)}
-.card .t{font-size:13px;margin:2px 0}
-.card .m{font-size:11px;color:var(--dim)}
-.badge{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--dim);margin-right:4px}
-.badge.no{color:var(--warn);border-color:var(--warn)}
+:root{--ink:#1f2328;--dim:#6a737d;--line:#e1e4e8;--bg:#f6f8fa;--card:#fff;
+--acc:#1a7f64;--warn:#cf222e;--amber:#9a6700;--blue:#0969da;--purple:#8250df}
+*{box-sizing:border-box}body{margin:0;font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--bg)}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:12px 24px;position:sticky;top:0;z-index:5}
+.h1row{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.h1row h1{font-size:17px;margin:0}
+.chip{display:inline-block;font-size:12px;padding:1px 9px;border-radius:10px;background:#f0f2f4;color:var(--dim)}
+.chip.me{background:#e6f2ee;color:var(--acc)}
+.chip.ok{background:#e6f2ee;color:var(--acc)}
+.chip.bad{background:#fdebe9;color:var(--warn)}
+.chip.alert{background:var(--warn);color:#fff;font-weight:600;text-decoration:none}
+nav.sys{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+nav.sys a{font-size:12px;color:var(--dim);text-decoration:none;padding:2px 10px;border-radius:10px;border:1px solid transparent}
+nav.sys a.on,nav.sys a:hover{color:var(--acc);border-color:var(--acc)}
+main{padding:20px 24px 60px;max-width:1400px;margin:0 auto}
+h2{font-size:13px;color:var(--dim);margin:26px 0 10px;letter-spacing:.02em}
+.q{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-bottom:8px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.q .who{font-weight:600}
+.q .sub{font-size:12px;color:var(--dim)}
+.qempty{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;color:var(--acc);font-size:13px}
+.board{display:grid;grid-template-columns:repeat(5,minmax(200px,1fr));gap:12px;overflow-x:auto}
+.col{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px}
+.col h3{font-size:13px;margin:4px 6px 10px;display:flex;align-items:center;gap:6px;font-weight:600}
+.col .en{font-size:10px;color:var(--dim);font-weight:400;text-transform:lowercase}
+.col .n{font-size:11px;background:#f0f2f4;color:var(--dim);border-radius:8px;padding:0 7px}
+.col.s-backlog h3{color:var(--dim)} .col.s-ready h3{color:var(--blue)}
+.col.s-doing h3{color:var(--acc)} .col.s-blocked h3{color:var(--warn)} .col.s-testing h3{color:var(--purple)}
+.card{display:block;border:1px solid var(--line);border-left-width:3px;border-radius:8px;padding:8px 10px;margin-bottom:8px;text-decoration:none;color:var(--ink);background:var(--card)}
+.card:hover{border-color:var(--acc);border-left-color:var(--acc)}
+.card.p0{border-left-color:var(--warn)} .card.p1{border-left-color:var(--amber)}
+.card .t{font-size:13px;line-height:1.45;margin-bottom:5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .m{font-size:11px;color:var(--dim);display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.b{display:inline-block;font-size:10.5px;border-radius:4px;padding:0 5px;background:#f0f2f4;color:var(--dim)}
+.b.no{background:#fdebe9;color:var(--warn)}
+.b.pr0{background:var(--warn);color:#fff;font-weight:600}
+.b.pr1{background:#fff3d6;color:var(--amber)}
+.b.prog{background:#e6f2ee;color:var(--acc)}
+.b.od{background:var(--warn);color:#fff}
+.card .id{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--dim)}
 form{display:inline}
-button{font:inherit;font-size:12px;padding:3px 12px;border:1px solid var(--acc);background:var(--acc);color:#fff;border-radius:5px;cursor:pointer}
-button.ghost{background:#fff;color:var(--acc)}
+button{font:inherit;font-size:12.5px;padding:4px 14px;border:1px solid var(--acc);background:var(--acc);color:#fff;border-radius:6px;cursor:pointer}
+button:hover{opacity:.88}
+button.ghost{background:var(--card);color:var(--acc)}
 button.danger{background:var(--warn);border-color:var(--warn)}
-input,select,textarea{font:inherit;font-size:13px;padding:4px 7px;border:1px solid var(--line);border-radius:5px}
-details{margin-top:6px}pre{background:#f4f4f4;padding:10px;border-radius:6px;overflow:auto;font-size:12px;white-space:pre-wrap}
-.nav a{color:var(--acc);text-decoration:none;font-size:12px;margin-right:10px}
-.new{background:#fff;border:1px dashed var(--line);border-radius:8px;padding:12px 14px;margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+button.sm{padding:2px 10px;font-size:12px}
+input,select,textarea{font:inherit;font-size:13px;padding:5px 9px;border:1px solid var(--line);border-radius:6px;background:#fff}
+input:focus,select:focus{outline:2px solid #b6d9cd;border-color:var(--acc)}
+details{margin-top:8px}
+summary{cursor:pointer;font-size:12.5px;color:var(--dim)}
+pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12px;white-space:pre-wrap}
+.newbox{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-top:10px}
+.newbox .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.newbox label{font-size:12px;color:var(--dim)}
+.hint{font-size:12px;color:var(--dim);margin-top:8px}
+.sep{margin:30px 0 0;border-top:1px solid var(--line);padding-top:4px}
 </style></head><body>
 <header>
+<div class="h1row">
 <h1>㸸绳 · {{.Project}}</h1>
-<span class="tag">身份 {{.Me}}</span>
-<span class="tag">水位 {{.Water}}</span>
-<span class="tag">同步：{{.SyncLine}}</span>
-<nav class="nav"><a href="/">全部</a>{{range .Systems}} <a href="?system={{.}}">{{.}}</a>{{end}}</nav>
+<span class="chip me">以 {{.Me}} 身份操作</span>
+{{if .SyncOK}}<span class="chip ok">✓ 数据最新 {{.SyncTime}}</span>{{else}}<span class="chip bad">⚠ 同步异常：{{.SyncLine}}</span>{{end}}
+<span class="chip">数据水位 {{.Water}}</span>
+{{if gt .QueueCount 0}}<a class="chip alert" href="#queue">⚡ 等你拍板 {{.QueueCount}} 件</a>{{end}}
+</div>
+<nav class="sys"><a href="/"{{if not .CurSystem}} class="on"{{end}}>全部系统</a>{{range .Systems}}<a href="?system={{.}}"{{if eq . $.CurSystem}} class="on"{{end}}>{{.}}</a>{{end}}</nav>
 </header>
 <main>
 
-<h2>拍板队列（待你出手）</h2>
-{{if not .Drafts}}{{if not .C2Pending}}<p class="tag">无待拍板项</p>{{end}}{{end}}
+<h2 id="queue">拍板队列 —— 需要你决定的事</h2>
+{{if not .Drafts}}{{if not .C2Pending}}<div class="qempty">✓ 没有等你拍板的事项，一切顺畅。</div>{{end}}{{end}}
 {{range .Drafts}}<div class="q">
-<b>{{.Topic}}</b><span class="tag">draft · owner {{.Design.Owner}} · systems {{range .Design.Systems}}{{.}} {{end}}</span>
-<form method="post" action="/design/{{.Topic}}/decide"><button>拍板</button></form>
-<form method="post" action="/design/{{.Topic}}/withdraw"><button class="ghost">撤回</button></form>
+<span class="who">方案「{{.Topic}}」</span>
+<span class="sub">草案 · 发起人 {{.Design.Owner}}{{if .Design.Systems}} · 涉及 {{range .Design.Systems}}{{.}} {{end}}{{end}} · 评审完成后待你拍板生效</span>
+<form method="post" action="/design/{{.Topic}}/decide"><button class="sm">拍板生效</button></form>
+<form method="post" action="/design/{{.Topic}}/withdraw"><button class="sm ghost">撤回草案</button></form>
 </div>{{end}}
 {{range .C2Pending}}<div class="q">
-<b><a href="/work/{{.ID}}">{{.ID}}</a></b><span>{{.Title}}</span>
-<span class="tag">breaking 契约待 human 确认</span>
-<form method="post" action="/work/{{.ID}}/ack"><button>确认 (ack)</button></form>
+<span class="who"><a href="/work/{{.ID}}" style="color:inherit">{{.ID}}</a> {{.Title}}</span>
+<span class="sub">包含破坏性变更（接口/契约不兼容），按规则须你人工确认后才能继续</span>
+<form method="post" action="/work/{{.ID}}/ack"><button class="sm">确认通过</button></form>
+<a href="/work/{{.ID}}" style="font-size:12.5px;color:var(--acc)">先看详情</a>
 </div>{{end}}
-{{if .Agreed}}<h2>已定方案（可 supersede）</h2>
-{{range .Agreed}}<div class="q"><b>{{.Topic}}</b><span class="tag">agreed · {{.Design.DecidedBy}}</span>
-<form method="post" action="/design/{{.Topic}}/supersede" style="display:inline-flex;gap:6px">
-<input name="by" placeholder="继任 topic" size="14"><button class="ghost">supersede</button></form>
+{{if .Agreed}}<h2>已生效方案（如需废止，用新方案替代）</h2>
+{{range .Agreed}}<div class="q">
+<span class="who">「{{.Topic}}」</span><span class="sub">已生效 · {{.Design.DecidedBy}} 拍板</span>
+<form method="post" action="/design/{{.Topic}}/supersede" class="row" style="display:inline-flex;gap:6px">
+<input name="by" placeholder="接替的新方案 topic" size="16"><button class="sm ghost">新方案替代</button></form>
 </div>{{end}}{{end}}
 
-<h2>看板{{if .CurSystem}} · {{.CurSystem}}{{end}} <span class="tag">（已关闭 {{.DoneCount}} 张不在列）</span></h2>
+<h2>工作看板 <span style="font-weight:400">· 已完结 {{.DoneCount}} 张不在列</span></h2>
 <div class="board">
-{{range .Cols}}<div class="col"><h3>{{.Name}}</h3>
-{{range .Items}}<a class="card" href="/work/{{.ID}}">
-<div class="id">{{.ID}}</div>
+{{range .Cols}}<div class="col s-{{.Name}}"><h3>{{.Zh}} <span class="en">{{.Name}}</span> <span class="n">{{len .Items}}</span></h3>
+{{range .Items}}<a class="card{{if eq .Priority "P0"}} p0{{else if eq .Priority "P1"}} p1{{end}}" href="/work/{{.ID}}">
 <div class="t">{{.Title}}</div>
-<div class="m"><span class="badge">{{.Type}}</span>{{if .System}}<span class="badge">{{.System}}</span>{{end}}{{if .Assignee}}{{.Assignee}}{{else}}<span class="badge no">待认领</span>{{end}}{{if .Contract}}<span class="badge">{{.Contract.Kind}}/{{.Contract.Status}}</span>{{end}} r{{.Revision}}</div>
+<div class="m">
+<span class="b">{{typeZh .Type}}</span>
+{{if .System}}<span class="b">{{.System}}</span>{{end}}
+{{if eq .Priority "P0"}}<span class="b pr0">P0</span>{{else if eq .Priority "P1"}}<span class="b pr1">P1</span>{{end}}
+{{if .Progress}}<span class="b prog">{{printf "%.0f%%" (.Progress.Value | pct100)}}</span>{{end}}
+{{if isOverdue . $.Now}}<span class="b od">已超期</span>{{end}}
+{{if .Assignee}}<span>{{.Assignee}}</span>{{else}}<span class="b no">待认领</span>{{end}}
+<span class="id">{{.ID}}</span>
+</div>
 </a>{{end}}
-{{if not .Items}}<p class="tag" style="padding:4px">—</p>{{end}}
+{{if not .Items}}<p style="color:var(--dim);font-size:12px;padding:4px 6px">暂无</p>{{end}}
 </div>{{end}}
 </div>
 
-<h2>快速建单（task / bug）</h2>
-<div class="new">
-<form method="post" action="/work/create" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-<select name="kind"><option value="task">task</option><option value="bug">bug</option></select>
-<input name="title" placeholder="标题" size="28" required>
-<select name="system">{{range .Systems}}<option value="{{.}}">{{.}}</option>{{end}}</select>
-<select name="priority"><option value="">优先级—</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
-<input name="description" placeholder="描述/验收标准（可选）" size="40">
-<button>建单</button>
+<h2>快速建单</h2>
+<div class="newbox">
+<form method="post" action="/work/create">
+<div class="row">
+<label>类型</label><select name="kind"><option value="task">任务</option><option value="bug">缺陷</option></select>
+<label>标题</label><input name="title" placeholder="一句话说清要做什么" size="30" required>
+<label>系统</label><select name="system">{{range .Systems}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+<label>优先级</label><select name="priority"><option value="">未定</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
+</div>
+<div class="row" style="margin-top:8px">
+<label>描述</label><input name="description" placeholder="背景 / 验收标准（可选）" size="52">
+<button>创建</button>
+</div>
 </form>
-<span class="tag">feature/requirement 需先起 design（动土先起 design，档案 §24 R5）</span>
+<p class="hint">功能 / 需求类工作请先走方案评审（design 流程），不在快速建单之列。</p>
 </div>
 
-<details><summary class="tag">converge 审计输出</summary><pre>{{.ConvergeOut}}</pre></details>
+<details class="sep"><summary>收敛审计原始输出（converge）</summary><pre>{{.ConvergeOut}}</pre></details>
 </main></body></html>`))
 
-var webDetailTmpl = template.Must(template.New("detail").Parse(`<!doctype html>
+var webDetailTmpl = template.Must(template.New("detail").Funcs(webFuncs).Parse(`<!doctype html>
 <html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{.D.ID}} · 㸸绳</title>
 <style>
-body{margin:0;font:14px/1.6 -apple-system,"PingFang SC",sans-serif;color:#1a1a1a;background:#fafafa}
-header{padding:12px 20px;background:#fff;border-bottom:1px solid #e3e3e3}
-main{padding:16px 20px;max-width:900px;margin:0 auto}
-a{color:#0a6c5a}
-h1{font-size:16px;margin:0 0 4px}
-.tag{font-size:12px;color:#777}
-pre.desc{background:#fff;border:1px solid #e3e3e3;border-radius:8px;padding:12px;white-space:pre-wrap;font-family:inherit}
-section{margin:18px 0}
-form.op{background:#fff;border:1px solid #e3e3e3;border-radius:8px;padding:10px 14px;margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-button{font:inherit;padding:4px 14px;border:1px solid #0a6c5a;background:#0a6c5a;color:#fff;border-radius:5px;cursor:pointer}
-input,select{font:inherit;font-size:13px;padding:4px 7px;border:1px solid #e3e3e3;border-radius:5px}
-.ev{background:#fff;border:1px solid #e3e3e3;border-radius:6px;padding:8px 12px;margin:6px 0;font-size:13px}
+:root{--ink:#1f2328;--dim:#6a737d;--line:#e1e4e8;--bg:#f6f8fa;--card:#fff;--acc:#1a7f64;--warn:#cf222e;--amber:#9a6700;--blue:#0969da;--purple:#8250df}
+*{box-sizing:border-box}body{margin:0;font:14px/1.65 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--bg)}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:10px 24px;font-size:13px}
+a{color:var(--acc);text-decoration:none}
+main{padding:20px 24px 60px;max-width:920px;margin:0 auto}
+h1{font-size:17px;margin:0 0 6px;font-weight:600}
+.meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dim);margin-bottom:14px}
+.st{font-weight:600;padding:1px 10px;border-radius:10px;color:#fff}
+.st.backlog{background:var(--dim)} .st.ready{background:var(--blue)} .st.doing{background:var(--acc)}
+.st.blocked{background:var(--warn)} .st.testing{background:var(--purple)} .st.done{background:#6a737d} .st.cancelled{background:#8b949e}
+.b{display:inline-block;font-size:11px;border-radius:4px;padding:0 6px;background:#f0f2f4;color:var(--dim)}
+.b.od{background:var(--warn);color:#fff}
+.box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:10px 0}
+.box h3{font-size:13px;margin:2px 0 8px;color:var(--dim)}
+.warnbox{background:#fff8f0;border:1px solid #e8b684;border-radius:10px;padding:12px 16px;margin:10px 0}
+.warnbox .why{font-size:12.5px;color:var(--amber);margin-bottom:8px}
+.oprow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.oplbl{font-size:12.5px;color:var(--dim);margin-right:2px}
+button{font:inherit;font-size:13px;padding:5px 16px;border:1px solid var(--acc);background:var(--acc);color:#fff;border-radius:6px;cursor:pointer}
+button:hover{opacity:.88}
+button.ghost{background:var(--card);color:var(--acc)}
+button.danger{background:var(--warn);border-color:var(--warn)}
+input,select{font:inherit;font-size:13px;padding:5px 9px;border:1px solid var(--line);border-radius:6px;background:#fff}
+pre.desc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;white-space:pre-wrap;font-family:inherit;font-size:13.5px;line-height:1.7}
+.ev{border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:8px 0;font-size:13px;background:var(--card)}
+.ev .note{color:var(--dim);font-size:12.5px;margin-top:3px;white-space:pre-wrap}
+.ev .meta{margin:4px 0 0;font-size:11.5px}
+.ok{color:var(--acc);font-weight:600} .fail{color:var(--warn);font-weight:600}
+.bar{height:8px;background:#f0f2f4;border-radius:4px;overflow:hidden;margin:6px 0;max-width:320px}
+.bar>div{height:100%;background:var(--acc)}
 </style></head><body>
-<header><nav><a href="/">← 看板</a></nav></header>
+<header><a href="/">← 返回看板</a></header>
 <main>
 <h1>{{.D.ID}} · {{.D.Title}}</h1>
-<p class="tag">{{.D.Type}} · {{.D.Status}} · r{{.D.Revision}}{{if .D.System}} · system {{.D.System}}{{end}}{{if .D.Assignee}} · assignee {{.D.Assignee}}{{else}} · <span style="color:#a33">待认领</span>{{end}}{{if .D.AccountableHuman}} · accountable {{.D.AccountableHuman}}{{end}}{{if .D.Priority}} · {{.D.Priority}}{{end}}{{if .D.Contract}} · contract {{.D.Contract.Kind}}/{{.D.Contract.Status}}{{if .D.Contract.Breaking}} breaking{{end}}{{end}}{{if .D.DetectedBy}} · detected_by {{.D.DetectedBy}}{{end}}</p>
-{{if .D.Contract}}{{if and .D.Contract.Breaking (not .D.HumanAck)}}
-<form class="op" method="post" action="/work/{{.D.ID}}/ack">
-<span>C2：破坏性变更待 human 确认</span><button>确认 (ack)（以 {{.Me}} 身份）</button>
-</form>{{end}}{{end}}
-<section>
-<form class="op" method="post" action="/work/{{.D.ID}}/status">
-<span>状态 →</span>
-<select name="status">{{range .Statuses}}{{if ne . (printf "%s" $.D.Status)}}<option value="{{.}}">{{.}}</option>{{end}}{{end}}</select>
+<div class="meta">
+<span class="st {{.D.Status}}">{{.StatusZh}}</span>
+<span class="b">{{.TypeZh}}</span>
+{{if .D.System}}<span class="b">系统 {{.D.System}}</span>{{end}}
+{{if .D.Assignee}}<span>负责：{{.D.Assignee}}</span>{{else}}<span class="b" style="color:var(--warn)">待认领</span>{{end}}
+{{if .D.AccountableHuman}}<span>问责人：{{.D.AccountableHuman}}</span>{{end}}
+{{if .D.DetectedBy}}<span>发现者：{{.D.DetectedBy}}</span>{{end}}
+{{if .D.Priority}}<span class="b">优先级 {{.D.Priority}}</span>{{end}}
+{{if .D.DueOn}}<span>截止 {{.D.DueOn}}{{if .Overdue}} <span class="b od">已超期</span>{{end}}</span>{{end}}
+{{if .ContractZh}}<span class="b">{{.ContractZh}}</span>{{end}}
+<span>版本 {{.D.Revision}}</span>
+</div>
+
+{{if and .D.Contract .D.Contract.Breaking (not .D.HumanAck)}}
+<div class="warnbox">
+<div class="why">⚠ 该工单包含破坏性变更（接口/契约不兼容，可能影响其他系统）——按规则需要你（human）确认后才能继续推进。</div>
+<form method="post" action="/work/{{.D.ID}}/ack"><button>确认通过（以 {{.Me}} 身份）</button></form>
+</div>
+{{end}}
+
+<div class="box"><h3>流转状态</h3>
+<div class="oprow">
+{{if .Actions}}<span class="oplbl">下一步：</span>
+{{range .Actions}}<form method="post" action="/work/{{$.D.ID}}/status">
+<input type="hidden" name="status" value="{{.To}}">
+<input type="hidden" name="expect" value="{{$.D.Revision}}">
+<button{{if eq .To "cancelled"}} class="danger"{{end}}>{{.Label}}</button>
+</form>{{end}}
+{{else}}<span class="oplbl">当前状态无可流转目标</span>{{end}}
+</div>
+</div>
+
+<div class="box"><h3>指派</h3>
+<div class="oprow">
+{{if .D.Assignee}}<span class="oplbl">当前：{{.D.Assignee}} →</span>{{else}}<span class="oplbl">无人负责 →</span>{{end}}
+<form method="post" action="/work/{{.D.ID}}/assign" style="display:inline-flex;gap:8px">
+<input name="assignee" list="actors" placeholder="选择或输入 actor" required>
+<datalist id="actors">{{range .Actors}}<option value="{{.ID}}">{{.Type}}</option>{{end}}</datalist>
 <input type="hidden" name="expect" value="{{.D.Revision}}">
-<button>变更</button>
+<button class="ghost">指派</button>
 </form>
-<form class="op" method="post" action="/work/{{.D.ID}}/assign">
-<span>分配 →</span>
-<input name="assignee" placeholder="assignee actor" required>
-<input name="role" placeholder="role（可选）" size="10">
-<input type="hidden" name="expect" value="{{.D.Revision}}">
-<button>分配</button>
-</form>
-</section>
-{{if .D.Description}}<section><h3>描述</h3><pre class="desc">{{.D.Description}}</pre></section>{{end}}
-{{if .D.Deps}}<section><h3>依赖</h3>{{range .D.Deps}}<div class="ev"><a href="/work/{{.ID}}">{{.ID}}</a> · {{.Status}} · {{.Title}}</div>{{end}}</section>{{end}}
-{{if .D.Designs}}<section><h3>关联方案</h3>{{range .D.Designs}}<div class="ev">{{.Topic}} · {{.Status}}{{if .DecidedBy}} · decided by {{.DecidedBy}}{{end}}</div>{{end}}</section>{{end}}
-{{if .D.Evidence}}<section><h3>证据链</h3>{{range .D.Evidence}}<div class="ev"><b>{{.Type}}</b> · {{.Result}} · {{.Locator}}{{if .Note}}<br><span class="tag">{{.Note}}</span>{{end}}<br><span class="tag">{{.Source}} · {{.ObservedAt}}</span></div>{{end}}</section>{{end}}
-{{if .D.Progress}}<section><h3>进度（reported）</h3><div class="ev">{{.D.Progress.Actor}} 报 {{.D.Progress.Value}} · basis {{.D.Progress.Basis}} · {{.D.Progress.ReportedAt}}</div></section>{{end}}
-{{if .D.DependsOn}}<section><h3>depends_on</h3><p class="tag">{{range .D.DependsOn}}{{.}} {{end}}</p></section>{{end}}
+</div>
+</div>
+
+{{if .D.Description}}<div class="box"><h3>描述与验收标准</h3><pre class="desc" style="border:none;padding:0;background:transparent">{{.D.Description}}</pre></div>{{end}}
+{{if .D.Progress}}<div class="box"><h3>进度（{{.D.Progress.Actor}} 汇报 · 依据：{{basisZh .D.Progress.Basis}}）</h3>
+<div class="bar"><div style="width:{{printf "%.0f" (mul100 .D.Progress.Value)}}%"></div></div>
+<span style="font-size:12.5px;color:var(--dim)">{{printf "%.0f" (mul100 .D.Progress.Value)}}% · 汇报于 {{.D.Progress.ReportedAt}}</span>
+</div>{{end}}
+{{if .D.Deps}}<div class="box"><h3>依赖的工单</h3>
+{{range .D.Deps}}<div class="ev"><a href="/work/{{.ID}}">{{.ID}}</a> · {{statusZh .Status}} · {{.Title}}</div>{{end}}
+</div>{{end}}
+{{if .D.Designs}}<div class="box"><h3>关联方案</h3>
+{{range .D.Designs}}<div class="ev">「{{.Topic}}」 · {{if eq .Status "agreed"}}已生效（{{.DecidedBy}} 拍板）{{else if eq .Status "draft"}}草案（评审中）{{else}}{{.Status}}{{end}}</div>{{end}}
+</div>{{end}}
+{{if .D.Evidence}}<div class="box"><h3>证据链（从旧到新）</h3>
+{{range .D.Evidence}}<div class="ev">
+<b>{{evidenceZh .Type}}</b> · {{if eq .Result "passed"}}<span class="ok">✓ 通过</span>{{else if eq .Result "failed"}}<span class="fail">✗ 失败</span>{{else}}{{.Result}}{{end}} · <span style="font-family:ui-monospace,monospace;font-size:12px">{{.Locator}}</span>
+{{if .Note}}<div class="note">{{.Note}}</div>{{end}}
+<div class="meta">{{.Source}} · {{.ObservedAt}}</div>
+</div>{{end}}
+</div>{{end}}
+{{if .D.DependsOn}}<div class="box"><h3>depends_on</h3><p style="font-size:12px;color:var(--dim);margin:0">{{range .D.DependsOn}}<span class="b">{{.}}</span> {{end}}</p></div>{{end}}
 </main></body></html>`))
 
 var webErrorTmpl = template.Must(template.New("error").Parse(`<!doctype html>
-<html lang="zh"><head><meta charset="utf-8"><title>操作被拒</title></head>
-<body style="font:14px/1.6 -apple-system,'PingFang SC',sans-serif;padding:40px">
-<h2 style="color:#a33">{{.Title}}</h2>
-<pre style="background:#f4f4f4;padding:12px;border-radius:8px;white-space:pre-wrap">{{.Msg}}</pre>
-<p><a href="/" style="color:#0a6c5a">← 返回看板</a></p>
+<html lang="zh"><head><meta charset="utf-8"><title>操作未成功</title></head>
+<body style="font:14px/1.65 -apple-system,'PingFang SC',sans-serif;padding:48px;background:#f6f8fa">
+<div style="max-width:640px;margin:0 auto">
+<h2 style="color:#cf222e;font-size:16px">{{.Title}}</h2>
+<pre style="background:#fff;border:1px solid #e1e4e8;padding:14px;border-radius:10px;white-space:pre-wrap;font-size:13px">{{.Msg}}</pre>
+<p style="font-size:13px;color:#6a737d">操作被规则拒绝时这里会如实展示原因（不静默）。通常是版本冲突（别人先改了）——返回看板刷新后重试。</p>
+<p><a href="/" style="color:#1a7f64">← 返回看板</a></p>
+</div>
 </body></html>`))
+
+// webFuncs：模板函数（呈现层中文词汇表，数据层不动）。Parse 前注册。
+var webFuncs = template.FuncMap{
+	"typeZh":     func(t model.WorkItemType) string { return webTypeZh[string(t)] },
+	"statusZh":   func(s string) string { return webStatusZh[s] },
+	"isOverdue":  func(w model.WorkItem, today string) bool { return webOverdue(w, today) },
+	"pct100":     func(v float64) float64 { return v * 100 },
+	"mul100":     func(v float64) float64 { return v * 100 },
+	"evidenceZh": func(t string) string { return webEvidenceZh[t] },
+	"basisZh":    func(b string) string { return webBasisZh[b] },
+}
