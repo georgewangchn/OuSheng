@@ -577,7 +577,9 @@ func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 		}
 		return bd.Done[i].Item.ID < bd.Done[j].Item.ID
 	})
-	webBoardTmpl.Execute(w, bd)
+	if err := webBoardTmpl.Execute(w, bd); err != nil {
+		fmt.Fprintf(os.Stderr, "[web] board render error: %v\n", err)
+	}
 }
 
 type detailData struct {
@@ -629,7 +631,9 @@ func (s *webServer) handleDetail(w http.ResponseWriter, r *http.Request) {
 			dd.ContractZh += " · 破坏性"
 		}
 	}
-	webDetailTmpl.Execute(w, dd)
+	if err := webDetailTmpl.Execute(w, dd); err != nil {
+		fmt.Fprintf(os.Stderr, "[web] detail render error: %v\n", err)
+	}
 }
 
 type webRound struct {
@@ -685,7 +689,9 @@ func (s *webServer) handleDesignView(w http.ResponseWriter, r *http.Request) {
 		}
 		sort.Slice(dd.Rounds, func(i, j int) bool { return dd.Rounds[i].N > dd.Rounds[j].N })
 	}
-	webDesignTmpl.Execute(w, dd)
+	if err := webDesignTmpl.Execute(w, dd); err != nil {
+		fmt.Fprintf(os.Stderr, "[web] design render error: %v\n", err)
+	}
 }
 
 var webRoundRe = regexp.MustCompile(`^round-(\d+)\.md$`)
@@ -980,12 +986,12 @@ pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12
 <div class="q"><span class="who">待认领池</span><span class="sub">另有 {{.Suggest.PoolCount}} 张无主单在待排期/待开工（看板上有红标）</span></div>
 {{end}}
 {{if .Agreed}}<h2>已生效方案（如需废止，用新方案替代）</h2>
-{{range .Agreed}}<div class="q">
+{{range .Agreed}}{{$cur := .Topic}}<div class="q">
 <span class="who"><a href="/design/{{.Topic}}" style="color:inherit">「{{.Topic}}」</a></span><span class="sub">已生效 · {{.Design.DecidedBy}} 拍板</span>
 <a href="/design/{{.Topic}}" style="font-size:12.5px;color:var(--acc)">看方案 →</a>
 {{if gt (len $.AllActive) 1}}
 <form method="post" action="/design/{{.Topic}}/supersede" style="display:inline-flex;gap:6px;align-items:center">
-<select name="by">{{range $.AllActive}}{{if ne .Topic $.Topic}}{{if eq .Design.Status "draft"}}<option value="{{.Topic}}">{{.Topic}}（草案）</option>{{else}}<option value="{{.Topic}}">{{.Topic}}（已生效）</option>{{end}}{{end}}{{end}}</select>
+<select name="by">{{range $.AllActive}}{{if ne .Topic $cur}}{{if eq (printf "%s" .Design.Status) "draft"}}<option value="{{.Topic}}">{{.Topic}}（草案）</option>{{else}}<option value="{{.Topic}}">{{.Topic}}（已生效）</option>{{end}}{{end}}{{end}}</select>
 <button class="sm ghost">废止并由它接替</button></form>
 {{else}}<span class="sub">（暂无其他方案可接替——需先有新方案）</span>{{end}}
 </div>{{end}}{{end}}
