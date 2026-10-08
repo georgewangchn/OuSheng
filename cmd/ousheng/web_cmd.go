@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -117,6 +118,7 @@ func newWebMux(dir string) *http.ServeMux {
 	mux.HandleFunc("POST /work/{id}/assign", s.guard(s.handleAssign))
 	mux.HandleFunc("POST /work/{id}/ack", s.guard(s.handleAck))
 	mux.HandleFunc("POST /work/create", s.guard(s.handleCreate))
+	mux.HandleFunc("GET /design/{topic}", s.handleDesignView)
 	mux.HandleFunc("POST /design/{topic}/decide", s.guard(s.handleDecide))
 	mux.HandleFunc("POST /design/{topic}/supersede", s.guard(s.handleSupersede))
 	mux.HandleFunc("POST /design/{topic}/withdraw", s.guard(s.handleWithdraw))
@@ -241,6 +243,13 @@ var webBasisZh = map[string]string{
 	"milestone":               "里程碑",
 }
 
+var webDesignStatusZh = map[string]string{
+	"draft":      "草案",
+	"agreed":     "已生效",
+	"superseded": "已废止",
+	"withdrawn":  "已撤回",
+}
+
 var webContractZh = map[string]string{
 	"http": "接口", "cli": "CLI", "lib": "库", "event": "事件",
 }
@@ -296,6 +305,63 @@ type webSuggest struct {
 
 func (sg webSuggest) Count() int {
 	return len(sg.Drafts) + len(sg.C2) + len(sg.Blocked) + len(sg.Unowned) + len(sg.Overdue) + len(sg.DepCut)
+}
+
+type webDoneCard struct {
+	Item  model.WorkItem
+	DoneOn string // 审计流推导，无记录为空
+}
+
+// webDoneSinceMap：一次扫审计流，取每单最新 done/cancelled 时戳（历史归档展示）。
+func webDoneSinceMap(dir string) map[string]time.Time {
+	out := map[string]time.Time{}
+	root := filepath.Join(dir, ".ousheng", "activity")
+	months, err := os.ReadDir(root)
+	if err != nil {
+		return out
+	}
+	scan := func(line string) {
+		var a struct {
+			TS       string `json:"ts"`
+			Action   string `json:"action"`
+			WorkItem string `json:"work_item"`
+			Detail   string `json:"detail"`
+		}
+		if json.Unmarshal([]byte(line), &a) != nil || a.Action != "status_changed" {
+			return
+		}
+		if !strings.HasSuffix(a.Detail, "done") && !strings.HasSuffix(a.Detail, "cancelled") {
+			return
+		}
+		t, err := time.Parse(time.RFC3339, a.TS)
+		if err != nil {
+			return
+		}
+		if prev, ok := out[a.WorkItem]; !ok || t.After(prev) {
+			out[a.WorkItem] = t
+		}
+	}
+	for _, m := range months {
+		files, err := os.ReadDir(filepath.Join(root, m.Name()))
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			if !strings.HasSuffix(f.Name(), ".jsonl") {
+				continue
+			}
+			raw, err := os.ReadFile(filepath.Join(root, m.Name(), f.Name()))
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(raw), "\n") {
+				if strings.Contains(line, "status_changed") {
+					scan(line)
+				}
+			}
+		}
+	}
+	return out
 }
 
 type webBlockedCard struct {
@@ -378,7 +444,9 @@ type boardData struct {
 	C2Pending   []model.WorkItem
 	ConvergeOut string
 	Cols        []webCol
+	Done        []webDoneCard
 	DoneCount   int
+	AllActive   []model.DesignInfo // 草案+已生效（supersede 候选）
 	Now         string
 	Suggest     webSuggest
 }
@@ -447,6 +515,8 @@ func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 	}
 	bd.Suggest.Drafts = bd.Drafts
 	bd.Suggest.C2 = bd.C2Pending
+	bd.AllActive = append(bd.AllActive, bd.Drafts...)
+	bd.AllActive = append(bd.AllActive, bd.Agreed...)
 	// 建议面板推导（规则性：协议已知事实，无语义判断）
 	statusOf := map[string]model.WorkStatus{}
 	for _, it := range items {
@@ -481,6 +551,32 @@ func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 	for _, st := range []string{"backlog", "ready", "doing", "blocked", "testing"} {
 		bd.Cols = append(bd.Cols, webCol{Name: st, Zh: webStatusZh[st], Items: byStatus[st]})
 	}
+	// 历史归档：完结日期审计流推导，近者在前
+	doneAt := webDoneSinceMap(s.dir)
+	var zero time.Time
+	for _, it := range items {
+		if model.WorkItemOpen(it.Status) {
+			continue
+		}
+		dc := webDoneCard{Item: it}
+		if t, ok := doneAt[it.ID]; ok {
+			dc.DoneOn = t.Format("2006-01-02")
+		}
+		bd.Done = append(bd.Done, dc)
+	}
+	sort.Slice(bd.Done, func(i, j int) bool {
+		ti, tj := zero, zero
+		if bd.Done[i].DoneOn != "" {
+			ti, _ = time.Parse("2006-01-02", bd.Done[i].DoneOn)
+		}
+		if bd.Done[j].DoneOn != "" {
+			tj, _ = time.Parse("2006-01-02", bd.Done[j].DoneOn)
+		}
+		if !ti.Equal(tj) {
+			return ti.After(tj)
+		}
+		return bd.Done[i].Item.ID < bd.Done[j].Item.ID
+	})
 	webBoardTmpl.Execute(w, bd)
 }
 
@@ -535,6 +631,64 @@ func (s *webServer) handleDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	webDetailTmpl.Execute(w, dd)
 }
+
+type webRound struct {
+	N    int
+	Body string
+}
+
+type designDetailData struct {
+	Topic     string
+	StatusZh  string
+	D         model.DesignDoc
+	Body      string
+	Rounds    []webRound
+	DecidedOn string
+}
+
+// handleDesignView：方案详情（正文 + 讨论轮次全览——PM 反馈「有方案但查看不了」）。
+func (s *webServer) handleDesignView(w http.ResponseWriter, r *http.Request) {
+	topic := r.PathValue("topic")
+	if topic == "" || topic == "." || topic == ".." || strings.ContainsAny(topic, "/\\") {
+		s.fail(w, http.StatusBadRequest, "非法 topic", "topic 只能是设计目录名（防路径穿越）")
+		return
+	}
+	repo := gityaml.Open(s.dir)
+	d, body, err := repo.GetDesignRaw(topic)
+	if err != nil {
+		s.fail(w, http.StatusNotFound, "方案不存在", err.Error())
+		return
+	}
+	dd := designDetailData{
+		Topic:    topic,
+		StatusZh: webDesignStatusZh[string(d.Status)],
+		D:        d,
+		Body:     string(body),
+	}
+	if t, err := time.Parse(time.RFC3339, d.DecidedAt); err == nil {
+		dd.DecidedOn = t.Format("2006-01-02 15:04")
+	}
+	// 讨论轮次（round-N.md，新者在前）
+	entries, err := os.ReadDir(filepath.Join(s.dir, ".ousheng", "designs", topic))
+	if err == nil {
+		for _, e := range entries {
+			m := webRoundRe.FindStringSubmatch(e.Name())
+			if m == nil {
+				continue
+			}
+			raw, err := os.ReadFile(filepath.Join(s.dir, ".ousheng", "designs", topic, e.Name()))
+			if err != nil {
+				continue
+			}
+			n, _ := strconv.Atoi(m[1])
+			dd.Rounds = append(dd.Rounds, webRound{N: n, Body: string(raw)})
+		}
+		sort.Slice(dd.Rounds, func(i, j int) bool { return dd.Rounds[i].N > dd.Rounds[j].N })
+	}
+	webDesignTmpl.Execute(w, dd)
+}
+
+var webRoundRe = regexp.MustCompile(`^round-(\d+)\.md$`)
 
 // ---------------------------------------------------------------------------
 // 写路径（全部经 run() 派发器——门在 cmd 函数体内，§24 ①）
@@ -778,8 +932,9 @@ pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12
 <div class="q grp"><span class="glvl">🔴 等你拍板</span></div>
 {{end}}
 {{range .Suggest.Drafts}}<div class="q">
-<span class="who">方案「{{.Topic}}」</span>
+<span class="who"><a href="/design/{{.Topic}}" style="color:inherit">方案「{{.Topic}}」</a></span>
 <span class="sub">草案 · 发起人 {{.Design.Owner}}{{if .Design.Systems}} · 涉及 {{range .Design.Systems}}{{.}} {{end}}{{end}} · 评审完成后待你拍板生效</span>
+<a href="/design/{{.Topic}}" style="font-size:12.5px;color:var(--acc)">看方案 →</a>
 <form method="post" action="/design/{{.Topic}}/decide"><button class="sm">拍板生效</button></form>
 <form method="post" action="/design/{{.Topic}}/withdraw"><button class="sm ghost">撤回草案</button></form>
 </div>{{end}}
@@ -826,9 +981,13 @@ pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12
 {{end}}
 {{if .Agreed}}<h2>已生效方案（如需废止，用新方案替代）</h2>
 {{range .Agreed}}<div class="q">
-<span class="who">「{{.Topic}}」</span><span class="sub">已生效 · {{.Design.DecidedBy}} 拍板</span>
-<form method="post" action="/design/{{.Topic}}/supersede" class="row" style="display:inline-flex;gap:6px">
-<input name="by" placeholder="接替的新方案 topic" size="16"><button class="sm ghost">新方案替代</button></form>
+<span class="who"><a href="/design/{{.Topic}}" style="color:inherit">「{{.Topic}}」</a></span><span class="sub">已生效 · {{.Design.DecidedBy}} 拍板</span>
+<a href="/design/{{.Topic}}" style="font-size:12.5px;color:var(--acc)">看方案 →</a>
+{{if gt (len $.AllActive) 1}}
+<form method="post" action="/design/{{.Topic}}/supersede" style="display:inline-flex;gap:6px;align-items:center">
+<select name="by">{{range $.AllActive}}{{if ne .Topic $.Topic}}{{if eq .Design.Status "draft"}}<option value="{{.Topic}}">{{.Topic}}（草案）</option>{{else}}<option value="{{.Topic}}">{{.Topic}}（已生效）</option>{{end}}{{end}}{{end}}</select>
+<button class="sm ghost">废止并由它接替</button></form>
+{{else}}<span class="sub">（暂无其他方案可接替——需先有新方案）</span>{{end}}
 </div>{{end}}{{end}}
 
 <h2>工作看板 <span style="font-weight:400">· 已完结 {{.DoneCount}} 张不在列</span></h2>
@@ -866,6 +1025,17 @@ pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12
 </form>
 <p class="hint">功能 / 需求类工作请先走方案评审（design 流程），不在快速建单之列。</p>
 </div>
+
+<details class="sep"><summary>历史归档 · 已完成/已作废 {{.DoneCount}} 张（点开浏览）</summary>
+<div style="margin-top:8px">
+{{range .Done}}<div class="q" style="padding:7px 14px">
+<span class="id" style="font-family:ui-monospace,monospace;font-size:12px;color:var(--acc)"><a href="/work/{{.Item.ID}}">{{.Item.ID}}</a></span>
+<a href="/work/{{.Item.ID}}" style="color:inherit;font-size:13px">{{.Item.Title}}</a>
+<span class="sub">{{typeZh .Item.Type}} · {{.Item.System}}{{if .DoneOn}} · 完结于 {{.DoneOn}}{{else}} · 完结时间无记录{{end}}{{if eq (printf "%s" .Item.Status) "cancelled"}} · <span style="color:var(--warn)">作废</span>{{end}}</span>
+</div>{{end}}
+{{if not .Done}}<p style="color:var(--dim);font-size:13px">暂无已完结工单。</p>{{end}}
+</div>
+</details>
 
 <details class="sep"><summary>收敛审计原始输出（converge）</summary><pre>{{.ConvergeOut}}</pre></details>
 </main></body></html>`))
@@ -972,6 +1142,44 @@ pre.desc{background:var(--card);border:1px solid var(--line);border-radius:10px;
 </div>{{end}}
 </div>{{end}}
 {{if .D.DependsOn}}<div class="box"><h3>depends_on</h3><p style="font-size:12px;color:var(--dim);margin:0">{{range .D.DependsOn}}<span class="b">{{.}}</span> {{end}}</p></div>{{end}}
+</main></body></html>`))
+
+var webDesignTmpl = template.Must(template.New("design").Funcs(webFuncs).Parse(`<!doctype html>
+<html lang="zh"><head><meta charset="utf-8">
+<title>方案 {{.Topic}} · 㸸绳</title>
+<style>
+:root{--ink:#1f2328;--dim:#6a737d;--line:#e1e4e8;--bg:#f6f8fa;--card:#fff;--acc:#1a7f64;--warn:#cf222e}
+*{box-sizing:border-box}body{margin:0;font:14px/1.65 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--bg)}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:10px 24px;font-size:13px}
+a{color:var(--acc);text-decoration:none}
+main{padding:20px 24px 60px;max-width:920px;margin:0 auto}
+h1{font-size:17px;margin:0 0 6px}
+.meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--dim);margin-bottom:14px}
+.st{font-weight:600;padding:1px 10px;border-radius:10px;color:#fff}
+.st.draft{background:#0969da} .st.agreed{background:var(--acc)} .st.superseded{background:#8b949e} .st.withdrawn{background:#8b949e}
+.b{display:inline-block;font-size:11px;border-radius:4px;padding:0 6px;background:#f0f2f4;color:var(--dim)}
+.box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:10px 0}
+.box h3{font-size:13px;margin:2px 0 8px;color:var(--dim)}
+pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;white-space:pre-wrap;font-size:13.5px;line-height:1.7;overflow:auto}
+details{margin:8px 0}
+summary{cursor:pointer;font-size:13px;color:var(--acc)}
+</style></head><body>
+<header><a href="/">← 返回看板</a></header>
+<main>
+<h1>方案「{{.Topic}}」</h1>
+<div class="meta">
+<span class="st {{.D.Status}}">{{.StatusZh}}</span>
+<span>发起人 {{.D.Owner}}</span>
+{{if .D.Systems}}<span>涉及 {{range .D.Systems}}<span class="b">{{.}}</span> {{end}}{{end}}
+{{if .D.RelatedItems}}<span>关联工单 {{range .D.RelatedItems}}<span class="b">{{.}}</span> {{end}}{{end}}
+{{if .D.DecidedBy}}<span>{{.D.DecidedBy}} 拍板{{if .DecidedOn}}于 {{.DecidedOn}}{{end}}</span>{{end}}
+{{if .D.SupersededBy}}<span>已由「{{.D.SupersededBy}}」接替</span>{{end}}
+</div>
+{{if .Body}}<div class="box"><h3>方案正文</h3><pre style="border:none;padding:0;background:transparent">{{.Body}}</pre></div>{{end}}
+{{if .Rounds}}<div class="box"><h3>讨论轮次（新者在前）</h3>
+{{range .Rounds}}<details><summary>第 {{.N}} 轮</summary><pre>{{.Body}}</pre></details>{{end}}
+</div>{{end}}
+{{if not .Body}}{{if not .Rounds}}<div class="box"><p style="color:var(--dim);margin:4px">（方案尚未写正文，也没有讨论轮次——内容生成不经绳，由人和 agent 直接写文件。）</p></div>{{end}}{{end}}
 </main></body></html>`))
 
 var webErrorTmpl = template.Must(template.New("error").Parse(`<!doctype html>

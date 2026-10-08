@@ -380,3 +380,43 @@ func TestWebNoStoreHeader(t *testing.T) {
 		t.Fatalf("board must be no-store, got %q", cc)
 	}
 }
+
+// TestWebDesignView：方案详情页（PM 反馈「有方案但查看不了」）——正文/轮次/状态中文。
+func TestWebDesignView(t *testing.T) {
+	dir := t.TempDir()
+	webSetup(t, dir)
+	writeDesignFile(t, dir, "csv-plan", "status: draft\nowner: dev-agent\n", "# 方案\n导出到 CSV 的分阶段路径。\n")
+	os.MkdirAll(filepath.Join(dir, ".ousheng", "designs", "csv-plan"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".ousheng", "designs", "csv-plan", "round-1.md"), []byte("## dev-agent — 2026-10-08\n第一轮意见。"), 0o644)
+	page := webGet(t, dir, "/design/csv-plan")
+	for _, want := range []string{"csv-plan", "草案", "dev-agent", "导出到 CSV", "第 1 轮", "第一轮意见"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("design view missing %q", want)
+		}
+	}
+	// 路径穿越必拒（mux/client 会规范化路径，直测 handler 门）
+	for _, evil := range []string{"..", "../me", "a/b", "."} {
+		req := httptest.NewRequest("GET", "/design/x", nil)
+		req.SetPathValue("topic", evil)
+		rec := httptest.NewRecorder()
+		(&webServer{dir: dir, me: "george"}).handleDesignView(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("topic %q must be 400, got %d", evil, rec.Code)
+		}
+	}
+}
+
+// TestWebArchiveRenders：历史归档——完结单可见 + 完结日期审计流推导。
+func TestWebArchiveRenders(t *testing.T) {
+	dir := t.TempDir()
+	webSetup(t, dir)
+	mustRun(t, dir, "work", "update", "T-001", "--status", "ready", "--expect", "1", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "doing", "--expect", "2", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "done", "--expect", "3", "--actor", "george")
+	page := webGet(t, dir, "/")
+	for _, want := range []string{"历史归档", "T-001", "完结于"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("archive section missing %q", want)
+		}
+	}
+}
