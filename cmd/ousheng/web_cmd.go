@@ -16,6 +16,7 @@ package main
 // 无智能无自动化无建议，读走 memory per-request，前台命令非常驻。
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -272,6 +273,88 @@ type webCardBadge struct {
 	Class string
 }
 
+// webSuggest：「你的下一步」面板（档案 §24 追记：规则性关注聚合 = 传感器带宽，
+// 非语义性建议——固定协议严重度排序，每行 = 事实 + 可用杠杆，无重要性话术）。
+type webSuggest struct {
+	Drafts    []model.DesignInfo // 等拍板：草案
+	C2        []model.WorkItem   // 等拍板：破坏性变更未确认
+	Blocked   []webBlockedCard   // 卡住了：时长 + 最新动态摘要
+	Unowned   []model.WorkItem   // active 无主（converge BLOCKER 同源）
+	PoolCount int                // ready/backlog 无主（待认领池）
+	Overdue   []model.WorkItem   // 已超期
+	DepCut    []model.WorkItem   // 依赖被作废
+}
+
+func (sg webSuggest) Count() int {
+	return len(sg.Drafts) + len(sg.C2) + len(sg.Blocked) + len(sg.Unowned) + len(sg.Overdue) + len(sg.DepCut)
+}
+
+type webBlockedCard struct {
+	Item model.WorkItem
+	Days int // -1 = 审计流无记录（手改/迁移态）
+	Note string
+}
+
+// webBlockedSince：从 activity 审计流推导卡住起点（最新 status_changed→blocked
+// 时戳）。审计是事实源之一（非唯一），无记录返回 -1 天——诚实显示，不编造。
+func webBlockedSince(dir, id string) (time.Time, bool) {
+	root := filepath.Join(dir, ".ousheng", "activity")
+	months, err := os.ReadDir(root)
+	if err != nil {
+		return time.Time{}, false
+	}
+	var latest time.Time
+	for _, m := range months {
+		files, err := os.ReadDir(filepath.Join(root, m.Name()))
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			if !strings.HasSuffix(f.Name(), ".jsonl") {
+				continue
+			}
+			raw, err := os.ReadFile(filepath.Join(root, m.Name(), f.Name()))
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(raw), "\n") {
+				if !strings.Contains(line, "\""+id+"\"") {
+					continue
+				}
+				var a struct {
+					TS       string `json:"ts"`
+					Action   string `json:"action"`
+					WorkItem string `json:"work_item"`
+					Detail   string `json:"detail"`
+				}
+				if json.Unmarshal([]byte(line), &a) != nil {
+					continue
+				}
+				if a.WorkItem == id && a.Action == "status_changed" && strings.HasSuffix(a.Detail, "blocked") {
+					if t, err := time.Parse(time.RFC3339, a.TS); err == nil && t.After(latest) {
+						latest = t
+					}
+				}
+			}
+		}
+	}
+	return latest, !latest.IsZero()
+}
+
+// webExcerpt：最新动态摘要（最新证据 note 前 80 字），无则空。
+func webExcerpt(w model.WorkItem) string {
+	for i := len(w.Evidence) - 1; i >= 0; i-- {
+		if n := strings.TrimSpace(w.Evidence[i].Note); n != "" {
+			r := []rune(n)
+			if len(r) > 80 {
+				return string(r[:80]) + "…"
+			}
+			return n
+		}
+	}
+	return ""
+}
+
 type boardData struct {
 	Project     string
 	Me          string
@@ -287,8 +370,8 @@ type boardData struct {
 	ConvergeOut string
 	Cols        []webCol
 	DoneCount   int
-	QueueCount  int
 	Now         string
+	Suggest     webSuggest
 }
 
 func webOverdue(w model.WorkItem, today string) bool {
@@ -353,7 +436,39 @@ func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 			bd.C2Pending = append(bd.C2Pending, w)
 		}
 	}
-	bd.QueueCount = len(bd.Drafts) + len(bd.C2Pending)
+	bd.Suggest.Drafts = bd.Drafts
+	bd.Suggest.C2 = bd.C2Pending
+	// 建议面板推导（规则性：协议已知事实，无语义判断）
+	statusOf := map[string]model.WorkStatus{}
+	for _, it := range items {
+		statusOf[it.ID] = it.Status
+	}
+	for _, it := range items {
+		if !model.WorkItemOpen(it.Status) {
+			continue
+		}
+		switch {
+		case it.Status == model.StatusBlocked:
+			days := -1
+			if t, ok := webBlockedSince(s.dir, it.ID); ok {
+				days = int(time.Since(t).Hours() / 24)
+			}
+			bd.Suggest.Blocked = append(bd.Suggest.Blocked, webBlockedCard{Item: it, Days: days, Note: webExcerpt(it)})
+		case it.Assignee == "" && (it.Status == model.StatusDoing || it.Status == model.StatusTesting || it.Status == model.StatusBlocked):
+			bd.Suggest.Unowned = append(bd.Suggest.Unowned, it)
+		case it.Assignee == "" && (it.Status == model.StatusBacklog || it.Status == model.StatusReady):
+			bd.Suggest.PoolCount++
+		}
+		if webOverdue(it, bd.Now) {
+			bd.Suggest.Overdue = append(bd.Suggest.Overdue, it)
+		}
+		for _, dep := range it.DependsOn {
+			if st, ok := statusOf[dep]; ok && st == model.StatusCancelled {
+				bd.Suggest.DepCut = append(bd.Suggest.DepCut, it)
+				break
+			}
+		}
+	}
 	for _, st := range []string{"backlog", "ready", "doing", "blocked", "testing"} {
 		bd.Cols = append(bd.Cols, webCol{Name: st, Zh: webStatusZh[st], Items: byStatus[st]})
 	}
@@ -598,6 +713,8 @@ h2{font-size:13px;color:var(--dim);margin:26px 0 10px;letter-spacing:.02em}
 .q .who{font-weight:600}
 .q .sub{font-size:12px;color:var(--dim)}
 .qempty{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;color:var(--acc);font-size:13px}
+.q.grp{background:transparent;border:none;padding:2px 2px;margin:10px 0 4px}
+.glvl{font-size:12.5px;font-weight:600;color:var(--dim);letter-spacing:.02em}
 .board{display:grid;grid-template-columns:repeat(5,minmax(200px,1fr));gap:12px;overflow-x:auto}
 .col{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px}
 .col h3{font-size:13px;margin:4px 6px 10px;display:flex;align-items:center;gap:6px;font-weight:600}
@@ -640,26 +757,64 @@ pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12
 <span class="chip me">以 {{.Me}} 身份操作</span>
 {{if .SyncOK}}<span class="chip ok">✓ 数据最新 {{.SyncTime}}</span>{{else}}<span class="chip bad">⚠ 同步异常：{{.SyncLine}}</span>{{end}}
 <span class="chip">数据水位 {{.Water}}</span>
-{{if gt .QueueCount 0}}<a class="chip alert" href="#queue">⚡ 等你拍板 {{.QueueCount}} 件</a>{{end}}
+{{if gt .Suggest.Count 0}}<a class="chip alert" href="#queue">⚡ 需要你 {{.Suggest.Count}} 件</a>{{end}}
 </div>
 <nav class="sys"><a href="/"{{if not .CurSystem}} class="on"{{end}}>全部系统</a>{{range .Systems}}<a href="?system={{.}}"{{if eq . $.CurSystem}} class="on"{{end}}>{{.}}</a>{{end}}</nav>
 </header>
 <main>
 
-<h2 id="queue">拍板队列 —— 需要你决定的事</h2>
-{{if not .Drafts}}{{if not .C2Pending}}<div class="qempty">✓ 没有等你拍板的事项，一切顺畅。</div>{{end}}{{end}}
-{{range .Drafts}}<div class="q">
+<h2 id="queue">你的下一步 · 需要你的地方</h2>
+{{if eq .Suggest.Count 0}}<div class="qempty">✓ 没有需要你出手的事项，一切顺畅。</div>{{end}}
+{{if or .Suggest.Drafts .Suggest.C2}}
+<div class="q grp"><span class="glvl">🔴 等你拍板</span></div>
+{{end}}
+{{range .Suggest.Drafts}}<div class="q">
 <span class="who">方案「{{.Topic}}」</span>
 <span class="sub">草案 · 发起人 {{.Design.Owner}}{{if .Design.Systems}} · 涉及 {{range .Design.Systems}}{{.}} {{end}}{{end}} · 评审完成后待你拍板生效</span>
 <form method="post" action="/design/{{.Topic}}/decide"><button class="sm">拍板生效</button></form>
 <form method="post" action="/design/{{.Topic}}/withdraw"><button class="sm ghost">撤回草案</button></form>
 </div>{{end}}
-{{range .C2Pending}}<div class="q">
+{{range .Suggest.C2}}<div class="q">
 <span class="who"><a href="/work/{{.ID}}" style="color:inherit">{{.ID}}</a> {{.Title}}</span>
 <span class="sub">包含破坏性变更（接口/契约不兼容），按规则须你人工确认后才能继续</span>
 <form method="post" action="/work/{{.ID}}/ack"><button class="sm">确认通过</button></form>
 <a href="/work/{{.ID}}" style="font-size:12.5px;color:var(--acc)">先看详情</a>
 </div>{{end}}
+{{if .Suggest.Blocked}}
+<div class="q grp"><span class="glvl">🟠 卡住了的活</span></div>
+{{end}}
+{{range .Suggest.Blocked}}<div class="q">
+<span class="who"><a href="/work/{{.Item.ID}}" style="color:inherit">{{.Item.ID}}</a> {{.Item.Title}}</span>
+<span class="sub">{{if ge .Days 1}}已卡 {{.Days}} 天{{else if eq .Days 0}}今天刚卡住{{else}}已卡住（时间未知）{{end}}{{if .Note}} · 最新：{{.Note}}{{end}}</span>
+<a href="/work/{{.Item.ID}}" style="font-size:12.5px;color:var(--acc)">看详情 →</a>
+</div>{{end}}
+{{if .Suggest.Unowned}}
+<div class="q grp"><span class="glvl">🔴 进行中却没人负责</span></div>
+{{end}}
+{{range .Suggest.Unowned}}<div class="q">
+<span class="who"><a href="/work/{{.ID}}" style="color:inherit">{{.ID}}</a> {{.Title}}</span>
+<span class="sub">{{statusZh (printf "%s" .Status)}} · 无负责人——没人盯就会烂掉</span>
+<a href="/work/{{.ID}}" style="font-size:12.5px;color:var(--acc)">去指派 →</a>
+</div>{{end}}
+{{if .Suggest.Overdue}}
+<div class="q grp"><span class="glvl">🟡 已超期</span></div>
+{{end}}
+{{range .Suggest.Overdue}}<div class="q">
+<span class="who"><a href="/work/{{.ID}}" style="color:inherit">{{.ID}}</a> {{.Title}}</span>
+<span class="sub">承诺截止 {{.DueOn}}，已过线{{if .Assignee}} · 负责 {{.Assignee}}{{end}}</span>
+<a href="/work/{{.ID}}" style="font-size:12.5px;color:var(--acc)">看详情 →</a>
+</div>{{end}}
+{{if .Suggest.DepCut}}
+<div class="q grp"><span class="glvl">🟡 依赖被砍</span></div>
+{{end}}
+{{range .Suggest.DepCut}}<div class="q">
+<span class="who"><a href="/work/{{.ID}}" style="color:inherit">{{.ID}}</a> {{.Title}}</span>
+<span class="sub">它依赖的工单已被作废——需要重排或重新挂依赖</span>
+<a href="/work/{{.ID}}" style="font-size:12.5px;color:var(--acc)">看详情 →</a>
+</div>{{end}}
+{{if gt .Suggest.PoolCount 0}}
+<div class="q"><span class="who">待认领池</span><span class="sub">另有 {{.Suggest.PoolCount}} 张无主单在待排期/待开工（看板上有红标）</span></div>
+{{end}}
 {{if .Agreed}}<h2>已生效方案（如需废止，用新方案替代）</h2>
 {{range .Agreed}}<div class="q">
 <span class="who">「{{.Topic}}」</span><span class="sub">已生效 · {{.Design.DecidedBy}} 拍板</span>
