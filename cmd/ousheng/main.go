@@ -161,6 +161,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdActivity(args[1:], stdout, stderr)
 	case "view":
 		return cmdView(args[1:], stdout, stderr)
+	case "web":
+		return cmdWeb(args[1:], stdout, stderr)
 	case "index":
 		return cmdIndex(args[1:], stdout, stderr)
 	case "migrate":
