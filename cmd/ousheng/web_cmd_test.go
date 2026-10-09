@@ -436,3 +436,32 @@ func TestWebAgreedSupersedeRenders(t *testing.T) {
 		}
 	}
 }
+
+// TestWebDetailEvidenceRenders：带证据/进度/破坏性契约的详情页分支（真实事故：
+// evidenceZh/basisZh 收 string 实传命名类型，模板执行中断；测试工单无证据
+// 分支漏盖——本测试锁死该类）。
+func TestWebDetailEvidenceRenders(t *testing.T) {
+	dir := t.TempDir()
+	webSetup(t, dir)
+	// 证据 + 进度（T-001，无 breaking——C2 深门下 breaking 未 ack 单不可再写入）
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--source", "manual", "--locator", "check-001", "--result", "passed", "--note", "修复已合入", "--actor", "george")
+	mustRun(t, dir, "progress", "report", "T-001", "--value", "0.7", "--actor", "george", "--basis", "test-cases")
+	page := webGet(t, dir, "/work/T-001")
+	for _, want := range []string{
+		"证据链", "人工检查", "✓ 通过", "check-001", "修复已合入",
+		"进度", "70%", "测试用例",
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("detail evidence/progress branch missing %q", want)
+		}
+	}
+	// 破坏性契约 banner 分支（T-002 手改注入 breaking，独立单避免 C2 深门挡写入）
+	mustRun(t, dir, "work", "create", "--id", "T-002", "--title", "破坏单", "--type", "task", "--system", "datax-server", "--assignee", "dev-agent", "--actor", "george")
+	injectBreaking(t, dir, "T-002")
+	page2 := webGet(t, dir, "/work/T-002")
+	for _, want := range []string{"破坏性变更", "确认通过"} {
+		if !strings.Contains(page2, want) {
+			t.Fatalf("detail C2 banner branch missing %q", want)
+		}
+	}
+}
