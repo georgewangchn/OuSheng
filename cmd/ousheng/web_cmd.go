@@ -1206,6 +1206,6 @@ var webFuncs = template.FuncMap{
 	"isOverdue":  func(w model.WorkItem, today string) bool { return webOverdue(w, today) },
 	"pct100":     func(v float64) float64 { return v * 100 },
 	"mul100":     func(v float64) float64 { return v * 100 },
-	"evidenceZh": func(t string) string { return webEvidenceZh[t] },
-	"basisZh":    func(b string) string { return webBasisZh[b] },
+	"evidenceZh": func(t model.EvidenceType) string { return webEvidenceZh[string(t)] },
+	"basisZh":    func(b model.ProgressBasis) string { return webBasisZh[string(b)] },
 }
