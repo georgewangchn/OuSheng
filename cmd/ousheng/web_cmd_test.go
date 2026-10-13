@@ -465,3 +465,39 @@ func TestWebDetailEvidenceRenders(t *testing.T) {
 		}
 	}
 }
+
+// TestWebSuggestStaleProg：已完结但进度未满 100%（A1——BUG-032 同型）。
+func TestWebSuggestStaleProg(t *testing.T) {
+	dir := t.TempDir()
+	webSetup(t, dir)
+	mustRun(t, dir, "work", "update", "T-001", "--status", "ready", "--expect", "1", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "doing", "--expect", "2", "--actor", "george")
+	mustRun(t, dir, "progress", "report", "T-001", "--value", "0.9", "--actor", "george", "--basis", "test-cases")
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--source", "manual", "--locator", "done-001", "--result", "passed", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "done", "--expect", "5", "--actor", "george")
+	page := webGet(t, dir, "/")
+	for _, want := range []string{"完结单进度未满", "T-001", "90%"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("stale progress signal missing %q", want)
+		}
+	}
+}
+
+// TestWebSuggestDormantDesign：已生效方案 related_items 全完结 → dormant（A2）。
+func TestWebSuggestDormantDesign(t *testing.T) {
+	dir := t.TempDir()
+	webSetup(t, dir)
+	// 方案挂 T-001，T-001 走完 done
+	writeDesignFile(t, dir, "plan-x", "status: draft\nowner: dev-agent\nrelated_items:\n  - T-001\n", "# 方案\n")
+	mustRun(t, dir, "design", "decide", "plan-x", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "ready", "--expect", "1", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "doing", "--expect", "2", "--actor", "george")
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--source", "manual", "--locator", "done-001", "--result", "passed", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "done", "--expect", "4", "--actor", "george")
+	page := webGet(t, dir, "/")
+	for _, want := range []string{"已生效方案无新动态", "plan-x", "执行单全已完结"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("dormant design signal missing %q", want)
+		}
+	}
+}
