@@ -301,10 +301,17 @@ type webSuggest struct {
 	PoolCount int                // ready/backlog 无主（待认领池）
 	Overdue   []model.WorkItem   // 已超期
 	DepCut    []model.WorkItem   // 依赖被作废
+	StaleProg []model.WorkItem   // 已完结但进度未满 100%（progress 陈旧报告）
+	Dormant   []webDormantDesign // 已生效方案无新动态（related_items 全完结 + 无 active 单回挂）
+}
+
+type webDormantDesign struct {
+	Topic  string
+	Reason string // "执行单全已完结" 或 "无执行单回挂"
 }
 
 func (sg webSuggest) Count() int {
-	return len(sg.Drafts) + len(sg.C2) + len(sg.Blocked) + len(sg.Unowned) + len(sg.Overdue) + len(sg.DepCut)
+	return len(sg.Drafts) + len(sg.C2) + len(sg.Blocked) + len(sg.Unowned) + len(sg.Overdue) + len(sg.DepCut) + len(sg.StaleProg) + len(sg.Dormant)
 }
 
 type webDoneCard struct {
@@ -522,8 +529,20 @@ func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 	for _, it := range items {
 		statusOf[it.ID] = it.Status
 	}
+	// relatedToIndex：work item ID → 是否被其他单 related_to 引用（A2 判据）
+	relatedToIndex := map[string]bool{}
+	for _, it := range items {
+		for _, r := range it.RelatedTo {
+			relatedToIndex[r] = true
+		}
+	}
 	for _, it := range items {
 		if !model.WorkItemOpen(it.Status) {
+			// A1：已完结但进度未满 100%（progress 是 reported 中间态，done 是事实——
+			// 矛盾时 progress 陈旧，PM 巡检该看到 actor 没补报到满）
+			if it.Progress != nil && it.Progress.Value < 1.0 {
+				bd.Suggest.StaleProg = append(bd.Suggest.StaleProg, it)
+			}
 			continue
 		}
 		switch {
@@ -546,6 +565,33 @@ func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 				bd.Suggest.DepCut = append(bd.Suggest.DepCut, it)
 				break
 			}
+		}
+	}
+	// A2：已生效方案无新动态——related_items 全完结且无 active 单 related_to 回挂
+	for _, d := range bd.Agreed {
+		allDone := true
+		hasRelated := false
+		for _, rid := range d.Design.RelatedItems {
+			hasRelated = true
+			if st, ok := statusOf[rid]; ok && model.WorkItemOpen(st) {
+				allDone = false
+				break
+			}
+		}
+		// 无 related_items 或全完结——再查有无 active 单回挂本方案关联的工单
+		activeReferenced := false
+		for _, rid := range d.Design.RelatedItems {
+			if relatedToIndex[rid] {
+				// 有单回挂——但若回挂的单也全完结，仍算 dormant
+				activeReferenced = activeReferenced || false
+			}
+		}
+		if hasRelated && allDone {
+			reason := "执行单全已完结"
+			if !activeReferenced {
+				reason = "执行单全已完结，无新动态"
+			}
+			bd.Suggest.Dormant = append(bd.Suggest.Dormant, webDormantDesign{Topic: d.Topic, Reason: reason})
 		}
 	}
 	for _, st := range []string{"backlog", "ready", "doing", "blocked", "testing"} {
@@ -985,6 +1031,22 @@ pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12
 {{if gt .Suggest.PoolCount 0}}
 <div class="q"><span class="who">待认领池</span><span class="sub">另有 {{.Suggest.PoolCount}} 张无主单在待排期/待开工（看板上有红标）</span></div>
 {{end}}
+{{if .Suggest.StaleProg}}
+<div class="q grp"><span class="glvl">🔵 完结单进度未满</span></div>
+{{end}}
+{{range .Suggest.StaleProg}}<div class="q">
+<span class="who"><a href="/work/{{.ID}}" style="color:inherit">{{.ID}}</a> {{.Title}}</span>
+<span class="sub">已完结但进度停在 {{printf "%.0f" (.Progress.Value | pct100)}}%——执行者可能忘了补报到满，或有意留尾巴</span>
+<a href="/work/{{.ID}}" style="font-size:12.5px;color:var(--acc)">看详情 →</a>
+</div>{{end}}
+{{if .Suggest.Dormant}}
+<div class="q grp"><span class="glvl">🔵 已生效方案无新动态</span></div>
+{{end}}
+{{range .Suggest.Dormant}}<div class="q">
+<span class="who"><a href="/design/{{.Topic}}" style="color:inherit">方案「{{.Topic}}」</a></span>
+<span class="sub">{{.Reason}}——如已落地可不管，如需继续推进请新开执行单并回挂 related_to</span>
+<a href="/design/{{.Topic}}" style="font-size:12.5px;color:var(--acc)">看方案 →</a>
+</div>{{end}}
 {{if .Agreed}}<h2>已生效方案（如需废止，用新方案替代）</h2>
 {{range .Agreed}}{{$cur := .Topic}}<div class="q">
 <span class="who"><a href="/design/{{.Topic}}" style="color:inherit">「{{.Topic}}」</a></span><span class="sub">已生效 · {{.Design.DecidedBy}} 拍板</span>
