@@ -16,12 +16,20 @@
 #   - 水位非 0/0 = WARN 不扣退出码（漂移合法存在——收口是 plugin/sync 的活）。
 set -euo pipefail
 
-MACHINES=(224 225 226)                 # 192.168.1.x
+MACHINES=(224 225 226)                 # 逻辑编号（IP 映射见 ip_of）
 BIN_DIR_LOCAL="$HOME/.local/bin"       # 本机安装位
 LINUX_BIN="/usr/local/bin"
 SEAT_LOCAL="$HOME/Documents/siicode/tide/project_datax"
 REFRESH_SEATS=0
 [[ "${1:-}" == "--seats" ]] && REFRESH_SEATS=1
+
+# ip_of：逻辑编号 → 实际 IP（T-017 网段迁移 192.168.1.x→10.100.x，2026-10-10）。
+# 尾字节不变，224/225/226 映射到 10.100.1.32/33/34。
+ip_of() { case $1 in
+  224) echo "10.100.1.32" ;;
+  225) echo "10.100.1.33" ;;
+  226) echo "10.100.1.34" ;;
+esac }
 
 seats_of() { case $1 in
   224) echo "/data/tide/Datax" ;;
@@ -61,16 +69,17 @@ echo "基准 md5: ousheng=$BASE_OS ousheng-mcp=$BASE_MCP"
 
 echo "== 3. 部署三台 Linux（tmp+mv 原子） =="
 for m in "${MACHINES[@]}"; do
-  scp -q /tmp/ousheng-linux root@192.168.1.$m:$LINUX_BIN/ousheng.new
-  scp -q /tmp/ousheng-mcp-linux root@192.168.1.$m:$LINUX_BIN/ousheng-mcp.new
-  ssh -o BatchMode=yes root@192.168.1.$m "mv $LINUX_BIN/ousheng.new $LINUX_BIN/ousheng && mv $LINUX_BIN/ousheng-mcp.new $LINUX_BIN/ousheng-mcp && chmod +x $LINUX_BIN/ousheng $LINUX_BIN/ousheng-mcp"
-  echo "  $m 已替换"
+  ip=$(ip_of $m)
+  scp -q /tmp/ousheng-linux root@$ip:$LINUX_BIN/ousheng.new
+  scp -q /tmp/ousheng-mcp-linux root@$ip:$LINUX_BIN/ousheng-mcp.new
+  ssh -o BatchMode=yes root@$ip "mv $LINUX_BIN/ousheng.new $LINUX_BIN/ousheng && mv $LINUX_BIN/ousheng-mcp.new $LINUX_BIN/ousheng-mcp && chmod +x $LINUX_BIN/ousheng $LINUX_BIN/ousheng-mcp"
+  echo "  $m ($ip) 已替换"
 done
 
 echo "== 4. 验证 =="
 FAIL=0
 for m in "${MACHINES[@]}"; do
-  ip=192.168.1.$m
+  ip=$(ip_of $m)
   V=$(ssh -o BatchMode=yes root@$ip "ousheng version | tail -1 && md5sum $LINUX_BIN/ousheng $LINUX_BIN/ousheng-mcp")
   VER=$(echo "$V" | head -1)
   OS=$(echo "$V" | sed -n '2p' | cut -d' ' -f1); MCP=$(echo "$V" | sed -n '3p' | cut -d' ' -f1)
