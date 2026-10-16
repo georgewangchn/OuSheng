@@ -228,3 +228,65 @@ func TestWorkBriefYAMLFieldNames(t *testing.T) {
 		t.Fatalf("字段名烂（缺 yaml tag）:\n%s", s)
 	}
 }
+
+// 跨系统交接信号：B 的 context me 应看到 BlockedOn（我等谁）+ WaitedOnBy（谁等我）。
+func TestContextDirectionSignals(t *testing.T) {
+	dir := testfix.Setup(t)
+	repo := gityaml.Open(dir)
+	// 创建一个 doing 项依赖 BUG-017（构造反向依赖场景）
+	w := model.WorkItem{SchemaVersion: 2, ID: "X-1", Type: model.TypeTask, Title: "等 BUG-017",
+		Status: model.StatusDoing, Assignee: "backend-agent", Revision: 1, DependsOn: []string{"BUG-017"}}
+	if _, err := repo.CreateWorkItem(w, nil, "test: create X-1"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.GetMyContext("backend-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var x1, bug017 *WorkBrief
+	for i := range c.ActiveWork {
+		switch c.ActiveWork[i].ID {
+		case "X-1":
+			x1 = &c.ActiveWork[i]
+		case "BUG-017":
+			bug017 = &c.ActiveWork[i]
+		}
+	}
+	if x1 == nil {
+		t.Fatal("X-1 missing from active_work")
+	}
+	if len(x1.BlockedOn) != 1 || x1.BlockedOn[0] != "BUG-017" {
+		t.Fatalf("X-1 BlockedOn wrong: %v", x1.BlockedOn)
+	}
+	if bug017 == nil {
+		t.Fatal("BUG-017 missing from active_work")
+	}
+	if len(bug017.WaitedOnBy) != 1 || bug017.WaitedOnBy[0] != "X-1" {
+		t.Fatalf("BUG-017 WaitedOnBy wrong: %v", bug017.WaitedOnBy)
+	}
+	if len(bug017.BlockedOn) != 1 || bug017.BlockedOn[0] != "K8S-003" {
+		t.Fatalf("BUG-017 BlockedOn wrong: %v", bug017.BlockedOn)
+	}
+}
+
+func TestWorkShowDependedBy(t *testing.T) {
+	s := svc(t)
+	d, err := s.GetWorkItem("K8S-003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.DependedBy) != 2 {
+		t.Fatalf("DependedBy wrong: %+v", d.DependedBy)
+	}
+	ids := map[string]bool{}
+	for _, b := range d.DependedBy {
+		ids[b.ID] = true
+	}
+	if !ids["BUG-017"] || !ids["FEAT-CDC-001"] {
+		t.Fatalf("DependedBy missing expected ids: %+v", d.DependedBy)
+	}
+}

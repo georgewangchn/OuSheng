@@ -141,3 +141,43 @@ func TestMemoryIndexMissingDep(t *testing.T) {
 		t.Fatalf("missing dep not detected: %+v", bs)
 	}
 }
+
+func TestMemoryIndexDependedBy(t *testing.T) {
+	idx := build(t)
+	// K8S-003 被 BUG-017 和 FEAT-CDC-001 依赖（两者都 doing/open）
+	rev, err := idx.DependedBy("K8S-003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rev) != 2 || rev[0] != "BUG-017" || rev[1] != "FEAT-CDC-001" {
+		t.Fatalf("DependedBy(K8S-003) wrong: %v", rev)
+	}
+	// BUG-017 无人依赖
+	if rev, _ := idx.DependedBy("BUG-017"); len(rev) != 0 {
+		t.Fatalf("DependedBy(BUG-017) should be empty: %v", rev)
+	}
+}
+
+func TestMemoryIndexDependedByExcludesClosed(t *testing.T) {
+	dir := testfix.Setup(t)
+	repo := gityaml.Open(dir)
+	snap, _ := index.Load(repo)
+	// 注入一个 done 项依赖 K8S-003（已关闭项的依赖是历史残留，不计入反向）
+	snap.WorkItems = append(snap.WorkItems, model.WorkItem{
+		SchemaVersion: 2, ID: "DONE-1", Type: model.TypeTask, Title: "已完成",
+		Status: model.StatusDone, Revision: 1, DependsOn: []string{"K8S-003"},
+	})
+	idx := New()
+	if err := idx.Rebuild(snap); err != nil {
+		t.Fatal(err)
+	}
+	rev, _ := idx.DependedBy("K8S-003")
+	for _, id := range rev {
+		if id == "DONE-1" {
+			t.Fatalf("closed item must not appear in DependedBy: %v", rev)
+		}
+	}
+	if len(rev) != 2 {
+		t.Fatalf("DependedBy(K8S-003) should still be 2 (BUG-017 + FEAT-CDC-001), got %d: %v", len(rev), rev)
+	}
+}

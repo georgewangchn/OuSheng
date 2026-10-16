@@ -84,6 +84,10 @@ type Index interface {
 	// BlockersOf：直接依赖中未完成（非 done/cancelled）或缺失的项。
 	BlockersOf(id string) ([]Blocker, error)
 
+	// DependedBy：反向依赖——哪些 open work item 依赖此 id（已关闭项的依赖是历史残留，不计入）。
+	// 返回 work id 列表，按 id 排序（S5 等价）。
+	DependedBy(id string) ([]string, error)
+
 	// Registry 查询
 	Actor(id string) (model.ActorFile, bool, error)
 	Actors() ([]model.ActorFile, error)

@@ -139,6 +139,12 @@ func renderMyContext(w io.Writer, c *context.MyContext) {
 				line += fmt.Sprintf("  %d%% reported", int(wv.ProgressValue*100))
 			}
 			fmt.Fprintln(w, line)
+			if len(wv.BlockedOn) > 0 {
+				fmt.Fprintf(w, "    blocked_on: %s\n", strings.Join(wv.BlockedOn, ", "))
+			}
+			if len(wv.WaitedOnBy) > 0 {
+				fmt.Fprintf(w, "    waited_on_by: %s\n", strings.Join(wv.WaitedOnBy, ", "))
+			}
 		}
 	}
 	if len(c.Blockers) > 0 {

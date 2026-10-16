@@ -72,7 +72,9 @@ type WorkBrief struct {
 	DueOn         string         `json:"due_on,omitempty" yaml:"due_on,omitempty"`
 	ProgressValue float64        `json:"progress_reported,omitempty" yaml:"progress_reported,omitempty"`
 	Contract      *ContractBrief `json:"contract,omitempty" yaml:"contract,omitempty"`
-	Design        string         `json:"design,omitempty" yaml:"design,omitempty"` // 方案出处指针："export-csv (agreed)"（v0.4 §4.4）
+	Design        string         `json:"design,omitempty" yaml:"design,omitempty"`                 // 方案出处指针："export-csv (agreed)"（v0.4 §4.4）
+	BlockedOn     []string       `json:"blocked_on,omitempty" yaml:"blocked_on,omitempty"`         // 这单被哪些 dep 阻塞（派生指针，注入面填充）
+	WaitedOnBy    []string       `json:"waited_on_by,omitempty" yaml:"waited_on_by,omitempty"`     // 谁在等这单（反向依赖指针，注入面填充）
 }
 
 // ContractBrief 是 WorkItem 内嵌契约的最小信号（S6：接口标准必须进注入信道，
@@ -167,14 +169,20 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 	}
 	for _, w := range active {
 		brief := s.workBrief(w)
-		ctx.ActiveWork = append(ctx.ActiveWork, brief)
 		bs, err := s.Idx.BlockersOf(w.ID)
 		if err != nil {
 			return nil, err
 		}
 		for _, b := range bs {
+			brief.BlockedOn = append(brief.BlockedOn, b.DepID)
 			blockerSet[b.DepID] = true
 		}
+		rev, err := s.Idx.DependedBy(w.ID)
+		if err != nil {
+			return nil, err
+		}
+		brief.WaitedOnBy = rev
+		ctx.ActiveWork = append(ctx.ActiveWork, brief)
 	}
 	if ctx.ActiveWork == nil {
 		ctx.ActiveWork = []WorkBrief{}
@@ -270,6 +278,18 @@ func (s *Service) GetActorContext(actorID string) (*ActorView, error) {
 			continue
 		}
 		brief := s.workBrief(w)
+		bs, err := s.Idx.BlockersOf(w.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range bs {
+			brief.BlockedOn = append(brief.BlockedOn, b.DepID)
+		}
+		rev, err := s.Idx.DependedBy(w.ID)
+		if err != nil {
+			return nil, err
+		}
+		brief.WaitedOnBy = rev
 		v.AccountableFor = append(v.AccountableFor, brief)
 		if w.Status == model.StatusBlocked {
 			v.BlockedWork = append(v.BlockedWork, brief)
@@ -332,7 +352,6 @@ func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
 			continue
 		}
 		brief := s.workBrief(w)
-		v.ActiveWork = append(v.ActiveWork, brief)
 		if w.Type == model.TypeBug && model.WorkItemOpen(w.Status) {
 			v.OpenBugs++
 		}
@@ -341,8 +360,15 @@ func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
 			return nil, err
 		}
 		for _, b := range bs {
+			brief.BlockedOn = append(brief.BlockedOn, b.DepID)
 			blockerSet[b.DepID] = true
 		}
+		rev, err := s.Idx.DependedBy(w.ID)
+		if err != nil {
+			return nil, err
+		}
+		brief.WaitedOnBy = rev
+		v.ActiveWork = append(v.ActiveWork, brief)
 	}
 	v.Blockers = sortedKeys(blockerSet)
 	return v, nil
@@ -360,8 +386,9 @@ type DesignBrief struct {
 
 type WorkItemDetail struct {
 	model.WorkItem
-	Deps    []WorkBrief   `json:"deps,omitempty" yaml:"deps,omitempty"`       // 直接依赖摘要
-	Designs []DesignBrief `json:"designs,omitempty" yaml:"designs,omitempty"` // 关联方案出处
+	Deps       []WorkBrief   `json:"deps,omitempty" yaml:"deps,omitempty"`               // 直接依赖摘要
+	DependedBy []WorkBrief   `json:"depended_by,omitempty" yaml:"depended_by,omitempty"` // 反向依赖摘要（谁依赖我）
+	Designs    []DesignBrief `json:"designs,omitempty" yaml:"designs,omitempty"`         // 关联方案出处
 }
 
 func (s *Service) GetWorkItem(id string) (*WorkItemDetail, error) {
@@ -383,6 +410,21 @@ func (s *Service) GetWorkItem(id string) (*WorkItemDetail, error) {
 			continue
 		}
 		d.Deps = append(d.Deps, s.workBrief(dw))
+	}
+	// 反向依赖：谁依赖我（open 项）
+	revIDs, err := s.Idx.DependedBy(w.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, rid := range revIDs {
+		rw, ok, err := s.Idx.Get(rid)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		d.DependedBy = append(d.DependedBy, s.workBrief(rw))
 	}
 	for _, di := range s.Designs {
 		for _, id := range di.Design.RelatedItems {

@@ -21,6 +21,7 @@ type MemIndex struct {
 	byType         map[model.WorkItemType][]model.WorkItem
 	active         map[string][]model.WorkItem
 	blockers       map[string][]index.Blocker
+	reverseDeps    map[string][]string
 	actorsByID     map[string]model.ActorFile
 	systemsByID    map[string]model.System
 	assignByActor  map[string][]model.Assignment
@@ -40,6 +41,7 @@ func New() *MemIndex {
 		byType:         map[model.WorkItemType][]model.WorkItem{},
 		active:         map[string][]model.WorkItem{},
 		blockers:       map[string][]index.Blocker{},
+		reverseDeps:    map[string][]string{},
 		actorsByID:     map[string]model.ActorFile{},
 		systemsByID:    map[string]model.System{},
 		assignByActor:  map[string][]model.Assignment{},
@@ -65,7 +67,7 @@ func (m *MemIndex) Rebuild(s index.Snapshot) error {
 			m.active[w.Assignee] = append(m.active[w.Assignee], w)
 		}
 	}
-	// 第二遍：blockers（依赖未完成或缺失）
+	// 第二遍：blockers + 反向依赖（依赖未完成或缺失 / 反向图构建）
 	for _, w := range s.WorkItems {
 		for _, dep := range w.DependsOn {
 			d, ok := m.byID[dep]
@@ -76,6 +78,16 @@ func (m *MemIndex) Rebuild(s index.Snapshot) error {
 				m.blockers[w.ID] = append(m.blockers[w.ID], index.Blocker{WorkID: w.ID, DepID: dep, Reason: "not-done"})
 			}
 		}
+		// 反向依赖：只收录 open work item 发出的边（已关闭项的依赖是历史残留）
+		if model.WorkItemOpen(w.Status) {
+			for _, dep := range w.DependsOn {
+				m.reverseDeps[dep] = append(m.reverseDeps[dep], w.ID)
+			}
+		}
+	}
+	// 反向依赖列表排序（与 sqlite ORDER BY work_id 一致，S5 等价）
+	for k := range m.reverseDeps {
+		sort.Strings(m.reverseDeps[k])
 	}
 	// Registry 输出统一按 id 排序（与 sqlite ORDER BY 一致，S5 等价性）
 	sort.Slice(s.Systems, func(i, j int) bool { return s.Systems[i].ID < s.Systems[j].ID })
@@ -145,6 +157,10 @@ func (m *MemIndex) ActiveByActor(actor string) ([]model.WorkItem, error) {
 
 func (m *MemIndex) BlockersOf(id string) ([]index.Blocker, error) {
 	return m.blockers[id], nil
+}
+
+func (m *MemIndex) DependedBy(id string) ([]string, error) {
+	return m.reverseDeps[id], nil
 }
 
 func (m *MemIndex) Actor(id string) (model.ActorFile, bool, error) {
