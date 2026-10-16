@@ -78,6 +78,11 @@ func Check(idx index.Index, kn Knowledge) (Result, error) {
 		// 显式 blocked
 		if w.Status == model.StatusBlocked {
 			blockers = append(blockers, fmt.Sprintf("%s: blocked", w.ID))
+			// blocked 且无明确依赖 = 等非 work item（PM 拍板/外部），
+			// 额外 warning 暴露信息缺口（blocked 已在 blockers，此处不额外阻塞）
+			if len(w.DependsOn) == 0 {
+				warnings = append(warnings, fmt.Sprintf("%s: blocked without dependency (waiting on what?)", w.ID))
+			}
 		}
 
 		// 未解除依赖：只算硬阻塞（悬空）。依赖存在且未完成 = 正常依赖链，

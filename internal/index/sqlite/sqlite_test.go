@@ -220,3 +220,31 @@ func TestMissingDepSemantics(t *testing.T) {
 		t.Fatalf("missing dep semantics differ: %+v vs %+v", mbs, sbs)
 	}
 }
+
+func TestDependedByEquivalence(t *testing.T) {
+	snap := loadSnapshot(t)
+	mem := memory.New()
+	if err := mem.Rebuild(snap); err != nil {
+		t.Fatal(err)
+	}
+	sidx, err := Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sidx.Close()
+	if err := sidx.Rebuild(snap); err != nil {
+		t.Fatal(err)
+	}
+	// K8S-003 被 BUG-017 + FEAT-CDC-001 依赖
+	mrev, _ := mem.DependedBy("K8S-003")
+	srev, err := sidx.DependedBy("K8S-003")
+	if err != nil || !reflect.DeepEqual(mrev, srev) {
+		t.Fatalf("DependedBy differ: %+v vs %+v (%v)", mrev, srev, err)
+	}
+	// 无反向依赖的项
+	mrev2, _ := mem.DependedBy("BUG-017")
+	srev2, err := sidx.DependedBy("BUG-017")
+	if err != nil || !reflect.DeepEqual(mrev2, srev2) {
+		t.Fatalf("DependedBy (empty) differ: %+v vs %+v (%v)", mrev2, srev2, err)
+	}
+}

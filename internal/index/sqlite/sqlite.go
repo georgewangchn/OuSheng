@@ -330,6 +330,27 @@ func (s *SQLiteIndex) BlockersOf(id string) ([]index.Blocker, error) {
 	return out, rows.Err()
 }
 
+func (s *SQLiteIndex) DependedBy(id string) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT d.work_id FROM work_deps d
+		JOIN work_items w ON w.id = d.work_id
+		WHERE d.dep_id = ? AND w.status NOT IN ('done','cancelled')
+		ORDER BY d.work_id`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var workID string
+		if err := rows.Scan(&workID); err != nil {
+			return nil, err
+		}
+		out = append(out, workID)
+	}
+	return out, rows.Err()
+}
+
 // --- Registry 查询 ---
 
 func (s *SQLiteIndex) Actor(id string) (model.ActorFile, bool, error) {

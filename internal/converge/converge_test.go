@@ -831,3 +831,32 @@ func TestMigratedNeedsResolutionBlocks(t *testing.T) {
 		t.Fatalf("迁移无主 active 必须 BLOCK，got %s (%v)", r.Status, r.Blockers)
 	}
 }
+
+func TestBlockedWithoutDependencyWarns(t *testing.T) {
+	items := []model.WorkItem{
+		{SchemaVersion: 2, ID: "B-1", Type: model.TypeTask, Title: "blocked no dep",
+			Status: model.StatusBlocked, Revision: 1, Assignee: "a1"},
+		{SchemaVersion: 2, ID: "B-2", Type: model.TypeTask, Title: "blocked with dep",
+			Status: model.StatusBlocked, Revision: 1, Assignee: "a1", DependsOn: []string{"D-1"}},
+		{SchemaVersion: 2, ID: "D-1", Type: model.TypeTask, Title: "dep",
+			Status: model.StatusBacklog, Revision: 1},
+	}
+	r, err := Check(idxFrom(t, items), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "B-1") && strings.Contains(w, "blocked without dependency") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'blocked without dependency' warning for B-1, got: %v", r.Warnings)
+	}
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "B-2") && strings.Contains(w, "blocked without dependency") {
+			t.Fatalf("B-2 has dependency, should not warn: %v", r.Warnings)
+		}
+	}
+}
