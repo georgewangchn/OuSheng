@@ -33,7 +33,7 @@ func TestDoctorHealthySeat(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("健康座位应零退出：\nstdout:%s\nstderr:%s", so, se)
 	}
-	for _, want := range []string{"座位身份 actor=data", "插件与内嵌资产逐字节一致", "AGENTS.md 协议段 = 当前版本", "全局放行", "me=data 已注册", "doctor: 全部通过"} {
+	for _, want := range []string{"座位身份 actor=data", "插件与内嵌资产", "逐字节一致", "AGENTS.md 协议段 = 当前版本", "全局放行", "me=data 已注册", "doctor: 全部通过"} {
 		if !strings.Contains(so, want) {
 			t.Fatalf("doctor 输出缺 %q:\n%s", want, so)
 		}
@@ -67,7 +67,8 @@ func TestDoctorDetectsDrift(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ".opencode", "plugins", "ousheng-sampler.ts"), []byte("// drift\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	expectFail("插件与内嵌资产不一致")
+	expectFail("插件与内嵌资产")
+	expectFail("不一致")
 	mustRun(t, repo, "adapter", "install", "--workspace", ws) // 修复
 
 	// 2. 幽灵 actor（ousheng.json 指向未注册身份）

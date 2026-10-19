@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"ousheng/adapters/opencode"
@@ -66,17 +69,30 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	// opencode 版本检测（v2.0 breaking change）：≥2.0 用 v2 plugin（@opencode/plugin
+	// + Plugin.define + ctx.event.subscribe），否则 v1（@opencode-ai/plugin + 命名导出）。
+	v2 := opencodeIsV2()
+
 	// 1. plugin：我们的资产，恒覆盖到版本一致（这是"升级同步"的载体）。
-	st, err := writeAsset(filepath.Join(plugins, "ousheng-sampler.ts"), opencode.PluginTS, true)
+	pluginAsset := opencode.PluginTS
+	pluginLabel := "v2"
+	if !v2 {
+		pluginAsset = opencode.PluginV1TS
+		pluginLabel = "v1"
+	}
+	st, err := writeAsset(filepath.Join(plugins, "ousheng-sampler.ts"), pluginAsset, true)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "plugin        .opencode/plugins/ousheng-sampler.ts  %s\n", st)
+	fmt.Fprintf(stdout, "plugin (%s)    .opencode/plugins/ousheng-sampler.ts  %s\n", pluginLabel, st)
 
 	// 2. package.json：适配器分发物（依赖版本随二进制升级），force=true 覆盖。
-	// v2 升级事故（2026-10-19）：@opencode-ai/plugin → @opencode/plugin，不覆盖导致旧依赖残留。
-	st, err = writeAsset(filepath.Join(oc, "package.json"), opencode.PackageJSON, true)
+	pkgAsset := opencode.PackageJSON
+	if !v2 {
+		pkgAsset = opencode.PackageV1JSON
+	}
+	st, err = writeAsset(filepath.Join(oc, "package.json"), pkgAsset, true)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -302,6 +318,24 @@ func upsertAgentsSection(path string, section []byte) (string, error) {
 		return "unchanged", nil
 	}
 	return "updated", os.WriteFile(path, []byte(s[:i]+block+s[end:]), 0o644)
+}
+
+// opencodeIsV2 检测本机 opencode 版本是否 ≥2.0（v2.0 plugin API breaking change）。
+// 找不到 opencode 或版本解析失败 → false（保守用 v1，兼容更广）。
+func opencodeIsV2() bool {
+	out, err := exec.Command("opencode", "--version").Output()
+	if err != nil {
+		return false
+	}
+	s := strings.TrimSpace(string(out))
+	// "opencode v2.0.32" 或 "2.0.32"
+	re := regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
+	m := re.FindStringSubmatch(s)
+	if m == nil {
+		return false
+	}
+	major, _ := strconv.Atoi(m[1])
+	return major >= 2
 }
 
 // writeAsset 写资产；force=false 时已存在则保留。返回 created/updated/unchanged/exists（保留）。

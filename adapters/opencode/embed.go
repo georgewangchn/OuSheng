@@ -14,21 +14,34 @@ package opencode
 
 import _ "embed"
 
-// PluginTS 是 opencode 插件（三时机协议），写出为
+// PluginTS 是 opencode v2 插件（Plugin.define + ctx.event.subscribe），写出为
 // .opencode/plugins/ousheng-sampler.ts。
+// opencode v2.0 breaking change（2026-10-19）：v1 形式加载失败，必须 default export
+// Plugin.define({id, setup}) + ctx.event.subscribe 事件流。
 //
 //go:embed plugin.ts
 var PluginTS []byte
+
+// PluginV1TS 是 opencode v1 插件（@opencode-ai/plugin + 命名导出 + Hooks.event），
+// 用于未升级 v2 的机器。adapter install 按 opencode 版本选 v1/v2 模板。
+//
+//go:embed plugin-v1.ts
+var PluginV1TS []byte
 
 // ConfigJSON 是 opencode 配置（MCP 工具），写出为 .opencode/opencode.json。
 //
 //go:embed opencode.json
 var ConfigJSON []byte
 
-// PackageJSON 提供插件依赖 @opencode-ai/plugin，写出为 .opencode/package.json。
+// PackageJSON 提供插件依赖 @opencode/plugin（v2），写出为 .opencode/package.json。
 //
 //go:embed package.json
 var PackageJSON []byte
+
+// PackageV1JSON 提供 @opencode-ai/plugin（v1 依赖），用于未升级 v2 的机器。
+//
+//go:embed package-v1.json
+var PackageV1JSON []byte
 
 // AgentsMD 是 AGENTS.md 的受管协议段（机器中立：不含路径/身份/环境变量，
 // 机器参数只活在 .opencode/ousheng.json）。adapter install 以
