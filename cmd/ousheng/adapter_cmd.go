@@ -74,8 +74,9 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "plugin        .opencode/plugins/ousheng-sampler.ts  %s\n", st)
 
-	// 2. package.json：仅在缺失时创建，不覆盖用户已有依赖。
-	st, err = writeAsset(filepath.Join(oc, "package.json"), opencode.PackageJSON, false)
+	// 2. package.json：适配器分发物（依赖版本随二进制升级），force=true 覆盖。
+	// v2 升级事故（2026-10-19）：@opencode-ai/plugin → @opencode/plugin，不覆盖导致旧依赖残留。
+	st, err = writeAsset(filepath.Join(oc, "package.json"), opencode.PackageJSON, true)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
