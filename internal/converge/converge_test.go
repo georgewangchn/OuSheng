@@ -860,3 +860,40 @@ func TestBlockedWithoutDependencyWarns(t *testing.T) {
 		}
 	}
 }
+
+func TestTestingNonTesterRoleWarns(t *testing.T) {
+	items := []model.WorkItem{
+		{SchemaVersion: 2, ID: "T-1", Type: model.TypeTask, Title: "testing dev role",
+			Status: model.StatusTesting, Revision: 1, Assignee: "dev-a", ActingRole: "dev", System: "sys-a"},
+		{SchemaVersion: 2, ID: "T-2", Type: model.TypeTask, Title: "testing tester role",
+			Status: model.StatusTesting, Revision: 1, Assignee: "test-a", ActingRole: "tester", System: "sys-a"},
+		{SchemaVersion: 2, ID: "T-3", Type: model.TypeTask, Title: "doing dev role",
+			Status: model.StatusDoing, Revision: 1, Assignee: "dev-a", ActingRole: "dev", System: "sys-a"},
+	}
+	r, err := Check(idxFrom(t, items), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// T-1: testing + acting_role=dev → warning
+	foundT1 := false
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "T-1") && strings.Contains(w, "non-tester role") {
+			foundT1 = true
+		}
+	}
+	if !foundT1 {
+		t.Fatalf("expected 'non-tester role' warning for T-1, got: %v", r.Warnings)
+	}
+	// T-2: testing + acting_role=tester → no warning
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "T-2") && strings.Contains(w, "non-tester role") {
+			t.Fatalf("T-2 has tester role, should not warn: %v", r.Warnings)
+		}
+	}
+	// T-3: doing + acting_role=dev → no warning (doing 不触发)
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "T-3") && strings.Contains(w, "non-tester role") {
+			t.Fatalf("T-3 is doing not testing, should not warn: %v", r.Warnings)
+		}
+	}
+}

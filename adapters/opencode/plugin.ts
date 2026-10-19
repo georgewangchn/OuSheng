@@ -106,8 +106,18 @@ export const OuShengSampler: Plugin = async ({ directory, client }) => {
       if (event.type === "session.idle") {
         try {
           const cfg = await readCfg(directory)
-          let r = await run([OUSHENG_BIN, "converge", "--dir", cfg.workspace], directory)
-          let result = r.ok && r.out ? r.out : null
+          // converge 的 exit code：0=CONVERGED/IN_PROGRESS，1=BLOCKED（合法状态非错误）。
+          // 不能用 run().ok 判——BLOCKED 时 ok=false 但 out 是正常收敛报告，误报"未知错误"。
+          // 单独 spawn 取 stdout，只看有无内容。
+          let result: string | null = null
+          try {
+            const p = Bun.spawn({ cmd: [OUSHENG_BIN, "converge", "--dir", cfg.workspace], cwd: directory, stdout: "pipe", stderr: "pipe" })
+            const [stdout] = await Promise.all([new Response(p.stdout).text()])
+            await p.exited
+            result = stdout.trim() || null
+          } catch {
+            // converge 二进制缺失/spawn 失败 → 走 board fallback
+          }
           let reminder: string
           if (result) {
             const status = result.split("\n")[0]?.trim() || "UNKNOWN"
@@ -117,29 +127,34 @@ export const OuShengSampler: Plugin = async ({ directory, client }) => {
                 : status === "BLOCKED"
                   ? "Workspace is BLOCKED — explicit blocked item, dangling dependency, cycle, or missing evidence/ack. Human intervention needed."
                   : "Workspace is IN_PROGRESS — if you changed work items this session, run ousheng work update / progress report / evidence add before ending, then ousheng context me."
-          } else {
-            const b = await run([BOARD_BIN, "converge", "--dir", BOARD_DIR], directory)
-            result = b.ok && b.out ? b.out : null
-            const status = result?.match(/status:\s*(\w+)/)?.[1] || "UNKNOWN"
-            reminder =
-              status === "CONVERGED"
-                ? "All contracts verified. No pending writes needed."
-                : status === "STUCK"
-                  ? "Board is STUCK — dependency cycle or broken dependency. Human intervention needed."
-                  : "Board is IN_PROGRESS — if you changed contracts this session, remember to write_board before ending."
-          }
-          if (result) {
             await log(
               client,
               "info",
               `[OuSheng] Convergence at session end:\n${result}\n${reminder}`,
             )
           } else {
-            await log(
-              client,
-              "error",
-              `[OuSheng] converge 失败（workspace=${cfg.workspace}）：${r.err || "未知错误"}。修复：ousheng adapter install --workspace <工作区路径>`,
-            )
+            const b = await run([BOARD_BIN, "converge", "--dir", BOARD_DIR], directory)
+            const bresult = b.ok && b.out ? b.out : null
+            if (bresult) {
+              const status = bresult.match(/status:\s*(\w+)/)?.[1] || "UNKNOWN"
+              reminder =
+                status === "CONVERGED"
+                  ? "All contracts verified. No pending writes needed."
+                  : status === "STUCK"
+                    ? "Board is STUCK — dependency cycle or broken dependency. Human intervention needed."
+                    : "Board is IN_PROGRESS — if you changed contracts this session, remember to write_board before ending."
+              await log(
+                client,
+                "info",
+                `[OuSheng] Convergence at session end:\n${bresult}\n${reminder}`,
+              )
+            } else {
+              await log(
+                client,
+                "error",
+                `[OuSheng] converge 失败（workspace=${cfg.workspace}）：${b.err || "未知错误"}。修复：ousheng adapter install --workspace <工作区路径>`,
+              )
+            }
           }
         } catch (err) {
           await log(client, "error", `[OuSheng] session.idle sampling failed: ${String(err)}`)

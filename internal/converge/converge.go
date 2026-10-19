@@ -157,6 +157,14 @@ func Check(idx index.Index, kn Knowledge) (Result, error) {
 				}
 			}
 		}
+		// testing 角色错位曝光（2026-10-19 实栈 data↔test 信息断流）：
+		// testing = 等 tester 测试，test actor 的 context me 只含 assignee=test 的
+		// open 项——dev 转 testing 不 reassign → test 看不到这单 → 信息断流。
+		// 镜像越位曝光：只曝光不拦（dev 自测合法），提醒 reassign 给 tester。
+		// acting_role 是 work item 自带字段（vs 越位曝光查 assignments），直接判。
+		if w.Status == model.StatusTesting && w.ActingRole != "" && w.ActingRole != "tester" {
+			warnings = append(warnings, fmt.Sprintf("%s: testing item with non-tester role %q — reassign to tester for test actor visibility", w.ID, w.ActingRole))
+		}
 		// WARNING：ready 起按类型缺最小信息集（执行者/验收者要猜 = 单不可判定）。
 		if miss := incompleteInfo(w); miss != "" {
 			warnings = append(warnings, fmt.Sprintf("%s: incomplete %s — missing %s", w.ID, w.Type, miss))
