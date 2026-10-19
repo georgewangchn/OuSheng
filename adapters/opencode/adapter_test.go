@@ -115,8 +115,17 @@ func TestPluginCompiles(t *testing.T) {
 	if err != nil {
 		t.Skip("bun 不可用，跳过 plugin 真编译检查")
 	}
-	out, err := exec.Command(bun, "build", "plugin.ts", "--target=bun",
-		"--outfile="+filepath.Join(t.TempDir(), "plugin.js")).CombinedOutput()
+	// v2 plugin import @opencode/plugin——需先 bun install 装依赖才能 build
+	tmp := t.TempDir()
+	pkgJSON, _ := os.ReadFile("package.json")
+	os.WriteFile(filepath.Join(tmp, "package.json"), pkgJSON, 0o644)
+	pluginTS, _ := os.ReadFile("plugin.ts")
+	os.WriteFile(filepath.Join(tmp, "plugin.ts"), pluginTS, 0o644)
+	if installOut, err := exec.Command(bun, "install", "--cwd", tmp).CombinedOutput(); err != nil {
+		t.Skipf("bun install 失败（网络?），跳过编译检查：%v\n%s", err, installOut)
+	}
+	out, err := exec.Command(bun, "build", filepath.Join(tmp, "plugin.ts"), "--target=bun",
+		"--outfile="+filepath.Join(tmp, "plugin.js")).CombinedOutput()
 	if err != nil {
 		t.Fatalf("plugin.ts 编译失败（坏插件静默瘫掉所有座位）：%v\n%s", err, out)
 	}
