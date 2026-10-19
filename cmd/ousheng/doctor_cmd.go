@@ -100,10 +100,19 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		pluginPath := filepath.Join(dir, ".opencode", "plugins", "ousheng-sampler.ts")
 		if raw, err := os.ReadFile(pluginPath); err != nil {
 			check("FAIL", "插件缺失（.opencode/plugins/ousheng-sampler.ts）→ ousheng adapter install")
-		} else if string(raw) != string(opencode.PluginTS) {
-			check("FAIL", "插件与内嵌资产不一致（版本漂移）→ ousheng adapter install")
 		} else {
-			check("PASS", "插件与内嵌资产逐字节一致")
+			// 按本机 opencode 版本选 v1/v2 资产比对（与 adapter install 同源）
+			expected := opencode.PluginTS
+			label := "v2"
+			if !opencodeIsV2() {
+				expected = opencode.PluginV1TS
+				label = "v1"
+			}
+			if string(raw) != string(expected) {
+				check("FAIL", "插件与内嵌资产"+label+"不一致（版本漂移）→ ousheng adapter install")
+			} else {
+				check("PASS", "插件与内嵌资产"+label+"逐字节一致")
+			}
 		}
 		for _, a := range []string{filepath.Join(dir, ".opencode", "opencode.json"), filepath.Join(dir, ".opencode", "package.json")} {
 			if _, err := os.Stat(a); err != nil {

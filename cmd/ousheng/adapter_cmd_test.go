@@ -52,13 +52,13 @@ func TestAdapterInstall(t *testing.T) {
 			t.Fatalf("install 输出缺 %q:\n%s", want, out)
 		}
 	}
-	// plugin 与内嵌资产逐字节一致（升级同步的载体）
+	// plugin 与内嵌资产逐字节一致（按 opencode 版本选 v1/v2；测试环境无 opencode → v1）
 	got, err := os.ReadFile(filepath.Join(dir, ".opencode", "plugins", "ousheng-sampler.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != string(opencode.PluginTS) {
-		t.Fatal("plugin 内容与内嵌资产不一致")
+	if string(got) != string(opencode.PluginV1TS) && string(got) != string(opencode.PluginTS) {
+		t.Fatal("plugin 内容与内嵌资产（v1/v2）都不一致")
 	}
 	// opencode.json 必须是合法配置
 	raw, err := os.ReadFile(filepath.Join(dir, ".opencode", "opencode.json"))
