@@ -875,14 +875,17 @@ func TestTestingNonTesterRoleWarns(t *testing.T) {
 		t.Fatal(err)
 	}
 	// T-1: testing + acting_role=dev → warning
+	// 措辞（2026-10-20 awaiting_test 兜底后）：建议 reassign，但不再声称
+	// reassign 是"看见"的前提（tester 经 awaiting_test 可见）。
 	foundT1 := false
 	for _, w := range r.Warnings {
-		if strings.Contains(w, "T-1") && strings.Contains(w, "non-tester role") {
+		if strings.Contains(w, "T-1") && strings.Contains(w, "non-tester role") &&
+			strings.Contains(w, "consider reassigning") && strings.Contains(w, "awaiting_test") {
 			foundT1 = true
 		}
 	}
 	if !foundT1 {
-		t.Fatalf("expected 'non-tester role' warning for T-1, got: %v", r.Warnings)
+		t.Fatalf("expected 'non-tester role … consider reassigning … awaiting_test' warning for T-1, got: %v", r.Warnings)
 	}
 	// T-2: testing + acting_role=tester → no warning
 	for _, w := range r.Warnings {
