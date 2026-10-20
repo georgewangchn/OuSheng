@@ -55,7 +55,12 @@ type MyContext struct {
 	Systems          []string    `json:"systems,omitempty"`
 	TargetVersion    string      `json:"target_version,omitempty"`
 	ActiveWork       []WorkBrief `json:"active_work,omitempty"`
-	Blockers         []string    `json:"blockers,omitempty"`
+	// AwaitingTest 是我作为 tester 负责的系统里、status=testing、尚未被 tester
+	// 认领的活（派生指针，注入面填充）。事实投影非派活指令：testing 承担交接/
+	// 自测双语义，绳不区分（A2），由 tester 自行 work show 判断。解 testing 态
+	// 接收方失明（实栈 2026-10-20 data↔test 死锁）。
+	AwaitingTest []WorkBrief `json:"awaiting_test,omitempty"`
+	Blockers     []string    `json:"blockers,omitempty"`
 
 	// 共识层三通道（v0.4 §4.4，注入面铁律：全是指针，零自由文本）。
 	Knowledge      []string `json:"knowledge,omitempty"`       // architecture 文件名清单（正文自读）
@@ -188,6 +193,60 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 		ctx.ActiveWork = []WorkBrief{}
 	}
 	ctx.Blockers = sortedKeys(blockerSet)
+
+	// 待测池（实栈 2026-10-20 data↔test 死锁）：我作为 tester 的 system ×
+	// status=testing × 未被任何 tester 认领。testing 态的 assignee 通常仍是 dev
+	// （doing→testing 不移交），tester 的 ActiveWork（只含 assignee=me）看不到它
+	// ——接收方失明。事实投影，非派活指令：testing 承担交接/自测双语义，绳不区分
+	// （A2 职责=语义），由 tester 自行 work show 判断。派生（BySystem +
+	// AssignmentsBySystem），不新增存储字段（§25 同族）。
+	myTesterSystems := map[string]bool{}
+	for _, as := range assigns {
+		if as.Active && as.Role == "tester" && as.Responsibility == model.ResponsibilityExecutor {
+			myTesterSystems[as.System] = true
+		}
+	}
+	if len(myTesterSystems) > 0 {
+		var awaiting []model.WorkItem
+		for sys := range myTesterSystems {
+			testerSet := map[string]bool{}
+			sysAssigns, err := s.Idx.AssignmentsBySystem(sys)
+			if err != nil {
+				return nil, err
+			}
+			for _, as := range sysAssigns {
+				if as.Active && as.Role == "tester" && as.Responsibility == model.ResponsibilityExecutor {
+					testerSet[as.Actor] = true
+				}
+			}
+			ws, err := s.Idx.BySystem(sys)
+			if err != nil {
+				return nil, err
+			}
+			for _, w := range ws {
+				if w.Status != model.StatusTesting {
+					continue
+				}
+				if w.Assignee == actorID || testerSet[w.Assignee] {
+					continue // 自己名下（ActiveWork 已覆盖）或已被其他 tester 认领
+				}
+				awaiting = append(awaiting, w)
+			}
+		}
+		sort.Slice(awaiting, func(i, j int) bool {
+			pi, pj := priorityRank(awaiting[i].Priority), priorityRank(awaiting[j].Priority)
+			if pi != pj {
+				return pi < pj
+			}
+			return awaiting[i].ID < awaiting[j].ID
+		})
+		for _, w := range awaiting {
+			ctx.AwaitingTest = append(ctx.AwaitingTest, s.workBrief(w))
+		}
+		if ctx.AwaitingTest == nil {
+			ctx.AwaitingTest = []WorkBrief{}
+		}
+	}
 
 	// 共识层三通道（v0.4 §4.4）：
 	// knowledge = architecture 文件名（指针，正文 agent 按需自读——注入面铁律）。
@@ -460,4 +519,13 @@ func sortedKeys(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// priorityRank 把 P0..P3 映射为 0..3（升序=优先级高在前）。
+// 无/异常优先级排最后（写路径已校验 P0..P3，此处兜底历史数据）。
+func priorityRank(p string) int {
+	if len(p) == 2 && p[0] == 'P' && p[1] >= '0' && p[1] <= '9' {
+		return int(p[1] - '0')
+	}
+	return 99
 }

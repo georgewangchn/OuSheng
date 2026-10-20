@@ -2,6 +2,7 @@ package context
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -288,5 +289,139 @@ func TestWorkShowDependedBy(t *testing.T) {
 	}
 	if !ids["BUG-017"] || !ids["FEAT-CDC-001"] {
 		t.Fatalf("DependedBy missing expected ids: %+v", d.DependedBy)
+	}
+}
+
+// --- 待测池（awaiting_test）----
+// 实栈 2026-10-20 data↔test 死锁：testing 态 assignee 仍是 dev（doing→testing
+// 不移交），tester 的 ActiveWork（只含 assignee=me）看不到 → 接收方失明。
+// AwaitingTest 兜底：我作为 tester 的系统里 testing 态、未被 tester 认领的活。
+
+// makeTesting 造一个 testing 态活（fixture 无此状态）。
+func makeTesting(t *testing.T, repo *gityaml.Repo, id, system, assignee, priority string) {
+	t.Helper()
+	w := model.WorkItem{
+		SchemaVersion: 2, ID: id, Type: model.TypeTask, Title: "testing " + id,
+		Description: "test", System: system, Assignee: assignee,
+		ActingRole: "backend", Status: model.StatusTesting, Priority: priority,
+	}
+	if _, err := repo.CreateWorkItem(w, nil, "test: create "+id); err != nil {
+		t.Fatalf("create %s: %v", id, err)
+	}
+}
+
+func awaitingIDs(c *MyContext) []string {
+	var ids []string
+	for _, w := range c.AwaitingTest {
+		ids = append(ids, w.ID)
+	}
+	return ids
+}
+
+func TestGetMyContext_AwaitingTestShowsUnclaimed(t *testing.T) {
+	dir := testfix.Setup(t)
+	repo := gityaml.Open(dir)
+	if _, err := New(repo); err != nil {
+		t.Fatal(err)
+	}
+	makeTesting(t, repo, "T-900", "datax-backend", "backend-agent", "P0")
+	s := reloadRebuilt(t, repo)
+	c, err := s.GetMyContext("test-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := awaitingIDs(c); !slices.Contains(ids, "T-900") {
+		t.Fatalf("unclaimed testing item must appear in awaiting_test, got %v", ids)
+	}
+}
+
+func TestGetMyContext_AwaitingTestExcludesOwn(t *testing.T) {
+	dir := testfix.Setup(t)
+	repo := gityaml.Open(dir)
+	if _, err := New(repo); err != nil {
+		t.Fatal(err)
+	}
+	makeTesting(t, repo, "T-901", "datax-backend", "test-agent", "P0")
+	s := reloadRebuilt(t, repo)
+	c, err := s.GetMyContext("test-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := awaitingIDs(c); slices.Contains(ids, "T-901") {
+		t.Fatalf("own testing item must not be in awaiting_test (already in active_work): %v", ids)
+	}
+	found := false
+	for _, w := range c.ActiveWork {
+		if w.ID == "T-901" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("own testing item must be in active_work: %+v", c.ActiveWork)
+	}
+}
+
+func TestGetMyContext_AwaitingTestExcludesClaimedByOtherTester(t *testing.T) {
+	dir := testfix.Setup(t)
+	repo := gityaml.Open(dir)
+	if _, err := New(repo); err != nil {
+		t.Fatal(err)
+	}
+	assigns, err := repo.ListAssignments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assigns = append(assigns, model.Assignment{
+		Actor: "test-agent-2", Role: "tester", System: "datax-backend",
+		Responsibility: model.ResponsibilityExecutor, Active: true,
+	})
+	if err := repo.SaveAssignments(assigns, "test: add second tester"); err != nil {
+		t.Fatal(err)
+	}
+	makeTesting(t, repo, "T-902", "datax-backend", "test-agent-2", "P0")
+	s := reloadRebuilt(t, repo)
+	c, err := s.GetMyContext("test-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := awaitingIDs(c); slices.Contains(ids, "T-902") {
+		t.Fatalf("testing item claimed by another tester must not appear: %v", ids)
+	}
+}
+
+func TestGetMyContext_AwaitingTestEmptyForNonTester(t *testing.T) {
+	dir := testfix.Setup(t)
+	repo := gityaml.Open(dir)
+	if _, err := New(repo); err != nil {
+		t.Fatal(err)
+	}
+	makeTesting(t, repo, "T-903", "datax-backend", "backend-agent", "P0")
+	s := reloadRebuilt(t, repo)
+	c, err := s.GetMyContext("backend-agent") // executor，非 tester
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.AwaitingTest) != 0 {
+		t.Fatalf("non-tester must have empty awaiting_test: %+v", c.AwaitingTest)
+	}
+}
+
+func TestGetMyContext_AwaitingTestPriorityOrder(t *testing.T) {
+	dir := testfix.Setup(t)
+	repo := gityaml.Open(dir)
+	if _, err := New(repo); err != nil {
+		t.Fatal(err)
+	}
+	makeTesting(t, repo, "T-910", "datax-backend", "backend-agent", "P2")
+	makeTesting(t, repo, "T-911", "datax-backend", "backend-agent", "P0")
+	makeTesting(t, repo, "T-912", "datax-backend", "backend-agent", "P1")
+	s := reloadRebuilt(t, repo)
+	c, err := s.GetMyContext("test-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"T-911", "T-912", "T-910"}
+	if got := awaitingIDs(c); !slices.Equal(got, want) {
+		t.Fatalf("awaiting_test order = %v, want %v", got, want)
 	}
 }
