@@ -12,6 +12,10 @@ const (
 	TypeTest        WorkItemType = "test"
 	TypeDeployment  WorkItemType = "deployment"
 	TypeRelease     WorkItemType = "release"
+	// TypeNotice 是跨系统信息变更通知（2026-10-20）：系统内部改动影响其他系统时
+	// 上绳广播的「变更事实 + 影响面」。不是 bug（无缺陷）、不是 task（无验收/执行），
+	// 详情 SSOT 落在该系统的 INFO-CARD / architecture。创建即 done（发布即事实）。
+	TypeNotice WorkItemType = "notice"
 )
 
 // WorkStatus 是工程执行生命周期，与 Contract 生命周期（5 态）彻底分开（v0.3 §13）。

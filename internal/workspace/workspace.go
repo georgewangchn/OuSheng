@@ -120,14 +120,23 @@ func (s *Service) requireActor(actor string) error {
 }
 
 // Create 创建 WorkItem。新工作必须从 backlog 起步（对应 v1 新卡必须 proposed）。
+// 例外：notice 是「已发生变更事实的广播」，无执行阶段，创建即 done
+// （2026-10-20 上绳边界裁决：通知不是任务，backlog 起步是为执行单元设的）。
 func (s *Service) Create(w model.WorkItem, actor string) (model.WorkItem, error) {
 	if err := s.requireActor(actor); err != nil {
 		return model.WorkItem{}, err
 	}
-	if w.Status != "" && w.Status != model.StatusBacklog {
-		return model.WorkItem{}, fmt.Errorf("new work item must start in backlog (got %s)", w.Status)
+	if w.Type == model.TypeNotice {
+		if w.Status != "" && w.Status != model.StatusDone {
+			return model.WorkItem{}, fmt.Errorf("notice is created as done (got %s)", w.Status)
+		}
+		w.Status = model.StatusDone
+	} else {
+		if w.Status != "" && w.Status != model.StatusBacklog {
+			return model.WorkItem{}, fmt.Errorf("new work item must start in backlog (got %s)", w.Status)
+		}
+		w.Status = model.StatusBacklog
 	}
-	w.Status = model.StatusBacklog
 	if err := s.validateRefs(w); err != nil {
 		return model.WorkItem{}, err
 	}

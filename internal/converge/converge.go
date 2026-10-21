@@ -83,6 +83,26 @@ func Check(idx index.Index, kn Knowledge) (Result, error) {
 			if len(w.DependsOn) == 0 {
 				warnings = append(warnings, fmt.Sprintf("%s: blocked without dependency (waiting on what?)", w.ID))
 			}
+			// 协商僵持曝光（2026-10-20 上绳边界）：依赖全部已关闭却仍 blocked
+			// = 逻辑矛盾——依赖不再是原因，卡在「决策/协商未果」。跨系统冲突的
+			// 正常路径是 B↔A 协商（A 同意则修正关闭），A 不同意才升级 PM；
+			// 此处只曝光僵持，不替人仲裁（A2：冲突裁决=语义）。
+			if len(w.DependsOn) > 0 {
+				allResolved := true
+				for _, dep := range w.DependsOn {
+					d, ok, err := idx.Get(dep)
+					if err != nil {
+						return Result{}, err
+					}
+					if !ok || model.WorkItemOpen(d.Status) {
+						allResolved = false
+						break
+					}
+				}
+				if allResolved {
+					warnings = append(warnings, fmt.Sprintf("%s: dependencies resolved but still blocked — negotiation/decision stalled? (consider PM arbitration)", w.ID))
+				}
+			}
 		}
 
 		// 未解除依赖：只算硬阻塞（悬空）。依赖存在且未完成 = 正常依赖链，
@@ -182,7 +202,8 @@ func Check(idx index.Index, kn Knowledge) (Result, error) {
 
 		// 不一致警告：done 项零证据。基石 ASR 意图的回收（防"过早喊 done 污染下游"）——
 		// 终极防线是 accountable human 拍板，这里只让漏网可见，不阻塞。
-		if w.Status == model.StatusDone && len(w.Evidence) == 0 {
+		// notice 豁免：通知是"已发生变更的广播"，无执行阶段、无证据需求。
+		if w.Status == model.StatusDone && len(w.Evidence) == 0 && w.Type != model.TypeNotice {
 			warnings = append(warnings, fmt.Sprintf("%s: done without evidence", w.ID))
 		}
 
@@ -349,6 +370,10 @@ func incompleteInfo(w model.WorkItem) string {
 	case model.TypeRelease, model.TypeDeployment:
 		if w.TargetVersion == "" {
 			miss = append(miss, "target_version")
+		}
+	case model.TypeNotice:
+		if w.Description == "" {
+			miss = append(miss, "description（变更内容 + 影响面）")
 		}
 	}
 	return strings.Join(miss, "+")

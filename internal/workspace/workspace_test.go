@@ -290,3 +290,27 @@ func TestWriteRequiresActor(t *testing.T) {
 		t.Fatal("progress 空 actor 必须拒")
 	}
 }
+
+// notice 是「已发生变更事实的广播」，无执行阶段——创建即 done（2026-10-20
+// 上绳边界裁决：通知不是任务，backlog 起步是为执行单元设的）。
+func TestNoticeCreateDirectlyDone(t *testing.T) {
+	dir := testfix.Setup(t)
+	s := New(gityaml.Open(dir))
+	w, err := s.Create(model.WorkItem{
+		SchemaVersion: 2, ID: "N-1", Type: model.TypeNotice, Title: "端点变更通知",
+		System: "datax-backend", Description: "改 /v1/x 语义，影响 ui",
+	}, "zhangsan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Status != model.StatusDone {
+		t.Fatalf("notice must be created as done, got %s", w.Status)
+	}
+	// 非 notice 仍必须从 backlog 起步
+	if _, err := s.Create(model.WorkItem{
+		SchemaVersion: 2, ID: "T-1", Type: model.TypeTask, Title: "x",
+		System: "datax-backend", Description: "x",
+	}, "zhangsan"); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -203,6 +203,7 @@ var webTypeZh = map[string]string{
 	"test":       "测试",
 	"deployment": "部署",
 	"release":    "发布",
+	"notice":     "通知",
 }
 
 var webNextActionZh = map[string]string{
