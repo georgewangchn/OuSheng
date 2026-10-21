@@ -900,3 +900,53 @@ func TestTestingNonTesterRoleWarns(t *testing.T) {
 		}
 	}
 }
+
+// notice 无执行阶段：done 零证据不告警（2026-10-20）。
+func TestConvergeNoticeNoEvidenceWarning(t *testing.T) {
+	items := []model.WorkItem{
+		{SchemaVersion: 2, ID: "N-1", Type: model.TypeNotice, Title: "变更通知",
+			Status: model.StatusDone, Revision: 1, System: "sys-a",
+			Description: "改端点语义，影响 sys-b"},
+	}
+	r, err := Check(idxFrom(t, items), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "N-1") && strings.Contains(w, "done without evidence") {
+			t.Fatalf("notice must be exempt from done-without-evidence: %v", r.Warnings)
+		}
+	}
+}
+
+// 协商僵持曝光：依赖全部已关闭却仍 blocked = 卡在决策/协商，非依赖。
+func TestConvergeDependenciesResolvedStillBlockedWarns(t *testing.T) {
+	items := []model.WorkItem{
+		{SchemaVersion: 2, ID: "T-1", Type: model.TypeTask, Title: "done dep",
+			Status: model.StatusDone, Revision: 1, System: "sys-a", Evidence: []model.Evidence{{Type: model.EvidenceGitCommit, Locator: "abc"}}},
+		{SchemaVersion: 2, ID: "T-2", Type: model.TypeTask, Title: "still blocked",
+			Status: model.StatusBlocked, Revision: 1, System: "sys-a",
+			DependsOn: []string{"T-1"}},
+		{SchemaVersion: 2, ID: "T-3", Type: model.TypeTask, Title: "blocked on open",
+			Status: model.StatusBlocked, Revision: 1, System: "sys-a",
+			DependsOn: []string{"T-4"}},
+		{SchemaVersion: 2, ID: "T-4", Type: model.TypeTask, Title: "open dep",
+			Status: model.StatusDoing, Revision: 1, System: "sys-a", Assignee: "a"},
+	}
+	r, err := Check(idxFrom(t, items), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundT2 := false
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "T-2") && strings.Contains(w, "dependencies resolved but still blocked") {
+			foundT2 = true
+		}
+		if strings.Contains(w, "T-3") && strings.Contains(w, "dependencies resolved") {
+			t.Fatalf("T-3 has an open dependency, must not warn stalled: %v", r.Warnings)
+		}
+	}
+	if !foundT2 {
+		t.Fatalf("expected stalled-negotiation warning for T-2, got: %v", r.Warnings)
+	}
+}

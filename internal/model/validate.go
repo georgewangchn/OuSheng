@@ -19,7 +19,7 @@ var (
 
 var workTypes = map[WorkItemType]bool{
 	TypeRequirement: true, TypeFeature: true, TypeBug: true, TypeTask: true,
-	TypeTest: true, TypeDeployment: true, TypeRelease: true,
+	TypeTest: true, TypeDeployment: true, TypeRelease: true, TypeNotice: true,
 }
 
 var workStatuses = map[WorkStatus]bool{

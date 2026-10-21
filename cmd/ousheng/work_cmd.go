@@ -134,7 +134,7 @@ func workCreate(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("work create")
 	file := fs.String("file", "", "work item yaml file")
 	id := fs.String("id", "", "work item id (UPPER-xxx style)")
-	wtype := fs.String("type", "task", "type: requirement|feature|bug|task|test|deployment|release")
+	wtype := fs.String("type", "task", "type: requirement|feature|bug|task|test|deployment|release|notice")
 	title := fs.String("title", "", "title")
 	system := fs.String("system", "", "system id")
 	version := fs.String("version", "", "target version")
