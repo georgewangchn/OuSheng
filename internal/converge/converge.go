@@ -178,28 +178,14 @@ func Check(idx index.Index, kn Knowledge) (Result, error) {
 			}
 		}
 		// testing 角色错位曝光（2026-10-19 实栈 data↔test 信息断流；
-		// 2026-10-20 追加 awaiting_test 兜底 + 2026-10-21 人工验收模式收窄）：
+		// 2026-10-20 追加 awaiting_test 兜底后措辞修正）：
 		// testing 态 assignee 通常仍是 dev（doing→testing 不移交）。reassign 给
 		// tester 是理想路径（问责清晰 + tester 的 ActiveWork 直接可见），但非强制
-		// ——A2 职责=语义，绳不判定移交是否"不完整"。
-		// **仅当该 system 有活跃 tester assignment 时才提醒**：没有 tester 的系统
-		// 是人工验收模式（开发自测 + 人使用即测试，如 AgentOS 双入口 dogfood），
-		// reassign 无处可去，warning 只会成为噪音。acting_role 是自带字段，直接判。
+		// ——A2 职责=语义，绳不判定移交是否"不完整"。tester 现经 context me 的
+		// awaiting_test 兜底可见（不依赖 dev 记性），故此 warning 只建议不移交的
+		// 理想做法。acting_role 是 work item 自带字段，直接判。
 		if w.Status == model.StatusTesting && w.ActingRole != "" && w.ActingRole != "tester" {
-			sysAssigns, err := idx.AssignmentsBySystem(w.System)
-			if err != nil {
-				return Result{}, err
-			}
-			hasTester := false
-			for _, as := range sysAssigns {
-				if as.Active && as.Role == "tester" && as.Responsibility == model.ResponsibilityExecutor {
-					hasTester = true
-					break
-				}
-			}
-			if hasTester {
-				warnings = append(warnings, fmt.Sprintf("%s: testing item with non-tester role %q — consider reassigning to tester (tester also sees it via awaiting_test)", w.ID, w.ActingRole))
-			}
+			warnings = append(warnings, fmt.Sprintf("%s: testing item with non-tester role %q — consider reassigning to tester (tester also sees it via awaiting_test)", w.ID, w.ActingRole))
 		}
 		// WARNING：ready 起按类型缺最小信息集（执行者/验收者要猜 = 单不可判定）。
 		if miss := incompleteInfo(w); miss != "" {
