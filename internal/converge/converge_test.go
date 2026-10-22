@@ -38,6 +38,16 @@ func idxFrom(t *testing.T, items []model.WorkItem) index.Index {
 	return idx
 }
 
+func idxFromWithAssignments(t *testing.T, items []model.WorkItem, assigns []model.Assignment) index.Index {
+	t.Helper()
+	snap := index.Snapshot{WorkItems: items, Assignments: assigns}
+	idx := memory.New()
+	if err := idx.Rebuild(snap); err != nil {
+		t.Fatal(err)
+	}
+	return idx
+}
+
 // checkFixtures 带固定语料的 Check（共识层输入为空：fixtures 无 designs）。
 func checkFixtures(t *testing.T) (Result, error) {
 	t.Helper()
@@ -870,7 +880,11 @@ func TestTestingNonTesterRoleWarns(t *testing.T) {
 		{SchemaVersion: 2, ID: "T-3", Type: model.TypeTask, Title: "doing dev role",
 			Status: model.StatusDoing, Revision: 1, Assignee: "dev-a", ActingRole: "dev", System: "sys-a"},
 	}
-	r, err := Check(idxFrom(t, items), Knowledge{})
+	// 该 system 有活跃 tester assignment 才提醒（2026-10-21 人工验收模式收窄）
+	assigns := []model.Assignment{
+		{Actor: "test-a", Role: "tester", System: "sys-a", Responsibility: model.ResponsibilityExecutor, Active: true},
+	}
+	r, err := Check(idxFromWithAssignments(t, items, assigns), Knowledge{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -948,5 +962,24 @@ func TestConvergeDependenciesResolvedStillBlockedWarns(t *testing.T) {
 	}
 	if !foundT2 {
 		t.Fatalf("expected stalled-negotiation warning for T-2, got: %v", r.Warnings)
+	}
+}
+
+// 人工验收模式（2026-10-21 34 架构裁决：test 转 AgentOS，测试=使用）：
+// 系统无 tester assignment 时，testing 非 tester 角色不告警——reassign 无处可去，
+// 提醒只会是噪音（dev 自测 + 人使用即测试）。
+func TestTestingNoTesterAssignmentNoWarn(t *testing.T) {
+	items := []model.WorkItem{
+		{SchemaVersion: 2, ID: "T-1", Type: model.TypeTask, Title: "人类验收中的活",
+			Status: model.StatusTesting, Revision: 1, Assignee: "dev-a", ActingRole: "backend", System: "sys-a"},
+	}
+	r, err := Check(idxFrom(t, items), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "T-1") && strings.Contains(w, "non-tester role") {
+			t.Fatalf("no tester assignment → must not warn reassign (human acceptance mode): %v", r.Warnings)
+		}
 	}
 }
