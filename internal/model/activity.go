@@ -10,6 +10,10 @@ type Activity struct {
 	Detail   string `json:"detail,omitempty"`
 }
 
+// ActionDesignDecided：design 拍板的 activity 动词（converge 据此交叉验证
+// frontmatter decided_by——缺失 = 疑手改绕过拍板门，档案 §28）。
+const ActionDesignDecided = "design_decided"
+
 // Project 第一版只是 workspace/config 顶层，不建重量级实体（v0.3 §14）。
 type Project struct {
 	ID   string `yaml:"id"`

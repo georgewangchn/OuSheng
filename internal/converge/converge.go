@@ -11,7 +11,9 @@ package converge
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"ousheng/internal/graph"
 	"ousheng/internal/index"
@@ -37,6 +39,11 @@ type Result struct {
 type Knowledge struct {
 	Designs      []model.DesignInfo
 	Architecture []string
+
+	// 审计辅助（档案 §28，实栈 tide-datax PM 梳理复盘）：cmd 层从 repo 构建、
+	// 显式携带；零值 = 调用方未提供，对应检查跳过（不误伤旧调用方/测试）。
+	ArchitectureUpdated map[string]time.Time // 卡最后 git 提交时间（档案滞后曝光输入）
+	DesignDecided       map[string]bool      // 有 design_decided activity 的 topic（拍板审计交叉验证）
 }
 
 // Check 只依赖索引：memory 与 sqlite 实现结果必须一致（S5）。
@@ -345,7 +352,77 @@ func (kn Knowledge) audit(idx index.Index, all []model.WorkItem, blockers, warni
 			warnings = append(warnings, fmt.Sprintf("architecture %s.md: not a registered system", a))
 		}
 	}
+
+	// design 拍板审计断链曝光（档案 §28；实栈实锤：5 张 agreed 卡 2 张无
+	// design_decided activity，decided_at 为整点手工值）。agreed/superseded
+	// 均经拍板，应有 activity；缺失 = 疑手改 frontmatter 绕拍板门（已知边界，
+	// git 审计兜底）。只曝光不阻塞：activity 缺失另有合法成因（日志代差/裁剪），
+	// BLOCKER 会重蹈"误伤合法态"覆辙（waiting≠BLOCKED 同训）。
+	if kn.DesignDecided != nil {
+		for _, d := range kn.Designs {
+			if d.Design.Status != model.DesignAgreed && d.Design.Status != model.DesignSuperseded {
+				continue
+			}
+			if !kn.DesignDecided[d.Topic] {
+				warnings = append(warnings, fmt.Sprintf("design %s: %s without decide activity on record (hand-edited frontmatter? git audit is the backstop)", d.Topic, d.Design.Status))
+			}
+		}
+	}
+
+	// architecture 档案滞后曝光（档案 §28；实栈实锤：mlake 卡 IP 段过时半月、
+	// ui 卡一月未更致 PM 看不到系统全貌，被迫亲测对账）。事实：系统有 done
+	// 交付（含 notice 广播）且其证据时间晚于档案最后更新 = 全貌视角可能过期。
+	// 零阈值曝光：有即报，不猜"多旧才算旧"（阈值 = 语义判断，绳不越位）。
+	// 无日期（调用方未携带）= 无法判定，跳过。
+	if len(kn.ArchitectureUpdated) > 0 {
+		type delivery struct {
+			id string
+			at time.Time
+		}
+		bySys := map[string][]delivery{}
+		for _, w := range all {
+			if w.Status != model.StatusDone || w.System == "" {
+				continue
+			}
+			at, ok := latestEvidenceTime(w)
+			if !ok {
+				continue
+			}
+			bySys[w.System] = append(bySys[w.System], delivery{id: w.ID, at: at})
+		}
+		for sys, cardAt := range kn.ArchitectureUpdated {
+			var after []delivery
+			for _, d := range bySys[sys] {
+				if d.at.After(cardAt) {
+					after = append(after, d)
+				}
+			}
+			if len(after) == 0 {
+				continue
+			}
+			sort.Slice(after, func(i, j int) bool { return after[i].at.Before(after[j].at) })
+			last := after[len(after)-1]
+			warnings = append(warnings, fmt.Sprintf("system %s: architecture doc stale — %d done deliveries after last doc update (latest %s at %s), full-view may be outdated",
+				sys, len(after), last.id, last.at.Format("2006-01-02")))
+		}
+	}
 	return blockers, warnings
+}
+
+// latestEvidenceTime 返回该 work item 证据中最晚的 observed_at（RFC3339）。
+// 无证据/全部不可解析 = false（done 零证据已有独立 warning，此处不重复归罪）。
+func latestEvidenceTime(w model.WorkItem) (time.Time, bool) {
+	var latest time.Time
+	for _, e := range w.Evidence {
+		t, err := time.Parse(time.RFC3339, e.ObservedAt)
+		if err != nil {
+			continue
+		}
+		if t.After(latest) {
+			latest = t
+		}
+	}
+	return latest, !latest.IsZero()
 }
 
 // incompleteInfo 报告 ready 起（可开工/进行中）按类型缺失的最小信息集。

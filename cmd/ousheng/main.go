@@ -237,7 +237,21 @@ func cmdConverge(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	// 共识层输入经 kn 显式携带（v0.4：不进 Index 查询面——S5 判决）。
+	// 审计辅助（档案 §28）：档案 git 日期 + decide activity，同为显式携带。
 	kn := converge.Knowledge{Designs: snap.Designs, Architecture: snap.Architecture}
+	repo := gityaml.Open(fs.Dir())
+	if m, err := repo.ArchitectureUpdated(); err == nil && len(m) > 0 {
+		kn.ArchitectureUpdated = m
+	}
+	if acts, err := repo.ListActivity(); err == nil {
+		decided := map[string]bool{}
+		for _, a := range acts {
+			if a.Action == model.ActionDesignDecided && a.WorkItem != "" {
+				decided[a.WorkItem] = true
+			}
+		}
+		kn.DesignDecided = decided
+	}
 	res, err := converge.Check(idx, kn)
 	if err != nil {
 		fmt.Fprintln(stderr, err)

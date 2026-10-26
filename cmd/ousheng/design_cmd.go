@@ -151,7 +151,7 @@ func designDecide(args []string, stdout, stderr io.Writer) int {
 	d.DecidedBy = *actor
 	d.DecidedAt = model.Now()
 	acts := []model.Activity{{
-		TS: model.Now(), Actor: *actor, Action: "design_decided", WorkItem: topic,
+		TS: model.Now(), Actor: *actor, Action: model.ActionDesignDecided, WorkItem: topic,
 		Detail: "draft → agreed",
 	}}
 	if err := repo.UpdateDesign(topic, d, body, acts, "design: decide "+topic); err != nil {
