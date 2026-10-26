@@ -7,6 +7,7 @@ package state
 
 import (
 	"errors"
+	"time"
 
 	"ousheng/internal/model"
 )
@@ -60,6 +61,10 @@ type Repository interface {
 	// 写 = 仅生命周期（decide/supersede），内容生成不经绳（牛的活）。
 	ListDesigns() ([]model.DesignInfo, error)
 	ListArchitecture() ([]string, error)
+	// ArchitectureUpdated 返回 architecture/<sys>.md 的最后 git 提交时间；
+	// 无提交历史（新卡未提交）退 file mtime。converge 档案滞后曝光的输入
+	// （档案 §28）——warning 面派生数据，best-effort：git 不可得时缺项跳过。
+	ArchitectureUpdated() (map[string]time.Time, error)
 	GetDesignRaw(topic string) (model.DesignDoc, []byte, error)
 	UpdateDesign(topic string, d model.DesignDoc, body []byte, acts []model.Activity, msg string) error
 }

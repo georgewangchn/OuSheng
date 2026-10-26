@@ -31,6 +31,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"ousheng/internal/model"
 	"ousheng/internal/state"
@@ -183,6 +184,32 @@ func (r *Repo) ListArchitecture() ([]string, error) {
 		out = append(out, strings.TrimSuffix(e.Name(), ".md"))
 	}
 	sort.Strings(out)
+	return out, nil
+}
+
+// ArchitectureUpdated 返回 architecture/<sys>.md 的最后 git 提交时间（%cI）。
+// 无提交历史（新卡未 commit）退 file mtime；git 报错（非仓库/怪环境）则该卡
+// 缺项跳过——warning 面派生输入，best-effort 不响亮失败（曝光缺位 ≠ 数据损坏）。
+func (r *Repo) ArchitectureUpdated() (map[string]time.Time, error) {
+	names, err := r.ListArchitecture()
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]time.Time{}
+	for _, name := range names {
+		rel := filepath.Join(".ousheng", "architecture", name+".md")
+		s, err := gitRun(r.Dir, "log", "-1", "--format=%cI", "--", rel)
+		if err == nil {
+			if t, perr := time.Parse(time.RFC3339, strings.TrimSpace(s)); perr == nil {
+				out[name] = t
+				continue
+			}
+		}
+		// 无历史 / git 不可用：mtime 兜底（新建未提交卡不会误报滞后）。
+		if fi, serr := os.Stat(filepath.Join(r.architectureDir(), name+".md")); serr == nil {
+			out[name] = fi.ModTime()
+		}
+	}
 	return out, nil
 }
 

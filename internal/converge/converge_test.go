@@ -3,6 +3,7 @@ package converge
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"ousheng/internal/card"
 	"ousheng/internal/index"
@@ -293,6 +294,98 @@ func contains(list []string, sub string) bool {
 		}
 	}
 	return false
+}
+
+// design 拍板审计断链（档案 §28，实栈实锤：agreed 无 design_decided activity）。
+func TestDesignDecidedWithoutActivityWarns(t *testing.T) {
+	idx := idxWithActors(t, castActors)
+	kn := Knowledge{
+		Designs: []model.DesignInfo{
+			di("om-plane", "agreed", "pm", "", nil, nil),
+			di("old-way", "superseded", "pm", "om-plane", nil, nil),
+			di("draft-one", "draft", "", "", nil, nil),
+		},
+		DesignDecided: map[string]bool{"unrelated": true}, // om-plane/old-way 均缺 decide 记录
+	}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(r.Warnings, "design om-plane: agreed without decide activity") {
+		t.Fatalf("agreed without activity must warn, got %v", r.Warnings)
+	}
+	if !contains(r.Warnings, "design old-way: superseded without decide activity") {
+		t.Fatalf("superseded without activity must warn, got %v", r.Warnings)
+	}
+	if contains(r.Warnings, "design draft-one") {
+		t.Fatalf("draft needs no decide record: %v", r.Warnings)
+	}
+
+	// 记录齐全：静默。
+	kn.DesignDecided = map[string]bool{"om-plane": true, "old-way": true}
+	r, _ = Check(idx, kn)
+	if contains(r.Warnings, "without decide activity") {
+		t.Fatalf("complete records must be silent, got %v", r.Warnings)
+	}
+
+	// 调用方未携带（旧入口/测试）：跳过，不误伤。
+	kn.DesignDecided = nil
+	r, _ = Check(idx, kn)
+	if contains(r.Warnings, "without decide activity") {
+		t.Fatalf("nil input must skip, got %v", r.Warnings)
+	}
+}
+
+// architecture 档案滞后曝光（档案 §28，实栈实锤：mlake 卡 IP 段过时半月、
+// ui 卡一月未更——PM 看不到系统全貌）。事实 = done 交付证据晚于档案最后更新。
+func TestArchitectureStaleWarns(t *testing.T) {
+	done := model.WorkItem{
+		ID: "T-1", Type: model.TypeTask, System: "ui", Status: model.StatusDone,
+		Description: "d",
+		Evidence: []model.Evidence{{Type: model.EvidenceManualCheck, ObservedAt: "2026-10-25T08:00:00+08:00"}},
+	}
+	snap := index.Snapshot{Actors: castActors, Systems: []model.System{{ID: "ui"}}, WorkItems: []model.WorkItem{done}}
+	idx := memory.New()
+	if err := idx.Rebuild(snap); err != nil {
+		t.Fatal(err)
+	}
+	kn := Knowledge{Architecture: []string{"ui"}, ArchitectureUpdated: map[string]time.Time{"ui": time.Date(2026, 9, 28, 0, 0, 0, 0, time.Local)}}
+	r, err := Check(idx, kn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(r.Warnings, "system ui: architecture doc stale — 1 done deliveries after last doc update (latest T-1 at 2026-10-25)") {
+		t.Fatalf("stale card must warn, got %v", r.Warnings)
+	}
+
+	// 卡新于交付：静默（核对过即清零——自清除信号）。
+	kn.ArchitectureUpdated = map[string]time.Time{"ui": time.Date(2026, 10, 26, 0, 0, 0, 0, time.Local)}
+	r, _ = Check(idx, kn)
+	if contains(r.Warnings, "architecture doc stale") {
+		t.Fatalf("fresh card must be silent, got %v", r.Warnings)
+	}
+
+	// 调用方未携带日期：跳过。
+	kn.ArchitectureUpdated = nil
+	r, _ = Check(idx, kn)
+	if contains(r.Warnings, "architecture doc stale") {
+		t.Fatalf("nil dates must skip, got %v", r.Warnings)
+	}
+
+	// 未 done 的交付不算（活单的证据晚于卡 ≠ 档案滞后——活单还没定形）。
+	live := done
+	live.ID = "T-2"
+	live.Status = model.StatusDoing
+	snap.WorkItems = append(snap.WorkItems, live)
+	idx2 := memory.New()
+	if err := idx2.Rebuild(snap); err != nil {
+		t.Fatal(err)
+	}
+	kn.ArchitectureUpdated = map[string]time.Time{"ui": time.Date(2026, 10, 26, 0, 0, 0, 0, time.Local)}
+	r, _ = Check(idx2, kn)
+	if contains(r.Warnings, "architecture doc stale") {
+		t.Fatalf("active delivery must not count, got %v", r.Warnings)
+	}
 }
 
 // checkK 无共识层输入的 Check（既有用例：只测 WorkItem 面）。

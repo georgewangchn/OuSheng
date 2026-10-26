@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"ousheng/internal/gityamltest"
 	"ousheng/internal/model"
@@ -119,6 +120,48 @@ func TestListArchitecture(t *testing.T) {
 	}
 	if strings.Join(a, ",") != "datax,ui" {
 		t.Fatalf("architecture wrong: %v", a)
+	}
+}
+
+// ArchitectureUpdated：无提交历史退 mtime；提交后取 git 日期（档案 §28）。
+func TestArchitectureUpdated(t *testing.T) {
+	r := newDesignRepo(t)
+	dir := filepath.Join(r.Dir, ".ousheng", "architecture")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "datax.md"), []byte("x"), 0o644)
+
+	// 未提交：mtime 兜底（新卡不得误报滞后）。
+	m, err := r.ArchitectureUpdated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mt, ok := m["datax"]; !ok || time.Since(mt) > time.Minute {
+		t.Fatalf("uncommitted card must fall back to mtime, got %v (err %v)", m, err)
+	}
+
+	// 提交后：git 日期生效（回拨提交时间，验证取的是 git 而非 mtime）。
+	cmd := exec.Command("git", "add", ".ousheng")
+	cmd.Dir = r.Dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, out)
+	}
+	cmd = exec.Command("git", "commit", "-q", "-m", "card")
+	cmd.Dir = r.Dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_DATE=2020-01-01T00:00:00+08:00",
+		"GIT_COMMITTER_DATE=2020-01-01T00:00:00+08:00")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, out)
+	}
+	// 重写文件让 mtime = now（若误用 mtime 会得到当下时刻而非 2020）。
+	os.Chtimes(filepath.Join(dir, "datax.md"), time.Now(), time.Now())
+	m, err = r.ArchitectureUpdated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := m["datax"]
+	if !ok || got.Year() != 2020 {
+		t.Fatalf("committed card must use git date (2020), got %v (err %v)", m, err)
 	}
 }
 
