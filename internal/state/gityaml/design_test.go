@@ -123,29 +123,27 @@ func TestListArchitecture(t *testing.T) {
 	}
 }
 
-// ArchitectureUpdated：无提交历史退 mtime；提交后取 git 日期（档案 §28）。
-func TestArchitectureUpdated(t *testing.T) {
+// DocUpdated（档案 §29 机制统一后唯一的 git 时间管道）：无提交历史退 mtime；
+// 提交后取 git 日期。中文路径 quotepath 由 CLI 层锁（doc_cmd_test）。
+func TestDocUpdated(t *testing.T) {
 	r := newDesignRepo(t)
-	dir := filepath.Join(r.Dir, ".ousheng", "architecture")
+	dir := filepath.Join(r.Dir, "docs", "design")
 	os.MkdirAll(dir, 0o755)
-	os.WriteFile(filepath.Join(dir, "datax.md"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(dir, "plan.md"), []byte("x"), 0o644)
 
-	// 未提交：mtime 兜底（新卡不得误报滞后）。
-	m, err := r.ArchitectureUpdated()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mt, ok := m["datax"]; !ok || time.Since(mt) > time.Minute {
-		t.Fatalf("uncommitted card must fall back to mtime, got %v (err %v)", m, err)
+	// 未提交：mtime 兜底（新文档不得误报滞后）。
+	m := r.DocUpdated([]string{"docs/design/plan.md"})
+	if mt, ok := m["docs/design/plan.md"]; !ok || time.Since(mt) > time.Minute {
+		t.Fatalf("untracked doc must fall back to mtime, got %v", m)
 	}
 
 	// 提交后：git 日期生效（回拨提交时间，验证取的是 git 而非 mtime）。
-	cmd := exec.Command("git", "add", ".ousheng")
+	cmd := exec.Command("git", "add", "docs")
 	cmd.Dir = r.Dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git add: %v: %s", err, out)
 	}
-	cmd = exec.Command("git", "commit", "-q", "-m", "card")
+	cmd = exec.Command("git", "commit", "-q", "-m", "doc")
 	cmd.Dir = r.Dir
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_DATE=2020-01-01T00:00:00+08:00",
@@ -154,14 +152,16 @@ func TestArchitectureUpdated(t *testing.T) {
 		t.Fatalf("git commit: %v: %s", err, out)
 	}
 	// 重写文件让 mtime = now（若误用 mtime 会得到当下时刻而非 2020）。
-	os.Chtimes(filepath.Join(dir, "datax.md"), time.Now(), time.Now())
-	m, err = r.ArchitectureUpdated()
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, ok := m["datax"]
+	os.Chtimes(filepath.Join(dir, "plan.md"), time.Now(), time.Now())
+	m = r.DocUpdated([]string{"docs/design/plan.md"})
+	got, ok := m["docs/design/plan.md"]
 	if !ok || got.Year() != 2020 {
-		t.Fatalf("committed card must use git date (2020), got %v (err %v)", m, err)
+		t.Fatalf("committed doc must use git date (2020), got %v", m)
+	}
+
+	// 越界/不存在：缺项跳过（best-effort）。
+	if v, ok := r.DocUpdated([]string{"../outside/x.md", "nope/missing.md"})["../outside/x.md"]; ok {
+		t.Fatalf("external path must be skipped, got %v", v)
 	}
 }
 

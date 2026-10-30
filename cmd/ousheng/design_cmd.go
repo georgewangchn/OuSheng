@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"ousheng/internal/model"
@@ -67,11 +69,20 @@ func designList(args []string, stdout, stderr io.Writer) int {
 				continue
 			}
 		}
-		fmt.Fprintf(stdout, "%-24s %-11s %-16s %-24s %s\n",
+		fmt.Fprintf(stdout, "%-24s %-11s %-16s %-24s %-46s %s\n",
 			d.Topic, d.Design.Status, d.Design.Owner,
-			strings.Join(d.Design.Systems, ","), strings.Join(d.Design.RelatedItems, ","))
+			strings.Join(d.Design.Systems, ","), docCell(d.Design.Doc), strings.Join(d.Design.RelatedItems, ","))
 	}
 	return 0
+}
+
+// docCell 是 design list 的 DOC 列：认领的现行方案文档，或空位标记。
+// 空 = 卡片自身即全文，合法——不是缺失。
+func docCell(doc string) string {
+	if strings.TrimSpace(doc) == "" {
+		return "—"
+	}
+	return doc
 }
 
 func designShow(args []string, stdout, stderr io.Writer) int {
@@ -146,6 +157,19 @@ func designDecide(args []string, stdout, stderr io.Writer) int {
 	if d.Status != model.DesignDraft {
 		fmt.Fprintf(stderr, "design %q is %s, only draft can be decided\n", topic, d.Status)
 		return 1
+	}
+	// 认领层 fail-closed（文档认领层设计 §4.1）：doc 非空则文件必须存在。
+	// 不能拍板一个指向空的方案——那会让 topic 认领一篇不存在的文档，
+	// 此后 doc orphans/stale 全部建立在一个假事实上。
+	if strings.TrimSpace(d.Doc) != "" {
+		abs := d.Doc
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(fs.Dir(), filepath.FromSlash(d.Doc))
+		}
+		if fi, err := os.Stat(abs); err != nil || fi.IsDir() {
+			fmt.Fprintf(stderr, "design %q: doc %q does not exist (fail-closed: 不能拍板一个指向空的方案)\n", topic, d.Doc)
+			return 1
+		}
 	}
 	d.Status = model.DesignAgreed
 	d.DecidedBy = *actor

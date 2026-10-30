@@ -102,8 +102,12 @@ func TestDesignSignalPaths(t *testing.T) {
 	os.MkdirAll(archDir, 0o755)
 	os.WriteFile(filepath.Join(archDir, "cms-api.md"), []byte("全局面貌 INJECTION-MARKER-ARCH\n"), 0o644)
 	writeDesignFile(t, dir, "csv-plan",
-		"status: draft\nowner: george\nsystems: [cms-api]\nrelated_items: [T-001]\n",
+		"status: draft\nowner: george\nsystems: [cms-api]\nrelated_items: [T-001]\ndoc: docs/design/csv-plan.md\n",
 		"# CSV 方案\n\n正文里埋 INJECTION-MARKER-DESIGN 不该进任何注入面。\n")
+	// doc 指向的定稿必须真实存在——decide 是 fail-closed 的。
+	docPath := filepath.Join(dir, "docs", "design", "csv-plan.md")
+	os.MkdirAll(filepath.Dir(docPath), 0o755)
+	os.WriteFile(docPath, []byte("# CSV 方案定稿\n"), 0o644)
 
 	// 待发言：dev-agent（scope 含 cms-api）尚未发言 → pending
 	mcDev := mustRun(t, dir, "context", "me", "--actor", "dev-agent")
@@ -141,6 +145,15 @@ func TestDesignSignalPaths(t *testing.T) {
 		}
 	}
 
+	// 注入面铁律（T10）的 frontmatter 一侧：doc 是指针，不是注入内容。
+	// 上面那条锁只覆盖正文自由文本；若不连字段一起锁，将来有人"顺手把 doc
+	// 路径加进注入面方便 agent"，T10 会被无声破坏。
+	for _, out := range []string{mc, mcDev, mcDev2} {
+		if strings.Contains(out, "docs/design/csv-plan.md") {
+			t.Fatalf("doc path must stay out of context me (T10):\n%s", out)
+		}
+	}
+
 	// 出局判决（§4.4）：work list / view kanban 不含方案深链接
 	for _, out := range []string{
 		mustRun(t, dir, "work", "list", "--open"),
@@ -156,6 +169,9 @@ func TestDesignSignalPaths(t *testing.T) {
 	mc2 := mustRun(t, dir, "context", "me", "--actor", "george")
 	if !strings.Contains(mc2, `"design": "csv-plan (agreed)"`) {
 		t.Fatalf("decided design must update provenance:\n%s", mc2)
+	}
+	if strings.Contains(mc2, "docs/design/csv-plan.md") {
+		t.Fatalf("doc path must stay out of context me after decide (T10):\n%s", mc2)
 	}
 
 	// converge：architecture 覆盖齐全（cms-api.md 在），无共识层警告
