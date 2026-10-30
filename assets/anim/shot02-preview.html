@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>OuSheng 宣传动画 · 镜 2「三跳」</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #06080B; color: #E8EEF5;
+    font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    display: flex; flex-direction: column; align-items: center; min-height: 100vh; gap: 14px;
+    padding: 18px 18px 28px;
+  }
+  #stage { width: min(96vw, 1600px); aspect-ratio: 16 / 9; background: #0E1116; border-radius: 10px; overflow: hidden; box-shadow: 0 24px 70px rgba(0,0,0,.65); }
+  canvas { display: block; width: 100%; height: 100%; }
+  #bar { width: min(96vw, 1600px); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  button {
+    background: #16202A; color: #2DD4BF; border: 1px solid rgba(45,212,191,.35);
+    border-radius: 7px; padding: 8px 16px; font-size: 14px; cursor: pointer;
+    font-family: inherit; transition: .15s;
+  }
+  button:hover { background: #1C2A36; border-color: rgba(45,212,191,.6); }
+  button.primary { background: #2DD4BF; color: #06221E; border-color: #2DD4BF; font-weight: 600; }
+  input[type=range] { flex: 1; min-width: 220px; accent-color: #2DD4BF; }
+  .mono { font-family: 'SF Mono', Menlo, monospace; font-size: 13px; color: #94A3B8; }
+  #hint { width: min(96vw, 1600px); font-size: 12.5px; line-height: 1.9; color: #7C8B9E; }
+  #hint b { color: #2DD4BF; }
+</style>
+</head>
+<body>
+
+<div id="stage"><canvas id="c" width="1920" height="1080"></canvas></div>
+
+<div id="bar">
+  <button id="play" class="primary">▶ 播放</button>
+  <input id="seek" type="range" min="0" max="599" value="0" step="1">
+  <span class="mono" id="fno">000 / 599</span>
+  <button id="rec">● 导出视频</button>
+</div>
+
+<div id="hint">
+  <b>这是镜 2 的可运行参考实现</b>，Canvas 逐帧绘制，20 秒 / 600 帧 / 30fps。
+  拖动进度条可以逐帧检查——重点看三处：<b>球穿出 AI-A 右边界的那一帧、计数器跳到 1</b>；
+  <b>球落到人 B 手上、跳到 2</b>；<b>球进入 AI-B 左边界、跳到 3</b>。三处必须同帧，这是全片唯一的硬证据。
+  导出会录制 20 秒并下载 webm（Safari 下为 mp4），再用任何剪辑软件转码即可。
+</div>
+
+<script>
+(() => {
+'use strict';
+
+const W = 1920, H = 1080;
+const FPS = 30, TOTAL = 600;
+
+/* ── 配色 ── */
+const C = {
+  bg: '#0E1116',
+  grid: 'rgba(148,163,184,0.07)',
+  teal: '#2DD4BF',
+  tealGhost: 'rgba(45,212,191,0.055)',
+  amber: '#F59E0B',
+  amberDim: 'rgba(245,158,11,0.5)',
+  slate: '#94A3B8',
+  white: '#E8EEF5',
+};
+const MONO = `'SF Mono','Menlo','JetBrains Mono',monospace`;
+const SANS = `'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif`;
+
+/* ── 几何（与 src/theme.ts 保持一致） ── */
+const GEO = {
+  panelA: { x: 120, y: 300, w: 360, h: 380 },
+  panelB: { x: 1440, y: 300, w: 360, h: 380 },
+  humanA: { x: 640, footY: 840 },
+  humanB: { x: 1160, footY: 840 },
+  counter: { x: 1660, y: 150 },
+  insideA: { x: 300, y: 490 },
+  insideB: { x: 1620, y: 490 },
+  handY: 745,
+  edgeA: 480,
+  edgeB: 1440,
+};
+
+/* ── 运动学：全部是帧号的纯函数 ── */
+const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeInOut = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+const bez = (t, p0, p1, p2) => {
+  const u = 1 - t;
+  return {
+    x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
+    y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y,
+  };
+};
+
+const T = { riseEnd: 120, toHandA: 240, toHandB: 360, intoB: 480, settle: 600 };
+
+function ballPos(f) {
+  if (f <= T.riseEnd) {
+    const t = easeOut(clamp01(f / T.riseEnd));
+    return { x: GEO.insideA.x, y: GEO.insideA.y + 70 - 70 * t };
+  }
+  if (f <= T.toHandA) {
+    const t = easeInOut((f - T.riseEnd) / (T.toHandA - T.riseEnd));
+    return bez(t, { x: GEO.insideA.x, y: GEO.insideA.y }, { x: 450, y: 290 }, { x: GEO.humanA.x, y: GEO.handY });
+  }
+  if (f <= T.toHandB) {
+    const t = easeInOut((f - T.toHandA) / (T.toHandB - T.toHandA));
+    return bez(t, { x: GEO.humanA.x, y: GEO.handY }, { x: 900, y: 430 }, { x: GEO.humanB.x, y: GEO.handY });
+  }
+  if (f <= T.intoB) {
+    const t = easeInOut((f - T.toHandB) / (T.intoB - T.toHandB));
+    return bez(t, { x: GEO.humanB.x, y: GEO.handY }, { x: 1420, y: 520 }, { x: GEO.insideB.x, y: GEO.insideB.y });
+  }
+  return { x: GEO.insideB.x, y: GEO.insideB.y };
+}
+
+/** 反解：球第一次越过阈值 x 的帧（f>=riseEnd 后 x 单调） */
+function crossFrame(threshold) {
+  let lo = T.riseEnd, hi = T.intoB;
+  if (ballPos(hi).x < threshold) return T.intoB;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (ballPos(mid).x >= threshold) hi = mid; else lo = mid;
+  }
+  return hi;
+}
+
+const MARKS = {
+  cross1: crossFrame(GEO.edgeA),
+  cross2: T.toHandB,
+  cross3: crossFrame(GEO.edgeB),
+};
+
+const countAt = f => (f >= MARKS.cross1 ? 1 : 0) + (f >= MARKS.cross2 ? 1 : 0) + (f >= MARKS.cross3 ? 1 : 0);
+const popAt = (f, mark) => f < mark ? 0 : Math.max(0, 1 - (f - mark) / 10);
+
+/* ── 绘制 ── */
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawBG() {
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = C.grid;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x <= W; x += 60) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
+  for (let y = 0; y <= H; y += 60) { ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
+  ctx.stroke();
+  const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.28, W / 2, H / 2, H * 0.78);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.72)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+const CODE = [
+  'func reconcile(ctx Context) error {',
+  '  desired := plan.Desired(ctx)',
+  '  current := state.Load()',
+  '  diff := plan.Diff(desired, current)',
+  '',
+  '  for _, d := range diff.Apply {',
+  '    if err := exec.Apply(ctx, d); err != nil {',
+  '      return fmt.Errorf("apply %s: %w", d.ID, err)',
+  '    }',
+  '  }',
+  '  return nil',
+  '}',
+];
+
+function drawPanel(box, tag, sub, alive, f, flash, side) {
+  const { x, y, w, h } = box;
+  const borderA = alive ? 0.75 : 0.28;
+
+  if (flash > 0) {
+    ctx.save();
+    ctx.shadowColor = `rgba(45,212,191,${0.45 * flash})`;
+    ctx.shadowBlur = 26 * flash;
+  }
+  roundRect(x, y, w, h, 18);
+  ctx.fillStyle = alive ? C.tealGhost : 'rgba(45,212,191,0.018)';
+  ctx.fill();
+  if (flash > 0) ctx.restore();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = `rgba(45,212,191,${borderA + flash * 0.25})`;
+  roundRect(x, y, w, h, 18);
+  ctx.stroke();
+
+  // 标题栏
+  ctx.beginPath();
+  ctx.moveTo(x, y + 44); ctx.lineTo(x + w, y + 44);
+  ctx.strokeStyle = 'rgba(45,212,191,0.18)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(x + 22, y + 22, 4, 0, Math.PI * 2);
+  ctx.fillStyle = alive ? C.teal : 'rgba(148,163,184,0.45)';
+  ctx.fill();
+
+  ctx.textBaseline = 'middle';
+  ctx.font = `17px ${MONO}`;
+  ctx.fillStyle = C.teal;
+  ctx.fillText(tag, x + 34, y + 23);
+  const tagW = ctx.measureText(tag).width;
+  ctx.font = `13px ${MONO}`;
+  ctx.fillStyle = 'rgba(148,163,184,0.75)';
+  ctx.fillText(sub, x + 44 + tagW, y + 23);
+
+  // 代码区
+  const cy = y + 44, ch = h - 44;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x + 2, cy, w - 4, ch);
+  ctx.clip();
+  const lineH = 26;
+  const scroll = alive ? (f * 1.15) % (CODE.length * lineH) : 0;
+  ctx.font = `12.5px ${MONO}`;
+  ctx.fillStyle = alive ? 'rgba(45,212,191,0.72)' : 'rgba(148,163,184,0.32)';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < CODE.length * 2; i++) {
+    const ly = cy + 22 + i * lineH - scroll;
+    if (ly < cy - lineH || ly > y + h + lineH) continue;
+    ctx.fillText(CODE[i % CODE.length] || ' ', x + 16, ly);
+  }
+  // 上下渐隐
+  const gTop = ctx.createLinearGradient(0, cy, 0, cy + 60);
+  gTop.addColorStop(0, 'rgba(14,17,22,0.9)');
+  gTop.addColorStop(1, 'rgba(14,17,22,0)');
+  ctx.fillStyle = gTop;
+  ctx.fillRect(x, cy, w, 60);
+  const gBot = ctx.createLinearGradient(0, y + h - 60, 0, y + h);
+  gBot.addColorStop(0, 'rgba(14,17,22,0)');
+  gBot.addColorStop(1, 'rgba(14,17,22,0.9)');
+  ctx.fillStyle = gBot;
+  ctx.fillRect(x, y + h - 60, w, 60);
+  ctx.restore();
+
+  // 出口标记
+  if (side === 'left') {
+    ctx.beginPath();
+    ctx.arc(x + w, GEO.handY, 6, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(45,212,191,0.5)';
+    ctx.fill();
+  }
+}
+
+function drawHuman(h, label, ball, f) {
+  const { x, footY } = h;
+  const natural = { x: x + 30, y: footY - 80 };
+  const d = Math.hypot(ball.x - natural.x, ball.y - natural.y);
+  const reach = clamp01(1 - (d - 40) / 130);
+  const hand = { x: lerp(natural.x, ball.x, reach), y: lerp(natural.y, ball.y, reach) };
+  const shoulder = { x: x + 20, y: footY - 108 };
+  const breathe = Math.sin(f / 26) * 1.2;
+
+  ctx.save();
+  ctx.lineCap = 'round';
+
+  // 腿
+  ctx.strokeStyle = C.amberDim;
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.moveTo(x - 11, footY - 52); ctx.lineTo(x - 15, footY);
+  ctx.moveTo(x + 11, footY - 52); ctx.lineTo(x + 15, footY);
+  ctx.stroke();
+
+  // 身体
+  ctx.beginPath();
+  ctx.moveTo(x - 21, footY - 108);
+  ctx.quadraticCurveTo(x, footY - 122, x + 21, footY - 108);
+  ctx.lineTo(x + 16, footY - 50);
+  ctx.quadraticCurveTo(x, footY - 44, x - 16, footY - 50);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(245,158,11,0.85)';
+  ctx.fill();
+
+  // 头
+  ctx.beginPath();
+  ctx.arc(x, footY - 136 + breathe, 20, 0, Math.PI * 2);
+  ctx.fillStyle = C.amber;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x, footY - 136 + breathe, 26, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(245,158,11,0.25)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // 手臂
+  ctx.beginPath();
+  ctx.moveTo(shoulder.x, shoulder.y);
+  ctx.quadraticCurveTo((shoulder.x + hand.x) / 2, Math.min(shoulder.y, hand.y) - 18, hand.x, hand.y);
+  ctx.strokeStyle = C.amber;
+  ctx.lineWidth = 7;
+  ctx.stroke();
+
+  // 名牌
+  ctx.font = `16px ${MONO}`;
+  ctx.fillStyle = 'rgba(148,163,184,0.8)';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, x, footY + 34);
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+
+function drawTrail(f) {
+  for (let i = 1; i <= 16; i++) {
+    const ff = f - i * 2;
+    if (ff < 0) break;
+    const p = ballPos(ff);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 15 - i * 0.55, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(45,212,191,${(1 - i / 16) * 0.26})`;
+    ctx.fill();
+  }
+}
+
+function drawBall(f) {
+  const p = ballPos(f);
+  const alpha = f < 18 ? f / 18 : 1;
+  const r = f <= T.riseEnd ? 17 + 1.8 * Math.sin(f / 9) : 17;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = 'rgba(45,212,191,0.85)';
+  ctx.shadowBlur = 40;
+  const g = ctx.createRadialGradient(p.x - 5, p.y - 6, 2, p.x, p.y, r + 1);
+  g.addColorStop(0, '#ffffff');
+  g.addColorStop(0.42, C.teal);
+  g.addColorStop(1, '#0f766e');
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawFlash(f, mark, x, y0, y1) {
+  const t = clamp01((f - mark) / 16);
+  if (f < mark || t >= 1) return;
+  const a = 1 - t;
+  ctx.beginPath();
+  ctx.moveTo(x, y0); ctx.lineTo(x, y1);
+  ctx.strokeStyle = `rgba(232,238,245,${a * 0.9})`;
+  ctx.lineWidth = 2 + 3 * a;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, GEO.handY, 16 + 46 * t, 0, Math.PI * 2);
+  ctx.strokeStyle = `rgba(45,212,191,${a})`;
+  ctx.lineWidth = 2.5 * a;
+  ctx.stroke();
+}
+
+function drawCounter(f) {
+  const n = countAt(f);
+  const pops = [MARKS.cross1, MARKS.cross2, MARKS.cross3].map(m => popAt(f, m));
+  const pop = Math.max(...pops);
+  const scale = 1 + 0.3 * pop;
+  const hot = pop > 0.01;
+
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'alphabetic';
+
+  ctx.font = `15px ${MONO}`;
+  ctx.fillStyle = 'rgba(148,163,184,0.85)';
+  ctx.save();
+  ctx.letterSpacing && (ctx.letterSpacing = '3px');
+  ctx.fillText('人 机 穿 越', GEO.counter.x, GEO.counter.y - 76);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(GEO.counter.x, GEO.counter.y);
+  ctx.scale(scale, scale);
+  ctx.font = `700 132px ${MONO}`;
+  ctx.shadowColor = `rgba(45,212,191,${0.35 + 0.4 * pop})`;
+  ctx.shadowBlur = 28 + 40 * pop;
+  ctx.fillStyle = hot ? C.white : C.teal;
+  ctx.fillText(String(n), 0, 0);
+  ctx.restore();
+
+  // 三个灯条
+  const marks = [MARKS.cross1, MARKS.cross2, MARKS.cross3];
+  for (let i = 0; i < 3; i++) {
+    const on = f >= marks[i];
+    const p = popAt(f, marks[i]);
+    const bx = GEO.counter.x - 34 - i * 42;
+    roundRect(bx, GEO.counter.y + 22, 34, 5, 2);
+    ctx.fillStyle = on ? C.teal : 'rgba(148,163,184,0.22)';
+    ctx.fill();
+  }
+
+  ctx.textAlign = 'left';
+}
+
+const CAPTIONS = [
+  { from: 0, to: 108, text: '一条消息，要从左边的 AI 到右边的 AI。' },
+  { from: 112, to: 248, text: '中间站着两个人。第 1 跳：AI 说给人听。' },
+  { from: 252, to: 368, text: '第 2 跳：人转述给人。' },
+  { from: 372, to: 488, text: '第 3 跳：人说给 AI 听。' },
+  { from: 496, to: 600, text: '一条消息，三次穿越。' },
+];
+
+function drawCaption(f) {
+  const cur = CAPTIONS.find(c => f >= c.from && f < c.to);
+  if (!cur) return;
+  const fadeIn = clamp01((f - cur.from) / 9);
+  const fadeOut = clamp01((cur.to - f) / 9);
+  const o = Math.min(fadeIn, fadeOut);
+
+  ctx.save();
+  ctx.globalAlpha = o;
+  ctx.font = `500 38px ${SANS}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const w = ctx.measureText(cur.text).width + 52;
+  const y = H - 74 - 28;
+  roundRect(W / 2 - w / 2, y - 4, w, 56, 8);
+  ctx.fillStyle = 'rgba(14,17,22,0.55)';
+  ctx.fill();
+  ctx.fillStyle = C.white;
+  ctx.fillText(cur.text, W / 2, y + 24 + (1 - fadeIn) * 10);
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+
+function draw(f) {
+  drawBG();
+  const flashA = Math.max(0, 1 - (f - MARKS.cross1) / 16);
+  const flashB = Math.max(0, 1 - (f - MARKS.cross3) / 16);
+  const bAlive = f >= MARKS.cross3;
+
+  drawPanel(GEO.panelA, 'AI-A', 'backend', true, f, flashA, 'left');
+  drawPanel(GEO.panelB, 'AI-B', 'frontend', bAlive, f, flashB, 'right');
+
+  const ball = ballPos(f);
+  drawHuman(GEO.humanA, '人 A', ball, f);
+  drawHuman(GEO.humanB, '人 B', ball, f);
+
+  drawFlash(f, MARKS.cross1, GEO.edgeA, GEO.panelA.y - 30, GEO.panelA.y + GEO.panelA.h + 30);
+  drawFlash(f, MARKS.cross3, GEO.edgeB, GEO.panelB.y - 30, GEO.panelB.y + GEO.panelB.h + 30);
+
+  drawTrail(f);
+  drawBall(f);
+  drawCounter(f);
+  drawCaption(f);
+}
+
+/* ── 播放器 ── */
+let frame = 0, playing = false, last = 0, acc = 0;
+
+const btn = document.getElementById('play');
+const seek = document.getElementById('seek');
+const fno = document.getElementById('fno');
+
+function paint() {
+  draw(frame);
+  seek.value = String(Math.min(frame, TOTAL - 1));
+  fno.textContent = String(Math.floor(frame)).padStart(3, '0') + ' / ' + (TOTAL - 1);
+}
+
+function tick(ts) {
+  if (!playing) return;
+  if (!last) last = ts;
+  acc += ts - last;
+  last = ts;
+  const step = 1000 / FPS;
+  while (acc >= step) { acc -= step; frame++; }
+  if (frame >= TOTAL) { frame = 0; playing = false; btn.textContent = '▶ 播放'; }
+  paint();
+  if (playing) requestAnimationFrame(tick);
+}
+
+btn.onclick = () => {
+  playing = !playing;
+  btn.textContent = playing ? '❚❚ 暂停' : '▶ 播放';
+  if (playing) { last = 0; acc = 0; requestAnimationFrame(tick); }
+};
+
+seek.oninput = e => {
+  playing = false; btn.textContent = '▶ 播放';
+  frame = Number(e.target.value);
+  paint();
+};
+
+/* ── 导出：canvas.captureStream + MediaRecorder ── */
+const recBtn = document.getElementById('rec');
+recBtn.onclick = () => {
+  if (!window.MediaRecorder) { alert('当前浏览器不支持 MediaRecorder，请用 Chrome 或 Safari。'); return; }
+  const types = ['video/mp4;codecs=avc1.42E01E', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  const mime = types.find(t => MediaRecorder.isTypeSupported(t));
+  if (!mime) { alert('找不到可用的视频编码格式。'); return; }
+
+  const stream = cv.captureStream(FPS);
+  const chunks = [];
+  const mr = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 });
+  mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  mr.onstop = () => {
+    const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+    const blob = new Blob(chunks, { type: mime });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ousheng-shot02.${ext}`;
+    a.click();
+    recBtn.textContent = '● 导出视频';
+    recBtn.disabled = false;
+  };
+
+  recBtn.disabled = true;
+  frame = 0; paint();
+  playing = true; last = 0; acc = 0;
+  btn.textContent = '❚❚ 暂停';
+  mr.start();
+  requestAnimationFrame(tick);
+  recBtn.textContent = '录制中…';
+
+  const stopAt = setInterval(() => {
+    if (frame >= TOTAL - 1) {
+      clearInterval(stopAt);
+      playing = false;
+      setTimeout(() => { mr.stop(); btn.textContent = '▶ 播放'; }, 260);
+    }
+  }, 40);
+};
+
+paint();
+
+/* 便于调试：控制台里 __marks 可查三个计数帧 */
+window.__marks = MARKS;
+console.log('计数帧:', MARKS);
+})();
+</script>
+</body>
+</html>

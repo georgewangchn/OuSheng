@@ -1,0 +1,10 @@
+{
+  "name": "ousheng-shot02",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Shot02 out/shot02.mp4",
+    "still": "remotion still src/index.ts Shot02 out/frame.png"
+  }
+}
