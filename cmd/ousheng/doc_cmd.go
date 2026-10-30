@@ -4,11 +4,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"ousheng/internal/docs"
 	"ousheng/internal/index"
+	"ousheng/internal/machine"
 	"ousheng/internal/state/gityaml"
 )
 
@@ -57,6 +61,8 @@ func buildDocLayer(dir string) (docLayer, error) {
 
 // assembleDocLayer 组装认领层——`ousheng doc` 三条命令与 converge 共用同一份
 // 实现（一语义一实现：语义在 internal/docs，装载只此一处）。
+// 契约正本（system.contract_doc，§30）在此并入 refs：repos.yaml 解析映射仓，
+// 未映射/缺文件静默跳过（best-effort 读面，机器差异合法）。
 func assembleDocLayer(dir string, snap index.Snapshot) docLayer {
 	repo := gityaml.Open(dir)
 	claims := gityaml.DocClaims(snap)
@@ -68,10 +74,18 @@ func assembleDocLayer(dir string, snap index.Snapshot) docLayer {
 		files = existingClaimFiles(dir, claims)
 	}
 	refs := docs.Build(files, claims)
+	refs = append(refs, docs.ContractRefs(snap.Systems, contractRepoResolver(dir),
+		func(repoDir, rel string) (int64, bool) {
+			fi, err := os.Stat(filepath.Join(repoDir, filepath.FromSlash(rel)))
+			if err != nil || fi.IsDir() {
+				return 0, false
+			}
+			return fi.Size(), true
+		})...)
 	// git 时间一次批量取（逐条认领单起一次 git log 会把命令拖死）。
 	var want []string
 	for _, r := range refs {
-		if r.Claimed && !r.External {
+		if r.Claimed && !r.External && !isContractRef(r.Path) {
 			want = append(want, r.Path)
 		}
 	}
@@ -81,12 +95,115 @@ func assembleDocLayer(dir string, snap index.Snapshot) docLayer {
 			refs[i].Updated = t
 		}
 	}
+	sort.Slice(refs, func(i, j int) bool { return refs[i].Path < refs[j].Path })
 	return docLayer{
 		refs:   refs,
 		stale:  docs.FindStale(refs, snap.Designs, snap.WorkItems),
 		claims: claims,
 		roots:  docs.Roots(claims),
 	}
+}
+
+// isContractRef 报告 Ref 是否契约正本（"<system>:<rel>" 命名空间）。
+func isContractRef(p string) bool { return strings.Contains(p, ":") }
+
+// contractRepoResolver 返回 system → 本机映射仓路径。只认 repos.yaml 显式映射
+// （机器没映射 = 该机看不见契约正本，合法跳过）——不走工作区回退：契约正本
+// 住系统仓，看板仓里同路径文件是另一回事，不冒认。
+func contractRepoResolver(wsDir string) func(system string) (string, bool) {
+	m := machine.LoadRepoMap(wsDir)
+	return func(system string) (string, bool) {
+		p, ok := m[system]
+		if !ok || p == "" {
+			return "", false
+		}
+		if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
+			return "", false
+		}
+		return p, true
+	}
+}
+
+// bloatInputs 为 bloat 三信号收集内容与环比体积（仅 doc check 调用——
+// converge 路径不付这笔 git/IO 成本）。prev 体积用 `git cat-file -s <rev>:<path>`
+// 取 Days 天前 blob 字节数：每仓一次 rev-list，随后每文档一次 cat-file。
+func bloatInputs(dir string, refs []docs.Ref, days int) (contents map[string][]byte, prev map[string]int64) {
+	contents, prev = map[string][]byte{}, map[string]int64{}
+	repoDirs := map[string]string{dir: dir} // 工作区仓
+	for _, r := range refs {
+		if !r.Claimed || r.External {
+			continue
+		}
+		switch r.Role {
+		case docs.RoleDecision, docs.RoleStatus, docs.RoleContract:
+		default:
+			continue
+		}
+		var repoDir, rel string
+		if isContractRef(r.Path) {
+			i := strings.Index(r.Path, ":")
+			sys, rel2 := r.Path[:i], r.Path[i+1:]
+			rd, ok := contractRepoResolver(dir)(sys)
+			if !ok {
+				continue
+			}
+			repoDir, rel = rd, rel2
+		} else {
+			repoDir, rel = dir, r.Path
+		}
+		if _, ok := repoDirs[repoDir]; !ok {
+			repoDirs[repoDir] = repoDir
+		}
+		if b, err := os.ReadFile(filepath.Join(repoDir, filepath.FromSlash(rel))); err == nil {
+			contents[r.Path] = b
+		}
+	}
+	if days <= 0 {
+		return contents, prev
+	}
+	for repoDir := range repoDirs {
+		out, err := gitOutput(repoDir, "rev-list", "-1", fmt.Sprintf("--before=%d days ago", days), "HEAD")
+		if err != nil || strings.TrimSpace(out) == "" {
+			continue
+		}
+		rev := strings.TrimSpace(strings.SplitN(out, "\n", 2)[0])
+		for _, r := range refs {
+			if !r.Claimed || r.External {
+				continue
+			}
+			var rel string
+			if isContractRef(r.Path) {
+				i := strings.Index(r.Path, ":")
+				sys := r.Path[:i]
+				rd, ok := contractRepoResolver(dir)(sys)
+				if !ok || rd != repoDir {
+					continue
+				}
+				rel = r.Path[i+1:]
+			} else if repoDir != dir {
+				continue
+			} else {
+				rel = r.Path
+			}
+			if s, err := gitOutput(repoDir, "cat-file", "-s", rev+":"+rel); err == nil {
+				if n, perr := strconv.ParseInt(strings.TrimSpace(s), 10, 64); perr == nil {
+					prev[r.Path] = n
+				}
+			}
+		}
+	}
+	return contents, prev
+}
+
+// gitOutput 在 dir 跑一条 git 命令（doc 层专用轻封装，best-effort）。
+func gitOutput(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 // existingClaimFiles 按文件系统核对认领路径：只有真实存在的文件才进清单。
@@ -154,6 +271,10 @@ func docMap(args []string, stdout, stderr io.Writer) int {
 func docCheck(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("doc check")
 	asJSON := fs.Bool("json", false, "output JSON")
+	bloatBytes := fs.Int64("bloat-bytes", 30*1024, "bloat signal 1: max bytes per contract-facing doc (0=off)")
+	bloatChangelog := fs.Int("bloat-changelog", 20, "bloat signal 2: max changelog/history section share in percent (0=off)")
+	bloatGrowth := fs.Int64("bloat-growth", 20*1024, "bloat signal 3: max byte growth within --bloat-days (0=off)")
+	bloatDays := fs.Int("bloat-days", 7, "bloat signal 3: growth window in days")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
@@ -167,11 +288,15 @@ func docCheck(args []string, stdout, stderr io.Writer) int {
 	}
 	orphans := docs.Orphans(layer.refs)
 	tiny := docs.Tiny(layer.refs)
+	contents, prev := bloatInputs(fs.Dir(), layer.refs, *bloatDays)
+	bloat := docs.Bloat(layer.refs, contents, prev, docs.BloatOpts{
+		MaxBytes: *bloatBytes, MaxChangelog: *bloatChangelog, MaxGrowth: *bloatGrowth, Days: *bloatDays,
+	})
 	if *asJSON {
-		printJSON(stdout, map[string]any{"orphans": orphans, "stale": layer.stale, "tiny": tiny})
+		printJSON(stdout, map[string]any{"orphans": orphans, "stale": layer.stale, "tiny": tiny, "bloat": bloat})
 		return 0
 	}
-	if len(orphans) == 0 && len(layer.stale) == 0 && len(tiny) == 0 {
+	if len(orphans) == 0 && len(layer.stale) == 0 && len(tiny) == 0 && len(bloat) == 0 {
 		fmt.Fprintln(stdout, "doc check: clean — every monitored .md has exactly one claim, and no doc lags its owner")
 		return 0
 	}
@@ -185,6 +310,9 @@ func docCheck(args []string, stdout, stderr io.Writer) int {
 	for _, r := range tiny {
 		fmt.Fprintf(stdout, "doc tiny: %s (%dB < %dB) — decision doc suspiciously small (stub, not a plan?)\n",
 			r.Path, r.Size, docs.TinyFloor)
+	}
+	for _, b := range bloat {
+		fmt.Fprintf(stdout, "doc bloat: %s (%s, %s) [%s] %s\n", b.Path, b.Role, b.Owner, b.Kind, b.Detail)
 	}
 	return 0
 }

@@ -20,7 +20,10 @@
 package docs
 
 import (
+	"fmt"
 	"path"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -40,6 +43,10 @@ const (
 	// RoleEvidence 验收/核验报告——由 work item 的 document 证据 locator 认领，
 	// 是完成时快照，本就不该再变（陈旧不可判）。
 	RoleEvidence Role = "evidence"
+	// RoleContract 契约正本（INFO-CARD 类）——由 system.contract_doc 认领，
+	// 在系统映射仓内（档案 §30）。陈旧不判（版本机制另有 human_ack），
+	// bloat 判（契约慢膨胀是真实病灶：data INFO-CARD 曾 216KB / changelog 59%）。
+	RoleContract Role = "contract"
 )
 
 // Claim 是一条认领声明。认领不等于占有——文件仍在 git，
@@ -384,6 +391,142 @@ func Tiny(refs []Ref) []Ref {
 			out = append(out, r)
 		}
 	}
+	return out
+}
+
+// ContractRefPrefix 是契约正本 Ref.Path 的命名空间前缀（"<system>:<repo 内相对路径>"）。
+// 与工作区路径区分开——它不在看板仓，git 时间取自映射仓。
+func ContractRefPrefix(system string) string { return system + ":" }
+
+// ContractRefs 为声明了 contract_doc 的系统构造契约正本 Ref。
+// resolve 返回该系统映射仓的本机路径（repos.yaml；未映射/不存在 → ok=false 跳过）。
+// Path 用 "<system>:<rel>" 展示形；Size 由调用方注入的 stat 取得（无 → 0，bloat ① 判不了）。
+// 纯函数：resolve/stat 由调用方传入，本包不读盘。
+func ContractRefs(systems []model.System, resolve func(system string) (repoDir string, ok bool), stat func(repoDir, rel string) (int64, bool)) []Ref {
+	var out []Ref
+	for _, s := range systems {
+		rel := strings.TrimSpace(s.ContractDoc)
+		if rel == "" {
+			continue
+		}
+		repoDir, ok := resolve(s.ID)
+		if !ok {
+			continue
+		}
+		size, ok := stat(repoDir, rel)
+		if !ok {
+			continue
+		}
+		out = append(out, Ref{
+			Path: ContractRefPrefix(s.ID) + filepath.ToSlash(rel),
+			Role: RoleContract, Owner: s.ID, Claimed: true, Size: size,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// BloatOpts 是 doc bloat 三阈值（档案 §30，TASK-039）。告警不拒绝——
+// 契约合法增长不能被误杀（卡边界）。零值字段 = 该信号关闭。
+type BloatOpts struct {
+	MaxBytes     int64 // ① 单文件体积上限（默认 30KB）
+	MaxChangelog int   // ② changelog/history 节字节占比上限（百分比，默认 20）
+	MaxGrowth    int64 // ③ 环比激增上限（默认 20KB / Days 天）
+	Days         int   // 环比窗口天数（默认 7）
+}
+
+// BloatFinding 是一条膨胀告警。Kind = size|changelog|growth。
+type BloatFinding struct {
+	Path   string
+	Role   Role
+	Owner  string
+	Kind   string
+	Size   int64
+	Detail string
+}
+
+// ChangelogRatio 计算内容中 changelog/history 节的字节占比（0..1）。
+// 节 = 标题行匹配 (?i)changelog|history 起，至下一任意级别标题止
+// （子节也属 changelog——它们就是历史的一部分）。识别口径按卡：英文
+// changelog/history 标题；中文「变更记录」节同样普遍，一并纳入。
+func ChangelogRatio(content []byte) float64 {
+	s := string(content)
+	if len(s) == 0 {
+		return 0
+	}
+	headingRe := regexp.MustCompile(`(?m)^#{1,6}\s+(.*)$`)
+	locs := headingRe.FindAllStringSubmatchIndex(s, -1)
+	if locs == nil {
+		return 0
+	}
+	chlogRe := regexp.MustCompile(`(?i)changelog|history|变更记录|变更历史|更新历史`)
+	var total int
+	for i, loc := range locs {
+		title := s[loc[2]:loc[3]]
+		if !chlogRe.MatchString(title) {
+			continue
+		}
+		end := len(s)
+		if i+1 < len(locs) {
+			end = locs[i+1][0]
+		}
+		total += end - loc[0]
+	}
+	if total > len(s) {
+		total = len(s)
+	}
+	return float64(total) / float64(len(s))
+}
+
+// Bloat 计算膨胀告警（TASK-039 三信号）。目标 = 已认领且非越界的
+// decision/status/contract——契约面的三种载体；evidence 是完成时快照不判。
+//
+// 输入注入（本包纯函数不读盘不跑 git）：
+//   - contents: path → 文件内容（缺项 = ②跳过该文件）
+//   - prev:     path → Days 天前体积（缺项 = ③跳过该文件）
+func Bloat(refs []Ref, contents map[string][]byte, prev map[string]int64, o BloatOpts) []BloatFinding {
+	var out []BloatFinding
+	for _, r := range refs {
+		if !r.Claimed || r.External {
+			continue
+		}
+		switch r.Role {
+		case RoleDecision, RoleStatus, RoleContract:
+		default:
+			continue
+		}
+		if o.MaxBytes > 0 && r.Size > o.MaxBytes {
+			out = append(out, BloatFinding{
+				Path: r.Path, Role: r.Role, Owner: r.Owner, Kind: "size", Size: r.Size,
+				Detail: fmt.Sprintf("%dKB > %dKB — 建议拆节（单文件承载过多职责）", r.Size/1024, o.MaxBytes/1024),
+			})
+		}
+		if o.MaxChangelog > 0 {
+			if c, ok := contents[r.Path]; ok {
+				pct := int(ChangelogRatio(c) * 100)
+				if pct > o.MaxChangelog {
+					out = append(out, BloatFinding{
+						Path: r.Path, Role: r.Role, Owner: r.Owner, Kind: "changelog", Size: r.Size,
+						Detail: fmt.Sprintf("changelog/history 节占 %d%% > %d%% — 任务上下文错居，摘要化+指针化（细节归单/归仓）", pct, o.MaxChangelog),
+					})
+				}
+			}
+		}
+		if o.MaxGrowth > 0 && o.Days > 0 {
+			if p, ok := prev[r.Path]; ok && r.Size-p > o.MaxGrowth {
+				out = append(out, BloatFinding{
+					Path: r.Path, Role: r.Role, Owner: r.Owner, Kind: "growth", Size: r.Size,
+					Detail: fmt.Sprintf("+%dKB in %dd (was %dKB) — 异常膨胀，查写入纪律", (r.Size-p)/1024, o.Days, p/1024),
+				})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		return out[i].Kind < out[j].Kind
+	})
 	return out
 }
 

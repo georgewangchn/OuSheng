@@ -234,3 +234,94 @@ func TestDocJSON(t *testing.T) {
 		}
 	}
 }
+
+// doc bloat 三信号（TASK-039）：真实 git 历史触发 growth、契约仓联动触发 size。
+// 契约正本走 system.contract_doc + repos.yaml 映射（档案 §30 第四类认领）。
+func TestDocCheckBloat(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "george", "--name", "George")
+	mustRun(t, dir, "system", "add", "cms-api")
+
+	// ①+②：40KB 方案，changelog 节占 ~60%。
+	big := "# CSV 方案\n" + strings.Repeat("a", 12*1024) + "\n## Changelog\n" + strings.Repeat("b", 26*1024) + "\n"
+	writeDoc(t, dir, "docs/design/csv-plan.md", big)
+	// ③：8 天前 8KB → 现在 33KB（+25KB/7d）。
+	writeDoc(t, dir, "docs/design/grow.md", strings.Repeat("g", 8*1024))
+	// 健康：小、无 changelog、增长 <1KB。
+	writeDoc(t, dir, "docs/design/calm.md", strings.Repeat("c", 6*1024))
+	writeDesignFile(t, dir, "csv-plan",
+		"status: draft\nowner: george\nsystems: [cms-api]\ndoc: docs/design/csv-plan.md\n", "# x\n")
+	writeDesignFile(t, dir, "grow-plan",
+		"status: draft\nowner: george\nsystems: [cms-api]\ndoc: docs/design/grow.md\n", "# x\n")
+	writeDesignFile(t, dir, "calm-plan",
+		"status: draft\nowner: george\nsystems: [cms-api]\ndoc: docs/design/calm.md\n", "# x\n")
+	gitRun(t, dir, "add", "-A")
+	gitCommitAt(t, dir, "2026-10-20T10:00:00+08:00", "v1 small")
+	writeDoc(t, dir, "docs/design/grow.md", strings.Repeat("g", 33*1024))
+	writeDoc(t, dir, "docs/design/calm.md", strings.Repeat("c", 7*1024))
+	gitRun(t, dir, "add", "-A")
+	gitCommitAt(t, dir, "2026-10-28T10:00:00+08:00", "v2 grown")
+
+	// 契约正本：系统映射仓 + contract_doc 声明。
+	sysRepo := t.TempDir()
+	gitRun(t, sysRepo, "init", "-q", "-b", "main")
+	gitRun(t, sysRepo, "config", "user.name", "t")
+	gitRun(t, sysRepo, "config", "user.email", "t@t.local")
+	os.WriteFile(filepath.Join(sysRepo, "INFO-CARD.md"), []byte(strings.Repeat("i", 96*1024)), 0o644)
+	gitRun(t, sysRepo, "add", "-A")
+	gitCommitAt(t, sysRepo, "2026-10-20T10:00:00+08:00", "contract v1")
+	mustRun(t, dir, "repo", "set", "cms-api", sysRepo)
+	setContractDoc(t, dir, "cms-api", "INFO-CARD.md")
+
+	out := mustRun(t, dir, "doc", "check")
+	for _, want := range []string{
+		"doc bloat: docs/design/csv-plan.md (decision, csv-plan) [size]",
+		"doc bloat: docs/design/csv-plan.md (decision, csv-plan) [changelog]",
+		"doc bloat: docs/design/grow.md (decision, grow-plan) [growth]",
+		"doc bloat: cms-api:INFO-CARD.md (contract, cms-api) [size]",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "calm") {
+		t.Fatalf("healthy doc must stay silent:\n%s", out)
+	}
+	// JSON 面同给 bloat。
+	js := mustRun(t, dir, "doc", "check", "--json")
+	if !strings.Contains(js, `"Kind": "size"`) {
+		t.Fatalf("json must carry bloat kind:\n%s", js)
+	}
+	// 阈值可调（卡边界：告警不拒绝；0=关）。
+	off := mustRun(t, dir, "doc", "check", "--bloat-bytes", "0", "--bloat-changelog", "0", "--bloat-growth", "0")
+	if strings.Contains(off, "doc bloat") {
+		t.Fatalf("0 must disable all bloat signals:\n%s", off)
+	}
+}
+
+// setContractDoc 手改 systems.yaml 声明契约正本（登记面轻字段，暂无 CLI 面）。
+func setContractDoc(t *testing.T, dir, sys, rel string) {
+	t.Helper()
+	p := filepath.Join(dir, ".ousheng", "systems.yaml")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(b), "\n")
+	var out []string
+	inserted := false
+	for _, l := range lines {
+		out = append(out, l)
+		if !inserted && strings.TrimSpace(l) == "- id: "+sys {
+			out = append(out, "      contract_doc: "+rel)
+			inserted = true
+		}
+	}
+	if !inserted {
+		t.Fatalf("system %s not found in systems.yaml", sys)
+	}
+	if err := os.WriteFile(p, []byte(strings.Join(out, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
