@@ -141,6 +141,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdConverge(args[1:], stdout, stderr)
 	case "design":
 		return cmdDesign(args[1:], stdout, stderr)
+	case "doc":
+		return cmdDoc(args[1:], stdout, stderr)
 	case "context":
 		return cmdContext(args[1:], stdout, stderr)
 	case "work":
@@ -237,12 +239,11 @@ func cmdConverge(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	// 共识层输入经 kn 显式携带（v0.4：不进 Index 查询面——S5 判决）。
-	// 审计辅助（档案 §28）：档案 git 日期 + decide activity，同为显式携带。
+	// 审计辅助：decide activity（档案 §28）。文档认领层（§29）：孤儿与陈旧，
+	// 与 `ousheng doc` 共用同一装载实现（一语义一实现）；非 git 仓时自动退化
+	// 为只跟踪认领指向的文件。
 	kn := converge.Knowledge{Designs: snap.Designs, Architecture: snap.Architecture}
 	repo := gityaml.Open(fs.Dir())
-	if m, err := repo.ArchitectureUpdated(); err == nil && len(m) > 0 {
-		kn.ArchitectureUpdated = m
-	}
 	if acts, err := repo.ListActivity(); err == nil {
 		decided := map[string]bool{}
 		for _, a := range acts {
@@ -252,6 +253,9 @@ func cmdConverge(args []string, stdout, stderr io.Writer) int {
 		}
 		kn.DesignDecided = decided
 	}
+	layer := assembleDocLayer(fs.Dir(), snap)
+	kn.DocRefs = layer.refs
+	kn.DocStale = layer.stale
 	res, err := converge.Check(idx, kn)
 	if err != nil {
 		fmt.Fprintln(stderr, err)

@@ -11,10 +11,9 @@ package converge
 
 import (
 	"fmt"
-	"sort"
 	"strings"
-	"time"
 
+	"ousheng/internal/docs"
 	"ousheng/internal/graph"
 	"ousheng/internal/index"
 	"ousheng/internal/model"
@@ -40,10 +39,14 @@ type Knowledge struct {
 	Designs      []model.DesignInfo
 	Architecture []string
 
-	// 审计辅助（档案 §28，实栈 tide-datax PM 梳理复盘）：cmd 层从 repo 构建、
+	// 审计辅助（档案 §28 引入，§29 并入认领层统一计算）：cmd 层从 repo 构建、
 	// 显式携带；零值 = 调用方未提供，对应检查跳过（不误伤旧调用方/测试）。
-	ArchitectureUpdated map[string]time.Time // 卡最后 git 提交时间（档案滞后曝光输入）
-	DesignDecided       map[string]bool      // 有 design_decided activity 的 topic（拍板审计交叉验证）
+	DesignDecided map[string]bool // 有 design_decided activity 的 topic（拍板审计交叉验证）
+
+	// 文档认领层（文档认领层设计 §五）：认领态由 cmd 层从 repo 派生后显式携带，
+	// 不进 Index 查询面（S5 同判：memory/sqlite 等价性只覆盖 WorkItem 查询）。
+	DocRefs  []docs.Ref          // 受监控文档的认领态（orphan 判定输入）
+	DocStale []docs.StaleFinding // 陈旧文档（含 architecture 卡滞后——RoleStatus）
 }
 
 // Check 只依赖索引：memory 与 sqlite 实现结果必须一致（S5）。
@@ -369,61 +372,40 @@ func (kn Knowledge) audit(idx index.Index, all []model.WorkItem, blockers, warni
 		}
 	}
 
-	// architecture 档案滞后曝光（档案 §28；实栈实锤：mlake 卡 IP 段过时半月、
-	// ui 卡一月未更致 PM 看不到系统全貌，被迫亲测对账）。事实：系统有 done
-	// 交付（含 notice 广播）且其证据时间晚于档案最后更新 = 全貌视角可能过期。
-	// 零阈值曝光：有即报，不猜"多旧才算旧"（阈值 = 语义判断，绳不越位）。
-	// 无日期（调用方未携带）= 无法判定，跳过。
-	if len(kn.ArchitectureUpdated) > 0 {
-		type delivery struct {
-			id string
-			at time.Time
-		}
-		bySys := map[string][]delivery{}
-		for _, w := range all {
-			if w.Status != model.StatusDone || w.System == "" {
-				continue
-			}
-			at, ok := latestEvidenceTime(w)
-			if !ok {
-				continue
-			}
-			bySys[w.System] = append(bySys[w.System], delivery{id: w.ID, at: at})
-		}
-		for sys, cardAt := range kn.ArchitectureUpdated {
-			var after []delivery
-			for _, d := range bySys[sys] {
-				if d.at.After(cardAt) {
-					after = append(after, d)
+	// 文档认领层：孤儿与陈旧（文档认领层设计 §5.3）。
+	// 含 architecture 卡滞后（RoleStatus）——§28 的独立机制已并入本层统一
+	// 计算（internal/docs.FindStale），同一事实不再两报（档案 §29 机制统一）。
+	// converge 只报摘要（count + 前 N 条）——明细走 `ousheng doc check`，
+	// 避免文档卫生问题在收尾 sync 里刷屏淹没收敛结论。
+	if n := len(kn.DocRefs); n > 0 {
+		orphans := 0
+		var shown []string
+		for _, r := range kn.DocRefs {
+			if !r.Claimed {
+				orphans++
+				if len(shown) < docOrphanShown {
+					shown = append(shown, r.Path)
 				}
 			}
-			if len(after) == 0 {
-				continue
-			}
-			sort.Slice(after, func(i, j int) bool { return after[i].at.Before(after[j].at) })
-			last := after[len(after)-1]
-			warnings = append(warnings, fmt.Sprintf("system %s: architecture doc stale — %d done deliveries after last doc update (latest %s at %s), full-view may be outdated",
-				sys, len(after), last.id, last.at.Format("2006-01-02")))
+		}
+		if orphans > 0 {
+			warnings = append(warnings, fmt.Sprintf("doc orphan: %d unclaimed .md under monitored trees (e.g. %s) — run `ousheng doc check` for the full list",
+				orphans, strings.Join(shown, ", ")))
 		}
 	}
+	for _, s := range kn.DocStale {
+		warnings = append(warnings, fmt.Sprintf("%s (%s, %s): doc stale — %d done deliveries after doc update (latest %s at %s)",
+			s.Path, s.Role, s.Owner, s.Count, s.LatestID, s.Latest.Format("2006-01-02")))
+	}
+
 	return blockers, warnings
 }
 
-// latestEvidenceTime 返回该 work item 证据中最晚的 observed_at（RFC3339）。
-// 无证据/全部不可解析 = false（done 零证据已有独立 warning，此处不重复归罪）。
-func latestEvidenceTime(w model.WorkItem) (time.Time, bool) {
-	var latest time.Time
-	for _, e := range w.Evidence {
-		t, err := time.Parse(time.RFC3339, e.ObservedAt)
-		if err != nil {
-			continue
-		}
-		if t.After(latest) {
-			latest = t
-		}
-	}
-	return latest, !latest.IsZero()
-}
+// docOrphanShown 限制 converge 里孤儿样例条数——摘要不刷屏，明细走 doc check。
+const docOrphanShown = 5
+
+// latestEvidenceTime 已并入 internal/docs.LatestEvidenceTime（认领层统一计算，
+// 档案 §29 机制统一——converge 不再自持一份证据时间解析）。
 
 // incompleteInfo 报告 ready 起（可开工/进行中）按类型缺失的最小信息集。
 // 只曝光不拦：'信息够不够'有判断成分，硬门会逼出"待定"式造假（2026-09-18 反事实）。

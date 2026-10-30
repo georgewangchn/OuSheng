@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"ousheng/internal/card"
+	"ousheng/internal/docs"
 	"ousheng/internal/index"
 	"ousheng/internal/index/memory"
 	"ousheng/internal/migrate"
@@ -336,55 +337,50 @@ func TestDesignDecidedWithoutActivityWarns(t *testing.T) {
 	}
 }
 
-// architecture 档案滞后曝光（档案 §28，实栈实锤：mlake 卡 IP 段过时半月、
-// ui 卡一月未更——PM 看不到系统全貌）。事实 = done 交付证据晚于档案最后更新。
-func TestArchitectureStaleWarns(t *testing.T) {
+// 文档认领层在 converge 的曝光（档案 §29；含 §28 并入的 architecture 滞后）。
+// 计算语义在 internal/docs.FindStale（docs_test 全覆盖），此处锁 relay 形态：
+// 孤儿摘要（count + 样例）+ 陈旧逐条。
+func TestDocLayerWarnings(t *testing.T) {
 	done := model.WorkItem{
 		ID: "T-1", Type: model.TypeTask, System: "ui", Status: model.StatusDone,
 		Description: "d",
-		Evidence: []model.Evidence{{Type: model.EvidenceManualCheck, ObservedAt: "2026-10-25T08:00:00+08:00"}},
+		Evidence:    []model.Evidence{{Type: model.EvidenceManualCheck, ObservedAt: "2026-10-25T08:00:00+08:00"}},
 	}
 	snap := index.Snapshot{Actors: castActors, Systems: []model.System{{ID: "ui"}}, WorkItems: []model.WorkItem{done}}
 	idx := memory.New()
 	if err := idx.Rebuild(snap); err != nil {
 		t.Fatal(err)
 	}
-	kn := Knowledge{Architecture: []string{"ui"}, ArchitectureUpdated: map[string]time.Time{"ui": time.Date(2026, 9, 28, 0, 0, 0, 0, time.Local)}}
+	kn := Knowledge{
+		Architecture: []string{"ui"},
+		DocRefs: []docs.Ref{
+			{Path: ".ousheng/architecture/ui.md", Role: docs.RoleStatus, Owner: "ui", Claimed: true,
+				Updated: time.Date(2026, 9, 28, 0, 0, 0, 0, time.Local)},
+			{Path: "docs/design/孤儿方案.md", Size: 100},
+		},
+		DocStale: []docs.StaleFinding{{
+			Path: ".ousheng/architecture/ui.md", Role: docs.RoleStatus, Owner: "ui",
+			DocTime:  time.Date(2026, 9, 28, 0, 0, 0, 0, time.Local),
+			Latest:   time.Date(2026, 10, 25, 8, 0, 0, 0, time.Local),
+			LatestID: "T-1", Count: 1,
+		}},
+	}
 	r, err := Check(idx, kn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !contains(r.Warnings, "system ui: architecture doc stale — 1 done deliveries after last doc update (latest T-1 at 2026-10-25)") {
-		t.Fatalf("stale card must warn, got %v", r.Warnings)
+	if !contains(r.Warnings, ".ousheng/architecture/ui.md (status, ui): doc stale — 1 done deliveries after doc update (latest T-1 at 2026-10-25)") {
+		t.Fatalf("stale doc must warn, got %v", r.Warnings)
+	}
+	if !contains(r.Warnings, "doc orphan: 1 unclaimed .md under monitored trees (e.g. docs/design/孤儿方案.md)") {
+		t.Fatalf("orphan must warn with sample, got %v", r.Warnings)
 	}
 
-	// 卡新于交付：静默（核对过即清零——自清除信号）。
-	kn.ArchitectureUpdated = map[string]time.Time{"ui": time.Date(2026, 10, 26, 0, 0, 0, 0, time.Local)}
+	// 零值输入（旧调用方/测试）：跳过，不误伤。
+	kn.DocRefs, kn.DocStale = nil, nil
 	r, _ = Check(idx, kn)
-	if contains(r.Warnings, "architecture doc stale") {
-		t.Fatalf("fresh card must be silent, got %v", r.Warnings)
-	}
-
-	// 调用方未携带日期：跳过。
-	kn.ArchitectureUpdated = nil
-	r, _ = Check(idx, kn)
-	if contains(r.Warnings, "architecture doc stale") {
-		t.Fatalf("nil dates must skip, got %v", r.Warnings)
-	}
-
-	// 未 done 的交付不算（活单的证据晚于卡 ≠ 档案滞后——活单还没定形）。
-	live := done
-	live.ID = "T-2"
-	live.Status = model.StatusDoing
-	snap.WorkItems = append(snap.WorkItems, live)
-	idx2 := memory.New()
-	if err := idx2.Rebuild(snap); err != nil {
-		t.Fatal(err)
-	}
-	kn.ArchitectureUpdated = map[string]time.Time{"ui": time.Date(2026, 10, 26, 0, 0, 0, 0, time.Local)}
-	r, _ = Check(idx2, kn)
-	if contains(r.Warnings, "architecture doc stale") {
-		t.Fatalf("active delivery must not count, got %v", r.Warnings)
+	if contains(r.Warnings, "doc orphan") || contains(r.Warnings, "doc stale") {
+		t.Fatalf("nil doc layer must skip, got %v", r.Warnings)
 	}
 }
 
