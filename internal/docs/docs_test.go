@@ -1,6 +1,7 @@
 package docs
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -360,5 +361,89 @@ func TestExemptFilesNeverOrphan(t *testing.T) {
 	refs := Build(filtered, claims)
 	if got := Orphans(refs); len(got) != 0 {
 		t.Fatalf("exempt files must not orphan, got %v", got)
+	}
+}
+
+// --- doc bloat 三信号（TASK-039，档案 §30） ---
+
+func TestChangelogRatio(t *testing.T) {
+	big := "## 架构\n" + strings.Repeat("x", 3000) + "\n## Changelog\n" + strings.Repeat("y", 2000) + "\n"
+	if r := ChangelogRatio([]byte(big)); r < 0.39 || r > 0.41 {
+		t.Fatalf("changelog ratio ≈40%% expected, got %.2f", r)
+	}
+	// 子节也属 changelog；中文「变更记录」同判。
+	cn := "# 卡\n正文\n## 变更记录\n- a\n### 2026\n- b\n"
+	if r := ChangelogRatio([]byte(cn)); r == 0 {
+		t.Fatalf("chinese 变更记录 section must count, got 0")
+	}
+	if r := ChangelogRatio([]byte("# 只有正文\n无节\n")); r != 0 {
+		t.Fatalf("no section must be 0, got %.2f", r)
+	}
+}
+
+func TestContractRefs(t *testing.T) {
+	systems := []model.System{
+		{ID: "data", ContractDoc: "datax/INFO-CARD.md"},
+		{ID: "mlake", ContractDoc: "deploy/docs/INFO-CARD.md"},
+		{ID: "ui"}, // 未声明 → 无 ref
+	}
+	refs := ContractRefs(systems,
+		func(sys string) (string, bool) {
+			if sys == "data" {
+				return "/repos/datax-data", true
+			}
+			return "", false // mlake 本机未映射 → 跳过
+		},
+		func(repoDir, rel string) (int64, bool) {
+			if repoDir == "/repos/datax-data" && rel == "datax/INFO-CARD.md" {
+				return 216088, true
+			}
+			return 0, false
+		})
+	if len(refs) != 1 || refs[0].Path != "data:datax/INFO-CARD.md" || refs[0].Role != RoleContract || refs[0].Owner != "data" || refs[0].Size != 216088 {
+		t.Fatalf("contract refs wrong: %+v", refs)
+	}
+	if !refs[0].Claimed {
+		t.Fatalf("contract doc is claimed by definition")
+	}
+}
+
+func TestBloatThreeSignals(t *testing.T) {
+	refs := []Ref{
+		{Path: "data:datax/INFO-CARD.md", Role: RoleContract, Owner: "data", Claimed: true, Size: 216088},
+		{Path: "docs/design/慢涨.md", Role: RoleDecision, Owner: "t1", Claimed: true, Size: 40 * 1024},
+		{Path: "docs/design/健康.md", Role: RoleDecision, Owner: "t2", Claimed: true, Size: 8 * 1024},
+		{Path: "docs/acceptance/r.md", Role: RoleEvidence, Owner: "T-1", Claimed: true, Size: 900 * 1024}, // 快照不判
+		{Path: "docs/design/孤儿.md", Size: 500 * 1024},                                                     // 未认领不判（先治无主）
+	}
+	contents := map[string][]byte{
+		"data:datax/INFO-CARD.md": []byte("## 服务面\n" + strings.Repeat("a", 80000) + "\n## Changelog\n" + strings.Repeat("b", 130000) + "\n"),
+		"docs/design/健康.md":       []byte("# 方案\n" + strings.Repeat("c", 8000)),
+	}
+	prev := map[string]int64{
+		"docs/design/慢涨.md": 10 * 1024, // +30KB/7d → growth
+		"docs/design/健康.md": 7 * 1024,  // +1KB → 健康
+	}
+	got := Bloat(refs, contents, prev, BloatOpts{MaxBytes: 30 * 1024, MaxChangelog: 20, MaxGrowth: 20 * 1024, Days: 7})
+	kinds := map[string]int{}
+	for _, f := range got {
+		kinds[f.Path+"/"+f.Kind]++
+	}
+	if kinds["data:datax/INFO-CARD.md/size"] != 1 {
+		t.Fatalf("216KB contract must trigger size, got %v", got)
+	}
+	if kinds["data:datax/INFO-CARD.md/changelog"] != 1 {
+		t.Fatalf("59%%-ish changelog must trigger, got %v", got)
+	}
+	if kinds["docs/design/慢涨.md/growth"] != 1 {
+		t.Fatalf("+30KB/7d must trigger growth, got %v", got)
+	}
+	if kinds["docs/design/慢涨.md/size"] != 1 {
+		t.Fatalf("40KB also over size floor, got %v", got)
+	}
+	for _, f := range got {
+		if f.Path == "docs/design/健康.md" || f.Path == "docs/acceptance/r.md" || f.Path == "docs/design/孤儿.md" {
+			t.Fatalf("healthy/evidence/unclaimed must stay silent, got %+v", f)
+		}
 	}
 }

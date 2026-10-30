@@ -8,6 +8,15 @@ type System struct {
 	Name         string   `yaml:"name,omitempty"`
 	Parent       string   `yaml:"parent,omitempty"`
 	Repositories []string `yaml:"repositories,omitempty"`
+
+	// ContractDoc 是该系统契约正本（INFO-CARD 类）在**其映射代码仓内**的
+	// 相对路径（档案 §30，TASK-039）。机器本地经 repos.yaml 解析到仓；
+	// 未映射/文件缺失 = 该机不可见，静默跳过（best-effort 读面）。
+	//
+	// 语义：投影在 ousheng，SSOT 在实栈——architecture/<sys>.md 是绳上投影，
+	// contract_doc 指向真本。认领层据此把契约正本纳为 RoleContract（bloat 判，
+	// 陈旧不判——契约版本机制另有 human_ack）。空 = 未声明，合法。
+	ContractDoc string `yaml:"contract_doc,omitempty"`
 }
 
 type SystemsFile struct {
