@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -55,9 +54,6 @@ func DecodeHandover(raw []byte) (HandoverFile, string, error) {
 	}
 	return f, s[4+end+5:], nil
 }
-
-// Now 是时间源单点（测试可替换语义由 gityaml 层承担，这里只收口格式）。
-func NowRFC3339() string { return time.Now().Format(time.RFC3339Nano) }
 
 // --- credentials 登记表（上下文交接方案 §H2）---
 

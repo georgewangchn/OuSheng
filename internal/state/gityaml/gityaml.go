@@ -282,8 +282,24 @@ func (r *Repo) InitWorkspace(project model.Project) error {
 	}
 	// me / repos.yaml 是本机个人配置（类 git config user.name），不入 git；
 	// secrets/ 是凭据值（上下文交接方案 §H2：值永不入 git——首日防线）。
+	// 读-合并-写（评审 🟡：原直接覆盖会冲掉用户手工加的排除行）。
 	mgi := filepath.Join(r.root(), ".gitignore")
-	if err := os.WriteFile(mgi, []byte("me\nrepos.yaml\nsecrets/\n"), 0o644); err != nil {
+	base := []string{"me", "repos.yaml", "secrets/"}
+	old, _ := os.ReadFile(mgi)
+	have := map[string]bool{}
+	var out []string
+	for _, l := range strings.Split(strings.TrimRight(string(old), "\n"), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			have[l] = true
+			out = append(out, l)
+		}
+	}
+	for _, l := range base {
+		if !have[l] {
+			out = append(out, l)
+		}
+	}
+	if err := os.WriteFile(mgi, []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil {
 		return err
 	}
 	if err := r.gitInit(); err != nil {

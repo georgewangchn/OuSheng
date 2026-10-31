@@ -91,7 +91,15 @@ func (r *Repo) SaveHandover(system, actor, body, msg string) (model.HandoverInfo
 	if !handoverSegRe.MatchString(actor) {
 		return model.HandoverInfo{}, fmt.Errorf("invalid actor %q (lowercase-hyphen)", actor)
 	}
-	savedAt := model.NowRFC3339()
+	// 注册表校验（评审 🟡：防幽灵座位——typo 系统会在 handover/ 下建幽灵目录、
+	// context me 指针指空。system 必须已注册；actor 必须是已注册身份（含 human）。
+	if _, err := r.GetSystem(system); err != nil {
+		return model.HandoverInfo{}, fmt.Errorf("unknown system %q — 先 ousheng system add %s", system, system)
+	}
+	if _, err := r.GetActor(actor); err != nil {
+		return model.HandoverInfo{}, fmt.Errorf("unknown actor %q — 先注册（ousheng me / team add）", actor)
+	}
+	savedAt := model.Now()
 	raw := model.EncodeHandover(system, actor, savedAt, body)
 	if len(raw) > model.HandoverMaxBytes {
 		return model.HandoverInfo{}, fmt.Errorf("handover %d bytes > %d gate — 导航态超限即内容错居（细节去 design/单/architecture，此处只留指针）", len(raw), model.HandoverMaxBytes)

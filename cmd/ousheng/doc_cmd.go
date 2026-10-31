@@ -105,7 +105,13 @@ func assembleDocLayer(dir string, snap index.Snapshot) docLayer {
 }
 
 // isContractRef 报告 Ref 是否契约正本（"<system>:<rel>" 命名空间）。
-func isContractRef(p string) bool { return strings.Contains(p, ":") }
+// 判据：冒号出现在首个 "/" 之前且非首字符——工作区相对路径里的冒号
+// （docs/a:b.md）冒号前必含 "/"，不误判（评审 🟡：原 Contains 会把这类
+// 路径误踢出 DocUpdated 时间管道，陈旧判定静默失效）。
+func isContractRef(p string) bool {
+	i := strings.Index(p, ":")
+	return i > 0 && !strings.Contains(p[:i], "/")
+}
 
 // contractRepoResolver 返回 system → 本机映射仓路径。只认 repos.yaml 显式映射
 // （机器没映射 = 该机看不见契约正本，合法跳过）——不走工作区回退：契约正本
@@ -271,7 +277,7 @@ func docMap(args []string, stdout, stderr io.Writer) int {
 func docCheck(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("doc check")
 	asJSON := fs.Bool("json", false, "output JSON")
-	bloatBytes := fs.Int64("bloat-bytes", 0, "bloat signal 1: override max bytes for ALL roles (0=per-role defaults: contract/status 30KB, decision 50KB; negative=off)")
+	bloatBytes := fs.Int64("bloat-bytes", 0, "bloat signal 1: override ALL role tiers when >0 (takes precedence over --bloat-contract/decision; 0=per-role defaults, negative=off)")
 	bloatContract := fs.Int64("bloat-contract", 30*1024, "bloat signal 1: max bytes per contract/status doc")
 	bloatDecision := fs.Int64("bloat-decision", 50*1024, "bloat signal 1: max bytes per decision doc (方案正本可长)")
 	bloatChangelog := fs.Int("bloat-changelog", 20, "bloat signal 2: max changelog/history section share in percent (0=off)")
@@ -291,12 +297,19 @@ func docCheck(args []string, stdout, stderr io.Writer) int {
 	}
 	orphans := docs.Orphans(layer.refs)
 	tiny := docs.Tiny(layer.refs)
-	contents, prev := bloatInputs(fs.Dir(), layer.refs, *bloatDays)
-	bloat := docs.Bloat(layer.refs, contents, prev, docs.BloatOpts{
+	opts := docs.BloatOpts{
 		MaxBytes: *bloatBytes, MaxContractBytes: *bloatContract, MaxDecisionBytes: *bloatDecision,
 		MaxStatusBytes: *bloatContract, MaxChangelog: *bloatChangelog, MaxChangelogBytes: *bloatChangelogBytes,
 		MaxGrowth: *bloatGrowth, Days: *bloatDays,
-	})
+	}
+	// 全信号关闭时跳过 bloatInputs（评审 🔵：不白付 git rev-list/cat-file/读文件）。
+	var contents map[string][]byte
+	var prev map[string]int64
+	sizeOff := opts.MaxBytes < 0 || (opts.MaxBytes == 0 && opts.MaxContractBytes <= 0 && opts.MaxDecisionBytes <= 0 && opts.MaxStatusBytes <= 0)
+	if !sizeOff || opts.MaxChangelog > 0 || opts.MaxGrowth > 0 {
+		contents, prev = bloatInputs(fs.Dir(), layer.refs, *bloatDays)
+	}
+	bloat := docs.Bloat(layer.refs, contents, prev, opts)
 	if *asJSON {
 		printJSON(stdout, map[string]any{"orphans": orphans, "stale": layer.stale, "tiny": tiny, "bloat": bloat})
 		return 0
