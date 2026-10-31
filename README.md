@@ -21,9 +21,9 @@
 
 ## 三分钟视频：一次穿越看懂
 
-![](assets/promo/ousheng-promo-720p.mp4)
+[![OuSheng · 三次穿越](assets/promo/cover.jpg)](https://www.bilibili.com/video/BV1Gjxn6VEwE/)
 
-*《OuSheng · 三次穿越》（3'26"）——从"两边都宣称完成了"到证据、契约、拍板全上绳。*
+*《OuSheng · 三次穿越》（3'26"，1080p）——从"两边都宣称完成了"到证据、契约、拍板全上绳。点击播放（B 站）；仓内另有 [720p 版](assets/promo/ousheng-promo-720p.mp4)可下载。*
 
 ---
 
