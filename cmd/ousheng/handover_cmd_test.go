@@ -34,6 +34,7 @@ func TestHandoverSizeGate(t *testing.T) {
 	dir := t.TempDir()
 	mustRun(t, dir, "init")
 	mustRun(t, dir, "me", "data")
+	mustRun(t, dir, "system", "add", "lake")
 
 	saveHandover(t, dir, "lake", "data", "# 小快照\n下一步：跑回归\n")
 	out := mustRun(t, dir, "handover", "list")
@@ -158,6 +159,46 @@ func TestHandoverNotInDocLayer(t *testing.T) {
 	} {
 		if strings.Contains(out, "handover") {
 			t.Fatalf("doc layer must never surface handover pages:\n%s", out)
+		}
+	}
+}
+
+// 评审修复锁：幽灵座位必拒——system/actor 必须已注册（typo 不建幽灵目录）。
+func TestHandoverGhostSeatRejected(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "data")
+	mustRun(t, dir, "system", "add", "lake")
+
+	// system 未注册。
+	if _, se, code := runCLIRaw([]string{"handover", "save", "--dir", dir, "--system", "lakee", "--actor", "data"}); code == 0 || !strings.Contains(se, "unknown system") {
+		t.Fatalf("unregistered system must be rejected, got code=%d stderr=%s", code, se)
+	}
+	// actor 未注册。
+	if _, se, code := runCLIRaw([]string{"handover", "save", "--dir", dir, "--system", "lake", "--actor", "ghost"}); code == 0 || !strings.Contains(se, "unknown actor") {
+		t.Fatalf("unregistered actor must be rejected, got code=%d stderr=%s", code, se)
+	}
+	// 契约命名空间判定：工作区路径含冒号不误判（冒号在 / 之后）。
+	if isContractRef("docs/a:b.md") {
+		t.Fatalf("workspace path with colon must not be treated as contract ref")
+	}
+	if !isContractRef("data:datax/INFO-CARD.md") {
+		t.Fatalf("contract ref must be detected")
+	}
+}
+
+// 评审修复锁：重复 init 合并 .gitignore——用户自定义排除行不丢，基线三行补齐。
+func TestInitMergesGitignore(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	p := filepath.Join(dir, ".ousheng", ".gitignore")
+	os.WriteFile(p, []byte("me\nlocal scratch/\n"), 0o644)
+	mustRun(t, dir, "init") // 重复 init（灾难恢复/重建形态）
+	b, _ := os.ReadFile(p)
+	got := string(b)
+	for _, want := range []string{"me", "local scratch/", "repos.yaml", "secrets/"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("re-init must merge, keeping %q; got %q", want, got)
 		}
 	}
 }
