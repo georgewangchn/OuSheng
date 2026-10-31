@@ -1,4 +1,4 @@
-# OuSheng 上下文交接与凭据环境方案（v0.2 draft）
+# OuSheng 上下文交接与凭据环境方案（v0.3，pm 拍板四条全决）
 
 > 起草：ousheng 座位，2026-10-31。依据：实栈共性痛点三条（pm 提出）+ data 域手工交接实证。待 pm 拍板后拆单实施。
 > 定位：牵引绳增加「换页」能力——session 是牛的工作记忆（RAM），绳管 checkpoint 的载体与仪式，不管 session 正文。
@@ -171,9 +171,13 @@ ousheng handover list                           # 各座位快照时间一览（
 | `TestSecretPatternsWarn` | 高置信形态（PEM/token 前缀）在快照/登记表命中 → WARN；脱敏示例零误报 |
 | `TestCredentialsDoctor` | local-file 缺值 FAIL；password-manager 缺条目名 WARN；无登记表零检查（opt-in） |
 
-## 八、开放问题（pm 拍板点）
+## 八、拍板记录（pm 2026-10-31，四条全决）
 
-1. 快照粒度：system×actor（本设计）vs system 单页（pm 原话"每系统一个 session"）——多座位系统建议前者，单座位等价。
-2. 4KB 门是否合适（data 域手工交接的实效大小待采样）。
-3. secrets 文件格式（.env 风格 vs yaml）与命名（`secrets/<system>.env`）。
-4. 二期 env 术语表：pro/dev/uat/show 之外是否要 gray/canary。
+| # | 待决 | 裁决 |
+|---|---|---|
+| 1 | 快照粒度 | **system×actor**（推演定：多座位系统不互踩；单座位自然退化为等价单页；跨系统座位（agentos 型）按系统分页，语义清晰） |
+| 2 | 4KB 门 | **维持 4KB 硬门**（推演定：交接=导航态，超限即内容错居——该去 design/单/architecture；快照长成第二知识库正是要治的病。`handover list` 显各页大小防漂移；判据：真实合法内容反复撞门 → 升 8KB） |
+| 3 | secrets 格式 | **.env 风格，`secrets/<system>.env`**（pm 定；KEY=VALUE，井号注释，0600） |
+| 4 | env 术语表 | **含 gray/canary**（pm 定）：建议术语 dev / uat / gray / canary / show / pro——**开放集登记制非代码枚举**（各系统 envs 自登记，新术语不改产品代码） |
+
+边界确认（ousheng 座位补）：与 `design:context-engineering`（系统侧上下文工程）互补不重叠——那侧管系统仓内的知识组织，本设计只管绳上的换页载体与凭据索引。
