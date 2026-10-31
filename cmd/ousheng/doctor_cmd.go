@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"ousheng/adapters/opencode"
@@ -197,6 +198,48 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 					}
 				}
 			}
+
+			// --- 凭据三查（上下文交接方案 §H2，TASK-045）---
+			// ①② 无条件（事故不分是否登记）；③ opt-in（无登记表零检查零噪音）。
+			// 值永不入 git 是硬线：检查是机械锁，不靠自觉。
+			if out, err := gitOut(ws, "ls-files", "--", ".ousheng/secrets"); err == nil && strings.TrimSpace(out) != "" {
+				n := len(strings.Fields(out))
+				check("FAIL", fmt.Sprintf("secrets 已被 git 跟踪（%d 文件）——值入 git 事故：立即轮换凭据 + git filter-repo 洗历史（历史永存，删文件不够）", n))
+			}
+			if hits := scanSecretPatterns(ws); len(hits) > 0 {
+				check("WARN", fmt.Sprintf("高置信凭据形态出现在绳上文件（%s）——值只属于 secrets/ 本地文件或密码管理器", strings.Join(hits, ", ")))
+			}
+			creds, hasRegistry, err := gityaml.Open(ws).LoadCredentials()
+			if err != nil {
+				check("FAIL", fmt.Sprintf("credentials.yaml 非法（%v）——登记表只做位置索引，值不入册", err))
+			} else if hasRegistry {
+				var missing []string
+				for _, c := range creds.Credentials {
+					switch c.Location.Kind {
+					case "local-file":
+						ref := c.Location.Ref
+						filePart := ref
+						if i := strings.Index(ref, "#"); i > 0 {
+							filePart = ref[:i]
+						}
+						if filePart == "" {
+							filePart = "secrets/" + c.System + ".env"
+						}
+						if _, serr := os.Stat(filepath.Join(ws, ".ousheng", filepath.FromSlash(filePart))); serr != nil {
+							missing = append(missing, fmt.Sprintf("%s（%s）", c.ID, filePart))
+						}
+					case "password-manager":
+						if strings.TrimSpace(c.Location.Ref) == "" {
+							check("WARN", fmt.Sprintf("凭据 %s：password-manager 位置缺条目名（ref）", c.ID))
+						}
+					}
+				}
+				if len(missing) > 0 {
+					check("FAIL", fmt.Sprintf("本机缺凭据值：%s → 手工灌 .ousheng/secrets/（0600；re-clone 后一次性重灌）", strings.Join(missing, ", ")))
+				} else {
+					check("PASS", fmt.Sprintf("凭据登记 %d 条，本机值齐", len(creds.Credentials)))
+				}
+			}
 		}
 	}
 
@@ -266,4 +309,43 @@ func atoiSafe(s string) int {
 		n = n*10 + int(c-'0')
 	}
 	return n
+}
+
+// secretPatterns 是高置信凭据形态（上下文交接方案 §H2 锁 2.5——check-secrets
+// 先例产品化）。只收高置信防误报：脱敏示例（***）、普通 password: 字样不命中。
+var secretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`),
+	regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`),
+	regexp.MustCompile(`\bghp_[A-Za-z0-9]{36,}\b`),
+	regexp.MustCompile(`\bxox[baprs]-[A-Za-z0-9-]{20,}\b`),
+}
+
+// scanSecretPatterns 扫 .ousheng 下 git 跟踪的文本文件，返回命中（file:line 形态，≤5 条）。
+// 只读 git 已跟踪面（本机未跟踪的草稿不扫——那是人的私有区）。
+func scanSecretPatterns(ws string) []string {
+	out, err := gitOut(ws, "ls-files", "--", ".ousheng")
+	if err != nil {
+		return nil
+	}
+	var hits []string
+	for _, f := range strings.Fields(out) {
+		if !strings.HasSuffix(f, ".md") && !strings.HasSuffix(f, ".yaml") && !strings.HasSuffix(f, ".yml") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(ws, filepath.FromSlash(f)))
+		if err != nil || len(b) > 1<<20 {
+			continue
+		}
+		for i, line := range strings.Split(string(b), "\n") {
+			for _, re := range secretPatterns {
+				if re.MatchString(line) {
+					hits = append(hits, fmt.Sprintf("%s:%d", f, i+1))
+					if len(hits) >= 5 {
+						return hits
+					}
+				}
+			}
+		}
+	}
+	return hits
 }

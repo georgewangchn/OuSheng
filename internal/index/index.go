@@ -25,6 +25,7 @@ type Snapshot struct {
 	// memory/sqlite 等价性只覆盖 WorkItem 查询；design 消费点 = context join + converge）。
 	Designs      []model.DesignInfo
 	Architecture []string
+	Handover     []model.HandoverInfo // 指针级（正文不进 Snapshot——T10 注入面只取指针）
 }
 
 // Load 从 repository 装载完整 snapshot。
@@ -53,6 +54,9 @@ func Load(repo state.Repository) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	if s.Architecture, err = repo.ListArchitecture(); err != nil {
+		return Snapshot{}, err
+	}
+	if s.Handover, err = repo.ListHandover(); err != nil {
 		return Snapshot{}, err
 	}
 	return s, nil

@@ -104,6 +104,13 @@ flowchart LR
 
 第四道防线在提示层。`context me` 这类自动注入面只给指针（topic 名、文件名清单），方案正文不会自动进任何 AI 上下文。注入面最小化，提示注入的免疫面就最小化；`designs/`、`architecture/` 的正文对 AI 是数据，不是指令。
 
+两页有界状态，治长任务的上下文膨胀（1-2 月的活，session 不是垃圾场）：
+
+- **交接快照 `handover`**：每个座位（系统×actor）一页 ≤4KB 导航态——收尾 `save`（覆盖式，git 历史=版本链），开工 `show` 续航。re-clone 后 pull 即得全部快照，交接不丢。
+- **凭据登记 `credentials`**：位置入册（登记表入 git）+ 值在本地 gitignored `secrets/`。**值永不入 git**——doctor 三重机械锁：secrets 被跟踪即 FAIL、绳上文件高置信凭据形态 WARN、本机缺值 FAIL 带清单。忘密码？`doctor` 告诉你缺哪条，agent 自己读本地文件，不再问人。
+
+> 安全边界一句话：值不经过网络与 git，只在座位机本地文件（0600）；威胁模型不含本机入侵（那归机器管理员管）。
+
 四个时机，定义 AI 的动线：
 
 | 时机 | 谁动 | 回答的问题 |

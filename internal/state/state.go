@@ -60,6 +60,12 @@ type Repository interface {
 	// 写 = 仅生命周期（decide/supersede），内容生成不经绳（牛的活）。
 	ListDesigns() ([]model.DesignInfo, error)
 	ListArchitecture() ([]string, error)
+	// 交接快照（上下文交接方案 §H1）：座位级单页，覆盖式 + 4KB 门。
+	ListHandover() ([]model.HandoverInfo, error)
+	GetHandover(system, actor string) (model.HandoverFile, string, error)
+	SaveHandover(system, actor, body, msg string) (model.HandoverInfo, error)
+	// credentials 登记表（§H2）：位置入册；值永不入 git。
+	LoadCredentials() (model.CredentialsFile, bool, error)
 	GetDesignRaw(topic string) (model.DesignDoc, []byte, error)
 	UpdateDesign(topic string, d model.DesignDoc, body []byte, acts []model.Activity, msg string) error
 }

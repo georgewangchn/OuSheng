@@ -125,6 +125,10 @@ export default Plugin.define({
                   : status === "BLOCKED"
                     ? "Workspace is BLOCKED — explicit blocked item, dangling dependency, cycle, or missing evidence/ack. Human intervention needed."
                     : "Workspace is IN_PROGRESS — if you changed work items this session, run ousheng work update / progress report / evidence add before ending, then ousheng context me."
+              // 上下文交接（时机③并列提醒，便利层——权威在 AGENTS.md 协议段）：
+              // 长任务 session 膨胀，收尾存一页导航态快照，下一班 handover show 续航。
+              reminder +=
+                "\nContext handover: if this session carried working state, pipe a ≤4KB nav summary (in-progress / key facts / next steps) to `ousheng handover save --system <system>` — the next session starts light via `handover show`."
               await log(ctx, "info", `[OuSheng] Convergence at session end:\n${result}\n${reminder}`)
             } else {
               const b = await run([BOARD_BIN, "converge", "--dir", BOARD_DIR], directory)

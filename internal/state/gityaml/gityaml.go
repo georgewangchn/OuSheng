@@ -280,9 +280,10 @@ func (r *Repo) InitWorkspace(project model.Project) error {
 	if err := os.WriteFile(gi, []byte("*\n!.gitignore\n"), 0o644); err != nil {
 		return err
 	}
-	// me / repos.yaml 是本机个人配置（类 git config user.name），不入 git
+	// me / repos.yaml 是本机个人配置（类 git config user.name），不入 git；
+	// secrets/ 是凭据值（上下文交接方案 §H2：值永不入 git——首日防线）。
 	mgi := filepath.Join(r.root(), ".gitignore")
-	if err := os.WriteFile(mgi, []byte("me\nrepos.yaml\n"), 0o644); err != nil {
+	if err := os.WriteFile(mgi, []byte("me\nrepos.yaml\nsecrets/\n"), 0o644); err != nil {
 		return err
 	}
 	if err := r.gitInit(); err != nil {

@@ -28,6 +28,7 @@ type Service struct {
 	// 不进 Index 查询面（S5 判决）。
 	Designs      []model.DesignInfo
 	Architecture []string
+	Handover     []model.HandoverInfo
 }
 
 // New 装载 snapshot 并构建内存索引（小规模零基础设施，§30）。
@@ -40,7 +41,7 @@ func New(repo state.Repository) (*Service, error) {
 	if err := idx.Rebuild(snap); err != nil {
 		return nil, err
 	}
-	return &Service{Repo: repo, Idx: idx, Project: snap.Project, Designs: snap.Designs, Architecture: snap.Architecture}, nil
+	return &Service{Repo: repo, Idx: idx, Project: snap.Project, Designs: snap.Designs, Architecture: snap.Architecture, Handover: snap.Handover}, nil
 }
 
 // --- 第一层：最小上下文 ---
@@ -65,6 +66,11 @@ type MyContext struct {
 	// 共识层三通道（v0.4 §4.4，注入面铁律：全是指针，零自由文本）。
 	Knowledge      []string `json:"knowledge,omitempty"`       // architecture 文件名清单（正文自读）
 	PendingReviews []string `json:"pending_reviews,omitempty"` // 等我发言的 draft 设计主题（地址化派生）
+
+	// Handover 是**本座位**交接快照指针（上下文交接方案 §H1 四路判决：
+	// 注入面只指针一行一座位；正文经 `handover show` 按需自读——T10。
+	// 显自己不显别人：别人的快照是别人的工作记忆，指过来=噪音+越权感知）。
+	Handover []string `json:"handover,omitempty"`
 }
 
 // WorkBrief 是 active work 的最小条目；progress 标注 reported（§19/§21）。
@@ -77,9 +83,9 @@ type WorkBrief struct {
 	DueOn         string         `json:"due_on,omitempty" yaml:"due_on,omitempty"`
 	ProgressValue float64        `json:"progress_reported,omitempty" yaml:"progress_reported,omitempty"`
 	Contract      *ContractBrief `json:"contract,omitempty" yaml:"contract,omitempty"`
-	Design        string         `json:"design,omitempty" yaml:"design,omitempty"`                 // 方案出处指针："export-csv (agreed)"（v0.4 §4.4）
-	BlockedOn     []string       `json:"blocked_on,omitempty" yaml:"blocked_on,omitempty"`         // 这单被哪些 dep 阻塞（派生指针，注入面填充）
-	WaitedOnBy    []string       `json:"waited_on_by,omitempty" yaml:"waited_on_by,omitempty"`     // 谁在等这单（反向依赖指针，注入面填充）
+	Design        string         `json:"design,omitempty" yaml:"design,omitempty"`             // 方案出处指针："export-csv (agreed)"（v0.4 §4.4）
+	BlockedOn     []string       `json:"blocked_on,omitempty" yaml:"blocked_on,omitempty"`     // 这单被哪些 dep 阻塞（派生指针，注入面填充）
+	WaitedOnBy    []string       `json:"waited_on_by,omitempty" yaml:"waited_on_by,omitempty"` // 谁在等这单（反向依赖指针，注入面填充）
 }
 
 // ContractBrief 是 WorkItem 内嵌契约的最小信号（S6：接口标准必须进注入信道，
@@ -251,6 +257,18 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 	// 共识层三通道（v0.4 §4.4）：
 	// knowledge = architecture 文件名（指针，正文 agent 按需自读——注入面铁律）。
 	ctx.Knowledge = s.Architecture
+
+	// 交接快照指针：只显本座位（时机一开工——收尾 save 见协议段）。
+	for _, h := range s.Handover {
+		if h.Actor != actorID {
+			continue
+		}
+		at := h.SavedAt
+		if len(at) >= 10 {
+			at = at[:10]
+		}
+		ctx.Handover = append(ctx.Handover, fmt.Sprintf("handover: %s/%s @ %s — ousheng handover show --system %s --actor %s", h.System, h.Actor, at, h.System, h.Actor))
+	}
 
 	// pending_reviews = 地址化派生：draft × systems 与我的作用域相交 ×
 	// 最新轮次我未发言（owner 不算——design 本身就是他的发言）。
