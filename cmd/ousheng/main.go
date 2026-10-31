@@ -143,6 +143,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdDesign(args[1:], stdout, stderr)
 	case "doc":
 		return cmdDoc(args[1:], stdout, stderr)
+	case "handover":
+		return cmdHandover(args[1:], stdout, stderr)
 	case "context":
 		return cmdContext(args[1:], stdout, stderr)
 	case "work":
