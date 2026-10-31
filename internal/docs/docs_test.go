@@ -411,7 +411,7 @@ func TestContractRefs(t *testing.T) {
 func TestBloatThreeSignals(t *testing.T) {
 	refs := []Ref{
 		{Path: "data:datax/INFO-CARD.md", Role: RoleContract, Owner: "data", Claimed: true, Size: 216088},
-		{Path: "docs/design/慢涨.md", Role: RoleDecision, Owner: "t1", Claimed: true, Size: 40 * 1024},
+		{Path: "docs/design/慢涨.md", Role: RoleDecision, Owner: "t1", Claimed: true, Size: 55 * 1024},
 		{Path: "docs/design/健康.md", Role: RoleDecision, Owner: "t2", Claimed: true, Size: 8 * 1024},
 		{Path: "docs/acceptance/r.md", Role: RoleEvidence, Owner: "T-1", Claimed: true, Size: 900 * 1024}, // 快照不判
 		{Path: "docs/design/孤儿.md", Size: 500 * 1024},                                                     // 未认领不判（先治无主）
@@ -424,7 +424,7 @@ func TestBloatThreeSignals(t *testing.T) {
 		"docs/design/慢涨.md": 10 * 1024, // +30KB/7d → growth
 		"docs/design/健康.md": 7 * 1024,  // +1KB → 健康
 	}
-	got := Bloat(refs, contents, prev, BloatOpts{MaxBytes: 30 * 1024, MaxChangelog: 20, MaxGrowth: 20 * 1024, Days: 7})
+	got := Bloat(refs, contents, prev, BloatOpts{MaxContractBytes: 30 * 1024, MaxDecisionBytes: 50 * 1024, MaxStatusBytes: 30 * 1024, MaxChangelog: 20, MaxChangelogBytes: 8 * 1024, MaxGrowth: 20 * 1024, Days: 7})
 	kinds := map[string]int{}
 	for _, f := range got {
 		kinds[f.Path+"/"+f.Kind]++
@@ -439,11 +439,58 @@ func TestBloatThreeSignals(t *testing.T) {
 		t.Fatalf("+30KB/7d must trigger growth, got %v", got)
 	}
 	if kinds["docs/design/慢涨.md/size"] != 1 {
-		t.Fatalf("40KB also over size floor, got %v", got)
+		t.Fatalf("55KB decision over 50KB tier, got %v", got)
 	}
 	for _, f := range got {
 		if f.Path == "docs/design/健康.md" || f.Path == "docs/acceptance/r.md" || f.Path == "docs/design/孤儿.md" {
 			t.Fatalf("healthy/evidence/unclaimed must stay silent, got %+v", f)
+		}
+	}
+}
+
+// TASK-042 双门与分级：
+// ① changelog 绝对量下限——小文件高占比（53% 但 6.6KB）不报，大文件高占比报；
+// ② 体积分级——contract 35KB 报、decision 35KB 不报、decision 55KB 报。
+func TestBloatTieredAndAbsoluteFloor(t *testing.T) {
+	small := "## 服务面\n" + strings.Repeat("a", 5800) + "\n## Changelog\n" + strings.Repeat("b", 6600) + "\n"     // ~12KB, 53%
+	big := "## 服务面\n" + strings.Repeat("a", 10*1024) + "\n## Changelog\n" + strings.Repeat("b", 17*1024) + "\n" // ~27KB, 59%
+	refs := []Ref{
+		{Path: "m:small.md", Role: RoleContract, Owner: "m", Claimed: true, Size: int64(len(small))},
+		{Path: "m:big.md", Role: RoleContract, Owner: "m", Claimed: true, Size: int64(len(big))},
+		{Path: "d:35.md", Role: RoleDecision, Owner: "d", Claimed: true, Size: 35 * 1024},
+		{Path: "d:55.md", Role: RoleDecision, Owner: "d", Claimed: true, Size: 55 * 1024},
+		{Path: "c:35.md", Role: RoleContract, Owner: "c", Claimed: true, Size: 35 * 1024},
+	}
+	contents := map[string][]byte{"m:small.md": []byte(small), "m:big.md": []byte(big)}
+	o := BloatOpts{MaxContractBytes: 30 * 1024, MaxDecisionBytes: 50 * 1024, MaxStatusBytes: 30 * 1024,
+		MaxChangelog: 20, MaxChangelogBytes: 8 * 1024}
+	got := Bloat(refs, contents, nil, o)
+	has := func(p, k string) bool {
+		for _, f := range got {
+			if f.Path == p && f.Kind == k {
+				return true
+			}
+		}
+		return false
+	}
+	if has("m:small.md", "changelog") {
+		t.Fatalf("small file high ratio must not trigger (absolute floor):\n%v", got)
+	}
+	if !has("m:big.md", "changelog") {
+		t.Fatalf("big file high ratio must trigger:\n%v", got)
+	}
+	if has("d:35.md", "size") {
+		t.Fatalf("35KB decision under 50KB tier must stay silent:\n%v", got)
+	}
+	if !has("d:55.md", "size") || !has("c:35.md", "size") {
+		t.Fatalf("55KB decision / 35KB contract must trigger:\n%v", got)
+	}
+	// MaxBytes<0 = 显式关①（分级全跳）。
+	o.MaxBytes = -1
+	got2 := Bloat(refs, contents, nil, o)
+	for _, f := range got2 {
+		if f.Kind == "size" {
+			t.Fatalf("MaxBytes<0 must disable size signal:\n%v", got2)
 		}
 	}
 }

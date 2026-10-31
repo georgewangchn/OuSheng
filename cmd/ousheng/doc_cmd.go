@@ -271,8 +271,11 @@ func docMap(args []string, stdout, stderr io.Writer) int {
 func docCheck(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("doc check")
 	asJSON := fs.Bool("json", false, "output JSON")
-	bloatBytes := fs.Int64("bloat-bytes", 30*1024, "bloat signal 1: max bytes per contract-facing doc (0=off)")
+	bloatBytes := fs.Int64("bloat-bytes", 0, "bloat signal 1: override max bytes for ALL roles (0=per-role defaults: contract/status 30KB, decision 50KB; negative=off)")
+	bloatContract := fs.Int64("bloat-contract", 30*1024, "bloat signal 1: max bytes per contract/status doc")
+	bloatDecision := fs.Int64("bloat-decision", 50*1024, "bloat signal 1: max bytes per decision doc (方案正本可长)")
 	bloatChangelog := fs.Int("bloat-changelog", 20, "bloat signal 2: max changelog/history section share in percent (0=off)")
+	bloatChangelogBytes := fs.Int64("bloat-changelog-bytes", 8*1024, "bloat signal 2: absolute floor for the changelog section (小文件高占比不报；0=占比单门)")
 	bloatGrowth := fs.Int64("bloat-growth", 20*1024, "bloat signal 3: max byte growth within --bloat-days (0=off)")
 	bloatDays := fs.Int("bloat-days", 7, "bloat signal 3: growth window in days")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
@@ -290,7 +293,9 @@ func docCheck(args []string, stdout, stderr io.Writer) int {
 	tiny := docs.Tiny(layer.refs)
 	contents, prev := bloatInputs(fs.Dir(), layer.refs, *bloatDays)
 	bloat := docs.Bloat(layer.refs, contents, prev, docs.BloatOpts{
-		MaxBytes: *bloatBytes, MaxChangelog: *bloatChangelog, MaxGrowth: *bloatGrowth, Days: *bloatDays,
+		MaxBytes: *bloatBytes, MaxContractBytes: *bloatContract, MaxDecisionBytes: *bloatDecision,
+		MaxStatusBytes: *bloatContract, MaxChangelog: *bloatChangelog, MaxChangelogBytes: *bloatChangelogBytes,
+		MaxGrowth: *bloatGrowth, Days: *bloatDays,
 	})
 	if *asJSON {
 		printJSON(stdout, map[string]any{"orphans": orphans, "stale": layer.stale, "tiny": tiny, "bloat": bloat})

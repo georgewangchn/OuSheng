@@ -426,13 +426,43 @@ func ContractRefs(systems []model.System, resolve func(system string) (repoDir s
 	return out
 }
 
-// BloatOpts 是 doc bloat 三阈值（档案 §30，TASK-039）。告警不拒绝——
-// 契约合法增长不能被误杀（卡边界）。零值字段 = 该信号关闭。
+// BloatOpts 是 doc bloat 三阈值（档案 §30，TASK-039；§30 精化 TASK-042）。
+// 告警不拒绝——契约合法增长不能被误杀（卡边界）。零值字段 = 该信号（或该角色）关闭。
 type BloatOpts struct {
-	MaxBytes     int64 // ① 单文件体积上限（默认 30KB）
-	MaxChangelog int   // ② changelog/history 节字节占比上限（百分比，默认 20）
-	MaxGrowth    int64 // ③ 环比激增上限（默认 20KB / Days 天）
-	Days         int   // 环比窗口天数（默认 7）
+	// ① 体积分级阈值（TASK-042：按角色分级——decision 是方案正本可长，
+	// contract/status 是消费面契约要薄）。显式 MaxBytes 覆盖全角色（兼容旧 flag，0=关①）。
+	MaxBytes         int64 // 统一覆盖（>0 时压过下面三个；旧 --bloat-bytes）
+	MaxContractBytes int64 // contract/status 默认 30KB
+	MaxDecisionBytes int64 // decision 默认 50KB
+	MaxStatusBytes   int64 // status 默认 30KB
+	// ② changelog/history 节：占比上限（百分比，默认 20）+ **绝对量下限**
+	// （默认 8KB，TASK-042——防小文件误报：12KB 卡 53% 历史实为 6.6KB 一页纸，
+	// 不是病灶；30KB 卡 59%≈17KB 才是原病灶形态）。
+	MaxChangelog      int   // 占比 %（0=关②）
+	MaxChangelogBytes int64 // changelog 节绝对字节下限（0=不限绝对量，仅占比）
+	// ③ 环比激增上限（默认 20KB / Days 天）。
+	MaxGrowth int64 // 0=关③
+	Days      int   // 环比窗口天数（默认 7）
+}
+
+// sizeLimit 返回该角色的体积阈值（TASK-042 分级）。MaxBytes<0 = 显式关闭①；
+// MaxBytes>0 = 统一覆盖；否则取角色默认（零值角色默认 = 不判）。
+func sizeLimit(role Role, o BloatOpts) int64 {
+	if o.MaxBytes < 0 {
+		return 0
+	}
+	if o.MaxBytes > 0 {
+		return o.MaxBytes
+	}
+	switch role {
+	case RoleContract:
+		return o.MaxContractBytes
+	case RoleDecision:
+		return o.MaxDecisionBytes
+	case RoleStatus:
+		return o.MaxStatusBytes
+	}
+	return 0
 }
 
 // BloatFinding 是一条膨胀告警。Kind = size|changelog|growth。
@@ -449,15 +479,15 @@ type BloatFinding struct {
 // 节 = 标题行匹配 (?i)changelog|history 起，至下一任意级别标题止
 // （子节也属 changelog——它们就是历史的一部分）。识别口径按卡：英文
 // changelog/history 标题；中文「变更记录」节同样普遍，一并纳入。
-func ChangelogRatio(content []byte) float64 {
+func ChangelogBytes(content []byte) (int, int) {
 	s := string(content)
 	if len(s) == 0 {
-		return 0
+		return 0, 0
 	}
 	headingRe := regexp.MustCompile(`(?m)^#{1,6}\s+(.*)$`)
 	locs := headingRe.FindAllStringSubmatchIndex(s, -1)
 	if locs == nil {
-		return 0
+		return 0, len(s)
 	}
 	chlogRe := regexp.MustCompile(`(?i)changelog|history|变更记录|变更历史|更新历史`)
 	var total int
@@ -475,7 +505,16 @@ func ChangelogRatio(content []byte) float64 {
 	if total > len(s) {
 		total = len(s)
 	}
-	return float64(total) / float64(len(s))
+	return total, len(s)
+}
+
+// ChangelogRatio 是占比形态的便捷封装（0..1）。
+func ChangelogRatio(content []byte) float64 {
+	c, total := ChangelogBytes(content)
+	if total == 0 {
+		return 0
+	}
+	return float64(c) / float64(total)
 }
 
 // Bloat 计算膨胀告警（TASK-039 三信号）。目标 = 已认领且非越界的
@@ -495,19 +534,25 @@ func Bloat(refs []Ref, contents map[string][]byte, prev map[string]int64, o Bloa
 		default:
 			continue
 		}
-		if o.MaxBytes > 0 && r.Size > o.MaxBytes {
+		if lim := sizeLimit(r.Role, o); lim > 0 && r.Size > lim {
 			out = append(out, BloatFinding{
 				Path: r.Path, Role: r.Role, Owner: r.Owner, Kind: "size", Size: r.Size,
-				Detail: fmt.Sprintf("%dKB > %dKB — 建议拆节（单文件承载过多职责）", r.Size/1024, o.MaxBytes/1024),
+				Detail: fmt.Sprintf("%dKB > %dKB(%s) — 建议拆节（单文件承载过多职责）", r.Size/1024, lim/1024, r.Role),
 			})
 		}
 		if o.MaxChangelog > 0 {
 			if c, ok := contents[r.Path]; ok {
-				pct := int(ChangelogRatio(c) * 100)
-				if pct > o.MaxChangelog {
+				chBytes, _ := ChangelogBytes(c)
+				pct := 0
+				if len(c) > 0 {
+					pct = chBytes * 100 / len(c)
+				}
+				// TASK-042 双门：占比超限 **且** 绝对量超下限才报——
+				// 小文件高占比（12KB 卡 53%≈6.6KB 一页纸）不是病灶。
+				if pct > o.MaxChangelog && (o.MaxChangelogBytes <= 0 || int64(chBytes) >= o.MaxChangelogBytes) {
 					out = append(out, BloatFinding{
 						Path: r.Path, Role: r.Role, Owner: r.Owner, Kind: "changelog", Size: r.Size,
-						Detail: fmt.Sprintf("changelog/history 节占 %d%% > %d%% — 任务上下文错居，摘要化+指针化（细节归单/归仓）", pct, o.MaxChangelog),
+						Detail: fmt.Sprintf("changelog/history 节占 %d%%（%dKB）> %d%%/%dKB — 任务上下文错居，摘要化+指针化（细节归单/归仓）", pct, chBytes/1024, o.MaxChangelog, o.MaxChangelogBytes/1024),
 					})
 				}
 			}

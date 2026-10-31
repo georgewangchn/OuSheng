@@ -244,7 +244,7 @@ func TestDocCheckBloat(t *testing.T) {
 	mustRun(t, dir, "system", "add", "cms-api")
 
 	// ①+②：40KB 方案，changelog 节占 ~60%。
-	big := "# CSV 方案\n" + strings.Repeat("a", 12*1024) + "\n## Changelog\n" + strings.Repeat("b", 26*1024) + "\n"
+	big := "# CSV 方案\n" + strings.Repeat("a", 16*1024) + "\n## Changelog\n" + strings.Repeat("b", 40*1024) + "\n"
 	writeDoc(t, dir, "docs/design/csv-plan.md", big)
 	// ③：8 天前 8KB → 现在 33KB（+25KB/7d）。
 	writeDoc(t, dir, "docs/design/grow.md", strings.Repeat("g", 8*1024))
@@ -294,7 +294,7 @@ func TestDocCheckBloat(t *testing.T) {
 		t.Fatalf("json must carry bloat kind:\n%s", js)
 	}
 	// 阈值可调（卡边界：告警不拒绝；0=关）。
-	off := mustRun(t, dir, "doc", "check", "--bloat-bytes", "0", "--bloat-changelog", "0", "--bloat-growth", "0")
+	off := mustRun(t, dir, "doc", "check", "--bloat-bytes", "-1", "--bloat-changelog", "0", "--bloat-growth", "0")
 	if strings.Contains(off, "doc bloat") {
 		t.Fatalf("0 must disable all bloat signals:\n%s", off)
 	}
