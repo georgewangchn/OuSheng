@@ -1,7 +1,8 @@
-# OuSheng 上下文交接与凭据环境方案（v0.1 draft）
+# OuSheng 上下文交接与凭据环境方案（v0.2 draft）
 
 > 起草：ousheng 座位，2026-10-31。依据：实栈共性痛点三条（pm 提出）+ data 域手工交接实证。待 pm 拍板后拆单实施。
 > 定位：牵引绳增加「换页」能力——session 是牛的工作记忆（RAM），绳管 checkpoint 的载体与仪式，不管 session 正文。
+> v0.2（2026-10-31 第一轮正/逆向审计后）：补四路判决、S5 装载、secrets 三重机械锁、砍轮换记录、降级路径、分发面、锁清单、灾难恢复性质；评分见仓内汇报。
 
 ## 一、问题与实证（实栈）
 
@@ -55,12 +56,22 @@ ousheng handover show  [--system S --actor A]   # 输出当前快照——新 se
 ousheng handover list                           # 各座位快照时间一览（扫视：谁多久没换页）
 ```
 
-**仪式**（对齐查看时机协议，进 AGENTS.md 协议段随 adapter 分发）：
+**仪式**（权威载体 = AGENTS.md 协议段，随 `adapter install` 分发——harness 中立，opencode/claude 适配器同享；plugin 收尾提醒只是 opencode 便利层，不是权威）：
 
 - 时机三收尾（session 空闲/结束）→ `handover save`（plugin 收尾提醒并列）
 - 时机一开工（新 session 启动）→ `context me` 尾部一行**指针**（`handover: data/data @ 10-31 14:00`——T10 合规，只指针不正文）；agent 自行 `handover show`
 
 **不做**：自动注入正文（T10）；restore 独立命令（show 即恢复，读了就是）；快照间 diff/合并（git 已是版本链）。
+
+**四路判决（新信号照铁律明判）**：`context me` 接入（时机一开工，**只显本座位的快照指针一行**——`handover: data/data @ 10-31 14:00`；显别人座位 = 噪音 + 越权感知）；`work show` / `work list` / `view kanban` 明文出局（交接是座位态不是工作项态）；web 面板出局（handover 是 agent 座位面，web 是 PM 面——出现 handover 编辑按钮即配置中心死法复辟）；MCP 延后（判据：非 opencode harness 的 agent 真实需要且 CLI 交互不够）。
+
+**装载通道（S5 同判）**：`repo.ListHandover()` 进 `index.Snapshot`（Handover []HandoverInfo：system/actor/saved_at，正文不进 Snapshot）；context me 按座位过滤出指针；不进 Index 查询面（memory/sqlite 等价性不覆盖）。
+
+**降级路径（开源第一天）**：init 后无 handover 目录 → context me 无指针行、list 输出空——零噪音；save 时自动建目录。目录缺失/文件损坏 → list 跳过该座位并一行提示，不响亮失败（同 ListDesigns 纪律的宽松面：读面 best-effort，写面 fail-closed）。
+
+**灾难恢复性质（join 兼容）**：快照与登记表入 git → re-clone 后 `git pull` 即得全部快照（交接不丢）；值不入 git → doctor 报缺失清单，一次性重灌。join 协议零改动。
+
+**与 doc 认领层的隔离**：handover 在 `.ousheng/` 下，已被 claimDir/Census 的 `.ousheng/` 排除规则覆盖——handover md 永不进孤儿/普查（写进设计防回归，测试锁）。
 
 ### H2 凭据登记（credentials）——一期
 
@@ -68,12 +79,21 @@ ousheng handover list                           # 各座位快照时间一览（
 
 | 层 | 位置 | 入 git | 内容 |
 |---|---|---|---|
-| 登记表 | `.ousheng/credentials.yaml` | **是** | 条目：id / system / env / 用途 / **位置**（local-file \| password-manager \| env-var）/ 轮换记录 |
-| 值 | `.ousheng/secrets/`（gitignored） | **否** | dev/uat 环境的值（本地文件）；生产值只入密码管理器，登记表记条目名 |
+| 登记表 | `.ousheng/credentials.yaml` | **是** | 条目：id / system / env / 用途 / **位置**（local-file \| password-manager \| env-var） |
+| 值 | `.ousheng/secrets/`（gitignored，权限 0600） | **否** | dev/uat 环境的值（本地文件）；生产值只入密码管理器，登记表记条目名 |
 
-**机械曝光（治"遗忘"）**：doctor 增查——登记条目位置=local-file 而本机文件缺失 → FAIL 带修复指引（灌值）；位置=password-manager 而无条目名 → WARN。快照「凭据」节引用登记 id，新 session 知道去哪拿，零人工输入。
+（v0.2 砍「轮换记录」——登记表自己会重演 changelog 膨胀；痛点是遗忘不是轮换审计，判据：真实轮换混乱事故再议。）
 
-**声明暂手改 systems 式**（yaml + git 审计）；CLI 写面判据见 §六。
+**值不入 git 的三重机械锁（硬线不靠自觉）**：
+
+1. `init` 生成的 `.ousheng/.gitignore` 从第一天含 `secrets/`；
+2. doctor：`git ls-files .ousheng/secrets` 非空 → **FAIL**（值已被跟踪 = 事故，带洗历史指引）；
+2.5 doctor：`.ousheng` 全域 git 跟踪文件做高置信凭据形态扫描（PEM 头 / `AKIA`、`ghp_` 等 token 前缀——模式匹配，非语义判断，check-secrets 先例产品化）→ **WARN**（堵「值塞进快照/登记表正文」的绕行通道；只查高置信防误报，文档示例脱敏形态不命中）；
+3. doctor：登记条目位置=local-file 而本机文件缺失 → FAIL 带清单（治遗忘 = 痛点的机械曝光）；位置=password-manager 而无条目名 → WARN。
+
+**威胁模型一句话**：值不经过网络与 git，只存在于座位机本地文件（0600）；威胁 = 本机入侵（超出绳的防御面，交给机器管理员）与误提交（由上三锁拦截）。README 安全节随实现落。
+
+**边界（防配置中心死法复辟）**：登记表只做**位置索引**，永不做配置分发（不存连接串模板、不存非凭据配置、web 面不出现 credentials 管理界面）。CLI 写面延后（同 contract_doc：手改 + git 审计，判据=手改出错实证或第二项目使用）。
 
 ### H3 环境与版本维度——二期（判据驱动）
 
@@ -133,6 +153,23 @@ ousheng handover list                           # 各座位快照时间一览（
 | P7（mlake 先例）位置入册值不入 git | H2 直接继承并产品化 |
 | 新字段四路验证 | env 字段（二期）按四路判决执行 |
 | 一语义一实现 | handover 语义收 internal（cmd 适配），plugin 只调 CLI |
+
+## 七.5 分发面与机械锁（交付必备）
+
+**分发面**：README feature 表 + `ousheng join` 无改动 + AGENTS.md 协议段（adapter install 版本升级，各座位机重跑同步）+ opencode plugin 收尾提醒一行 + README「安全」节（威胁模型一句话 + 三重锁说明）。
+
+**锁清单**（拍板后实现必须带，缺一不算修完）：
+
+| 锁 | 锁什么 |
+|---|---|
+| `TestHandoverSizeGate` | save >4KB 拒；human 直改不拦（卡点不变式双向） |
+| `TestHandoverContextPointer` | context me 只显本座位指针一行；正文/值绝不出现在注入面（INJECTION-MARKER 双断言，同 TestDesignSignalPaths 形态）；work show/list/kanban 出局 |
+| `TestHandoverRoundtripGit` | save→git 历史可回溯→show 恢复；re-clone 后快照可得（灾难恢复性质） |
+| `TestHandoverDegrade` | 无目录零噪音；损坏文件跳过不炸 |
+| `TestHandoverNotInDocLayer` | handover md 不进 orphan/census（`.ousheng/` 排除回归锁） |
+| `TestSecretsNeverTracked` | init 即 gitignore secrets/；doctor 对已跟踪值 FAIL |
+| `TestSecretPatternsWarn` | 高置信形态（PEM/token 前缀）在快照/登记表命中 → WARN；脱敏示例零误报 |
+| `TestCredentialsDoctor` | local-file 缺值 FAIL；password-manager 缺条目名 WARN；无登记表零检查（opt-in） |
 
 ## 八、开放问题（pm 拍板点）
 
