@@ -6,6 +6,8 @@
 
 ### 把 AI 协作的状态与共识，装进一个 git 仓
 
+*A git-native agile board for multi-agent coding — state, contracts, evidence &amp; consensus. No server, no lock-in.*
+
 需求、契约、证据、方案、共识都在里面。AI 领活、留证、汇报，人只拍板。
 
 ![Go](assets/badges/go.svg)
@@ -15,9 +17,11 @@
 
 无服务器，无注册服务，`git push/pull` 就是协作。
 
-[快速上手](docs/quick-start.md) · [多机多窗口使用指南](docs/多机多窗口使用指南.md) · [共识层设计 v0.4](docs/OuSheng_共识层设计方案_v0.4.md) · [设计基石](docs/多人AI协作机制_方案基石.md)
+[三分钟视频](#三分钟视频一次穿越看懂) · [快速上手](docs/quick-start.md) · [多机多窗口使用指南](docs/多机多窗口使用指南.md) · [共识层设计 v0.4](docs/OuSheng_共识层设计方案_v0.4.md) · [设计基石](docs/多人AI协作机制_方案基石.md) · [路线图](#路线图)
 
 </div>
+
+---
 
 ## 三分钟视频：一次穿越看懂
 
@@ -25,9 +29,7 @@
 
 *《OuSheng · 三次穿越》（3'26"，1080p）——从"两边都宣称完成了"到证据、契约、拍板全上绳。点击播放（B 站）；仓内另有 [720p 版](assets/promo/ousheng-promo-720p.mp4)可下载。*
 
----
-
-## 三句话
+## 为什么需要它
 
 AI 生成代码的速度，快过人能对齐的速度。前端 AI 按周二的老文档调 `/login`，后端周三就改了返回结构，联调日爆炸；两边都宣称"完成了"，但没有证据，验收变成了信不信；"当时为什么这么做"，答案在聊天记录里、在某个人脑子里，就是不在仓里。
 
@@ -35,13 +37,24 @@ OuSheng 的做法是把协作变成一个 git 仓。需求、契约、证据、�
 
 管住 AI 的机制是三道门和四个时机。三道门拦住越权（证据、背书、拍板），四个时机定义动线（上绳、开工、干活、收尾）。人只做两件事：拍板、看板。
 
-## 跑起来：两步，把话丢给 opencode
+## 特性一览
+
+- **零服务**：一个普通 git 仓就是全部状态——clone 即恢复，push 即协作，无 daemon、无数据库、无注册中心
+- **三道写入门**：证据门（C1）/ 背书门（C2 breaking 必须 human ack）/ 拍板门（方案 agreed 必须 human decide）——agent 越权写入路径直接拒
+- **四个时机**：开工自动注入上下文（`context me` 只给指针，正文自取——注入面最小化即提示注入免疫面最小化）
+- **共识层**：`designs/` 方案轮次讨论 + architecture 系统全貌，拍板/supersede/撤回全生命周期
+- **文档认领层**：`doc map/check/census` 三命令回答"这篇文档归谁、还作不作数"——孤儿曝光、陈旧曝光、膨胀三信号
+- **上下文交接**：座位级交接快照 `handover`（≤4KB 覆盖式单页）——长任务 session 换页不膨胀，re-clone 即得
+- **凭据登记**：位置入册 + 本地值文件，**值永不入 git** 三重机械锁；`doctor` 报缺哪个，agent 自己取，不再问人
+- **舰队部署**：`adapter install` 一键五件套 + `doctor` 自检（机器/座位/工作区三层），升级即重跑
+
+## 30 秒跑起来：把话丢给 opencode
 
 前置：Go 1.25+、系统 `git`、[opencode](https://opencode.ai)。一个维护者加 n 个加入者，各丢各的，命令由 AI 跑。
 
 **第一步 · 发起者（1 人，项目维护者）** 建中央仓、注册自己。在项目目录打开 opencode，丢这段话：
 
-```text
+```
 我是项目负责人，帮我把这个项目用 OuSheng（㸸绳）上绳：
 0. ousheng 还没装：克隆 github.com/georgewangchn/OuSheng，go install ./cmd/ousheng。
 1. 本目录立项：问我项目名，注册我（问我的名字）。
@@ -54,7 +67,7 @@ OuSheng 的做法是把协作变成一个 git 仓。需求、契约、证据、�
 
 **第二步 · 加入者（n 人：同事、PM、各机 AI 窗口）** 拿到维护者发的中央仓地址后，在自己机器丢这段话：
 
-```text
+```
 我要加入一个已用 OuSheng（㸸绳）上绳的项目：
 0. ousheng 还没装：克隆 github.com/georgewangchn/OuSheng，go install ./cmd/ousheng。
 1. 向我要中央仓地址，clone 到本机。
@@ -91,7 +104,7 @@ flowchart LR
 
 协作信息有两类，物理性质不一样，绳上分开放：
 
-| | 状态（现在是什么） | 共识（我们认定什么、为什么） |
+|  | 状态（现在是什么） | 共识（我们认定什么、为什么） |
 |---|---|---|
 | 载体 | `work/`（含契约与证据） | `designs/` `architecture/` |
 | 形态 | 结构化 YAML，强 schema | 叙述文档加最小 frontmatter |
@@ -134,7 +147,7 @@ flowchart LR
 
 ① 后端 AI 接单开工，把新接口写成契约，当即被拦下。这是破坏性变更（breaking），没有人工确认，看板拒绝写入：
 
-```console
+```
 $ ousheng todo "运行引擎切换：pi-agent-core 替换 deepagents" --system datax-server
 created T-042 (revision 1)
 
@@ -144,7 +157,7 @@ contract.breaking=true requires human_ack with non-empty approver
 
 ② 你看一眼变更，拍板放行。谁在何时同意的什么，永久留痕：
 
-```console
+```
 $ ousheng work update T-042 --file swap.yaml --expect 1 --ack
 updated T-042 (revision 2, status doing)     # human_ack: george @ 2026-09-10
 ```
@@ -153,7 +166,7 @@ updated T-042 (revision 2, status doing)     # human_ack: george @ 2026-09-10
 
 ④ 后端交付要带证据。验证过的契约才能标 `verified`，没有 git commit 或测试结果，"完成"只是口头禅：
 
-```console
+```
 $ ousheng evidence add T-042 --type test_result --locator "test/engine_test.go::TestSwap"
 ```
 
@@ -163,7 +176,7 @@ $ ousheng evidence add T-042 --type test_result --locator "test/engine_test.go::
 
 ⑤ 相关 AI 窗口自动被点名：
 
-```console
+```
 $ ousheng context me --actor ui-dev
 {
   "pending_reviews": ["live-results"],       ← 有个方案在等我表态
@@ -173,7 +186,7 @@ $ ousheng context me --actor ui-dev
 
 ⑥ 各窗口轮次表态，PM 拍板：
 
-```console
+```
 $ ousheng design list --waiting-for ui-dev
 live-results    draft    pm    datax-server,datax-ui    REQ-DATAX-043
 
@@ -185,7 +198,7 @@ agent 自己 decide，写入路径直接拒，拍板门和 C2 一个血统。方
 
 你全程只做了两件事：拍板两次，看板一眼。
 
-```console
+```
 $ ousheng view kanban
 == DOING (2) ==
 [T-001] 首页改版
@@ -236,6 +249,22 @@ ousheng view kanban
 
 </details>
 
+## 路线图
+
+只做被真实使用证明的事，判据驱动（全部裁决与判据见 [设计裁决档案](docs/设计裁决与推演记录.md)）：
+
+| 方向 | 状态 |
+|---|---|
+| 环境与版本维度（dev/uat/gray/canary/show/pro 数据化） | 判据：第一个非 dev 环境真实建立 |
+| web 面板增强（PM 观测面） | 已上线基础版，按 PM 实用反馈迭代 |
+| MCP 工具面扩展（非 opencode harness） | 判据：其他 harness 真实接入 |
+| credentials CLI 写面 / env 字段 | 判据：第二项目上绳或手改出错实证 |
+| Go module 全路径 + release tag（`go install @latest` 一行化） | 判据：对外发布节奏启动 |
+
+## 参与贡献
+
+Issue / PR 欢迎。这个仓自己用 OuSheng 的纪律开发：改动前读 [AGENTS.md](AGENTS.md)（行为铁律）与[设计裁决档案](docs/设计裁决与推演记录.md)（每条规则的理由与事故背书）；每个机制都有测试锁，`go test ./... && go vet ./...` 全绿是合并底线。
+
 ## 文档
 
 | | |
@@ -252,6 +281,6 @@ ousheng view kanban
 
 **一根绳，一块板。接口不再靠缘分，共识不再靠记性。**
 
-[GitHub](https://github.com/georgewangchn/OuSheng) · MIT License
+[视频](https://www.bilibili.com/video/BV1Gjxn6VEwE/) · [网站](https://senlinpubu.top/) · [GitHub](https://github.com/georgewangchn/OuSheng) · MIT License
 
 </div>
