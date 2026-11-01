@@ -22,9 +22,10 @@ import (
 // opencode 启动失败 / 插件静默失效）。
 //
 // v2（2026-09-19 四机标准化裁决）：五件套——三件资产之外新增
-//   4. .opencode/ousheng.json：机器本地配置 {workspace, actor}（恒同步 + gitignore，
-//      plugin 的单一事实源，取代散落各机的手写 AGENTS.md / env 即兴解法）；
-//   5. AGENTS.md 协议段：机器中立纪律文本，标记段幂等替换，段外内容不触碰。
+//  4. .opencode/ousheng.json：机器本地配置 {workspace, actor}（恒同步 + gitignore，
+//     plugin 的单一事实源，取代散落各机的手写 AGENTS.md / env 即兴解法）；
+//  5. AGENTS.md 协议段：机器中立纪律文本，标记段幂等替换，段外内容不触碰。
+//
 // 工作区解析链：--workspace > 同仓检测（--dir 自带 .ousheng）> 既有 ousheng.json
 // > $OUSHENG_DIR。adapter 的 --dir 语义是代码仓（默认 "."），与工作区命令的
 // --dir（默认 $OUSHENG_DIR）不同，故不走 newFS。
@@ -150,7 +151,10 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "cruise        scripts/cruise-loop.sh  written（挂载：launchd/cron/手动；三闸见脚本头注释）\n")
+		fmt.Fprintf(stdout, "cruise        scripts/cruise-loop.sh  written（三闸见脚本头注释）\n")
+		fmt.Fprintf(stdout, "  挂载样例（二选一；宪章 .ousheng/designs/cruise/ 先立再启）：\n")
+		fmt.Fprintf(stdout, "    cron ：0 22 * * * %s/scripts/cruise-loop.sh <kanban工作区> <actor> %s 20 600 22:00-07:00\n", dir, dir)
+		fmt.Fprintf(stdout, "    手动：%s/scripts/cruise-loop.sh <kanban工作区> <actor> %s 5 300 现在-明早\n", dir, dir)
 	}
 
 	// 5. AGENTS.md：机器中立协议段，标记段幂等替换，段外内容不触碰。

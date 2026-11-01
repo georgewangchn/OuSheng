@@ -94,11 +94,36 @@ func TestCruisePlan(t *testing.T) {
 		t.Fatalf("tester seat must see awaiting_test in react:\n%s", out)
 	}
 
-	// idle：新注册的空座位视角 = 无活（造活是病）。
+	// 全局反应：dangling 依赖（converge BLOCKER 的可动作面）必须进任何座位的 plan。
+	p5 := filepath.Join(dir, ".ousheng", "work", "T-004.yaml")
+	b5, _ := os.ReadFile(p5)
+	os.WriteFile(p5, []byte(strings.Replace(string(b5), "status: blocked", "status: blocked\ndepends_on:\n    - GHOST-999", 1)), 0o644)
+	out = mustRun(t, dir, "cruise", "plan", "--actor", "data")
+	if !strings.Contains(out, "依赖悬空 GHOST-999") || !strings.Contains(out, "converge BLOCKER") {
+		t.Fatalf("dangling dep must surface in react (夜里无人收敛):\n%s", out)
+	}
+	// 协商信号：他人在我的单上留 evidence → 我的 plan 必须点名（协商闭环）。
+	mustRun(t, dir, "team", "add", "mlake-peer", "--type", "agent", "--responsible-human", "data", "--role", "dev", "--system", "lake")
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x", "--note", "与你的实现矛盾，建议协商", "--actor", "mlake-peer")
+	out = mustRun(t, dir, "cruise", "plan", "--actor", "data")
+	if !strings.Contains(out, "mlake-peer 在此单留言") {
+		t.Fatalf("peer evidence on my item must surface (negotiation loop):\n%s", out)
+	}
+
+	// 全局阻塞存在时空座位也不 idle（夜里任何人都能修 converge BLOCKER——
+	// 复查 B 语义：巡航不因"不是我的活"而睡）。
 	mustRun(t, dir, "team", "add", "nobody-seat", "--type", "agent", "--responsible-human", "data")
 	out = mustRun(t, dir, "cruise", "plan", "--actor", "nobody-seat")
-	if !strings.Contains(out, "cruise: idle") || !strings.Contains(out, "造活是病") {
-		t.Fatalf("empty seat must be idle:\n%s", out)
+	if !strings.Contains(out, "依赖悬空 GHOST-999") {
+		t.Fatalf("global blocker must keep seats awake:\n%s", out)
+	}
+	// idle：干净板上的空座位 = 无活（造活是病）。
+	fresh := t.TempDir()
+	mustRun(t, fresh, "init")
+	mustRun(t, fresh, "me", "pm", "--name", "PM")
+	mustRun(t, fresh, "team", "add", "empty-seat", "--type", "agent", "--responsible-human", "pm")
+	if out := mustRun(t, fresh, "cruise", "plan", "--actor", "empty-seat"); !strings.Contains(out, "cruise: idle") {
+		t.Fatalf("clean empty seat must be idle:\n%s", out)
 	}
 }
 
@@ -120,6 +145,7 @@ func TestCruiseStatus(t *testing.T) {
 	out := mustRun(t, dir, "cruise", "status", "--hours", "1")
 	for _, want := range []string{
 		"巡航摘要（近 1h）",
+		"宪章：未立", "巡航未启用",
 		"挂起等 human 3 项",
 		"[拍板] night-plan",
 		"[C2]   T-003",

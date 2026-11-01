@@ -9,6 +9,7 @@ import (
 
 	"ousheng/internal/context"
 	"ousheng/internal/index"
+	"ousheng/internal/machine"
 	"ousheng/internal/model"
 	"ousheng/internal/state/gityaml"
 )
@@ -96,6 +97,52 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 	// 必须含它，否则 tester 座位整夜失明。事实投影非派活指令，tester 自行 show 判断。
 	for _, w := range mc.AwaitingTest {
 		react = append(react, planItem{ID: w.ID, Title: w.Title, Note: "待测池（testing 态，dev 未移交）——work show 判断后接手"})
+	}
+	// 全局反应（模型复查 B：夜里无人收敛——plan 不能只看自己）。两类都是
+	// agent 可自主动作的修复项，不是 PM 决策项：
+	// ① 悬空/被砍依赖（converge BLOCKER 的可动作面）——修依赖或协商摘除；
+	// ② 协商信号：我的 open 单 24h 内被他人加了 evidence（A 找我协商，我得回应）。
+	if all, err := idx.All(); err == nil {
+		for _, w := range all {
+			if !model.WorkItemOpen(w.Status) {
+				continue
+			}
+			for _, dep := range w.DependsOn {
+				d, ok, gerr := idx.Get(dep)
+				if gerr != nil {
+					continue
+				}
+				if !ok {
+					react = append(react, planItem{ID: w.ID, Title: w.Title, Note: "依赖悬空 " + dep + " ——建该单或摘除依赖（converge BLOCKER，夜里无人修就僵到天亮）"})
+					break
+				}
+				if d.Status == model.StatusCancelled {
+					react = append(react, planItem{ID: w.ID, Title: w.Title, Note: "依赖被砍 " + dep + " ——协商替代路径或关单（converge BLOCKER）"})
+					break
+				}
+			}
+		}
+	}
+	if acts, err := gityaml.Open(fs.Dir()).ListActivity(); err == nil {
+		cutoff := time.Now().Add(-24 * time.Hour)
+		noted := map[string]bool{}
+		for i := len(acts) - 1; i >= 0; i-- {
+			ac := acts[i]
+			if ac.Action != "evidence_added" || ac.Actor == a {
+				continue
+			}
+			ts, perr := time.Parse(time.RFC3339, ac.TS)
+			if perr != nil || ts.Before(cutoff) || noted[ac.WorkItem] {
+				continue
+			}
+			for _, w := range mc.ActiveWork {
+				if w.ID == ac.WorkItem {
+					noted[ac.WorkItem] = true
+					react = append(react, planItem{ID: w.ID, Title: w.Title, Note: "24h 内 " + ac.Actor + " 在此单留言（可能是协商）——work show 读证据节并回应"})
+					break
+				}
+			}
+		}
 	}
 	// 待领池：我的执行系统 × ready 无主（backlog 不列——巡航只领能直接开工的）。
 	mySystems := map[string]bool{}
@@ -222,7 +269,31 @@ func cruiseStatus(args []string, stdout, stderr io.Writer) int {
 		})
 		return 0
 	}
-	fmt.Fprintf(stdout, "== 巡航摘要（近 %dh）==\n", *hours)
+	// 宪章状态（模型复查 A：启用链第一环——没宪章 = 巡航未启用，status 必须说）。
+	charter := "未立（.ousheng/designs/cruise/）——授权范围/投票规则/时窗未定义，巡航未启用"
+	for _, d := range snap.Designs {
+		if d.Topic == "cruise" {
+			charter = "已立：" + string(d.Design.Status)
+		}
+	}
+	fmt.Fprintf(stdout, "== 巡航摘要（近 %dh）== 宪章：%s\n", *hours, charter)
+	// 各映射仓夜间提交概览（模型复查 C：晨间简报要回答"改了什么"）。
+	for sys, repoDir := range machine.LoadRepoMap(fs.Dir()) {
+		out, err := gitOutput(repoDir, "log", "--oneline", fmt.Sprintf("--since=%dh", *hours))
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(strings.TrimSpace(out), "\n")
+		n := len(lines)
+		if n == 1 && lines[0] == "" {
+			n = 0
+		}
+		sample := ""
+		if n > 0 {
+			sample = "｜如 " + strings.TrimSpace(lines[0])
+		}
+		fmt.Fprintf(stdout, "  %s 仓夜间提交 %d%s\n", sys, n, sample)
+	}
 	fmt.Fprintf(stdout, "交付 %d 单｜新增 %d 单%s\n", delivered, created, news)
 	if len(waitDecide)+len(waitAck)+len(waitArb) == 0 {
 		fmt.Fprintf(stdout, "挂起等 human：无\n")
