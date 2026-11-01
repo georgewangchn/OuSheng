@@ -118,6 +118,7 @@ func newWebMux(dir string) *http.ServeMux {
 	mux.HandleFunc("POST /work/{id}/assign", s.guard(s.handleAssign))
 	mux.HandleFunc("POST /work/{id}/ack", s.guard(s.handleAck))
 	mux.HandleFunc("POST /work/create", s.guard(s.handleCreate))
+	mux.HandleFunc("GET /cruise", s.handleCruise)
 	mux.HandleFunc("GET /design/{topic}", s.handleDesignView)
 	mux.HandleFunc("POST /design/{topic}/decide", s.guard(s.handleDecide))
 	mux.HandleFunc("POST /design/{topic}/supersede", s.guard(s.handleSupersede))
@@ -196,14 +197,14 @@ var webStatusZh = map[string]string{
 }
 
 var webTypeZh = map[string]string{
-	"task":       "任务",
-	"bug":        "缺陷",
-	"feature":    "功能",
+	"task":        "任务",
+	"bug":         "缺陷",
+	"feature":     "功能",
 	"requirement": "需求",
-	"test":       "测试",
-	"deployment": "部署",
-	"release":    "发布",
-	"notice":     "通知",
+	"test":        "测试",
+	"deployment":  "部署",
+	"release":     "发布",
+	"notice":      "通知",
 }
 
 var webNextActionZh = map[string]string{
@@ -218,9 +219,9 @@ var webNextActionZh = map[string]string{
 
 // webTestingExtraZh：testing 下的两个高频去向给更贴切的话术。
 var webActionAliasZh = map[string]map[string]string{
-	"testing":  {"doing": "打回返工", "done": "验收通过"},
-	"blocked":  {"doing": "解除卡住"},
-	"done":     {"doing": "重开"},
+	"testing":   {"doing": "打回返工", "done": "验收通过"},
+	"blocked":   {"doing": "解除卡住"},
+	"done":      {"doing": "重开"},
 	"cancelled": {"backlog": "重新排队"},
 }
 
@@ -236,12 +237,12 @@ var webEvidenceZh = map[string]string{
 }
 
 var webBasisZh = map[string]string{
-	"manual":                  "人工判断",
+	"manual":                   "人工判断",
 	"implementation-checklist": "实现清单",
-	"test-cases":              "测试用例",
-	"subtasks":                "子任务",
-	"story-points":            "故事点",
-	"milestone":               "里程碑",
+	"test-cases":               "测试用例",
+	"subtasks":                 "子任务",
+	"story-points":             "故事点",
+	"milestone":                "里程碑",
 }
 
 var webDesignStatusZh = map[string]string{
@@ -282,8 +283,8 @@ type webAction struct {
 }
 
 type webCol struct {
-	Name string // 英文原始值（测试锚点 + 工程对照）
-	Zh   string
+	Name  string // 英文原始值（测试锚点 + 工程对照）
+	Zh    string
 	Items []model.WorkItem
 }
 
@@ -316,7 +317,7 @@ func (sg webSuggest) Count() int {
 }
 
 type webDoneCard struct {
-	Item  model.WorkItem
+	Item   model.WorkItem
 	DoneOn string // 审计流推导，无记录为空
 }
 
@@ -468,14 +469,14 @@ func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 	_ = code // converge 面板纯展示（BLOCKER/WARNING 行文本自明）
 	syncLine := s.sync()
 	bd := boardData{
-		Me:        s.me,
-		SyncTime:  time.Now().Format("15:04:05"),
-		SyncOK:    strings.Contains(syncLine, "sync收口: ok"),
-		SyncLine:  syncLine,
-		Water:     s.water(),
-		CurSystem: r.URL.Query().Get("system"),
+		Me:          s.me,
+		SyncTime:    time.Now().Format("15:04:05"),
+		SyncOK:      strings.Contains(syncLine, "sync收口: ok"),
+		SyncLine:    syncLine,
+		Water:       s.water(),
+		CurSystem:   r.URL.Query().Get("system"),
 		ConvergeOut: strings.TrimSpace(convOut),
-		Now:       time.Now().Format("2006-01-02"),
+		Now:         time.Now().Format("2006-01-02"),
 	}
 	repo := gityaml.Open(s.dir)
 	if proj, err := repo.GetProject(); err == nil {
@@ -698,6 +699,40 @@ type designDetailData struct {
 }
 
 // handleDesignView：方案详情（正文 + 讨论轮次全览——PM 反馈「有方案但查看不了」）。
+// handleCruise：巡航视图（巡航模式 §3.3 二期——PM 晨间简报的 web 面）。
+// 复用 CLI 派发器（一语义一实现）：status 原文 + 各座位 plan 摘要（只读）。
+func (s *webServer) handleCruise(w http.ResponseWriter, r *http.Request) {
+	type seatPlan struct {
+		Actor string
+		Out   string
+	}
+	var seats []seatPlan
+	repo := gityaml.Open(s.dir)
+	if afs, err := repo.ListActors(); err == nil {
+		for _, af := range afs {
+			if af.Actor.Type != model.ActorAgent {
+				continue
+			}
+			_, out, _ := s.exec("cruise", "plan", "--actor", af.Actor.ID)
+			seats = append(seats, seatPlan{Actor: af.Actor.ID, Out: strings.TrimSpace(out)})
+		}
+	}
+	_, statusOut, _ := s.exec("cruise", "status")
+	data := struct {
+		Me       string
+		Project  string
+		Status   string
+		Seats    []seatPlan
+		SyncTime string
+	}{Me: s.me, Status: strings.TrimSpace(statusOut), Seats: seats, SyncTime: time.Now().Format("15:04:05")}
+	if proj, err := repo.GetProject(); err == nil {
+		data.Project = proj.ID
+	}
+	if err := webCruiseTmpl.Execute(w, data); err != nil {
+		s.fail(w, http.StatusInternalServerError, "模板渲染失败", err.Error())
+	}
+}
+
 func (s *webServer) handleDesignView(w http.ResponseWriter, r *http.Request) {
 	topic := r.PathValue("topic")
 	if topic == "" || topic == "." || topic == ".." || strings.ContainsAny(topic, "/\\") {
@@ -1108,6 +1143,18 @@ pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12
 
 <details class="sep"><summary>收敛审计原始输出（converge）</summary><pre>{{.ConvergeOut}}</pre></details>
 </main></body></html>`))
+
+var webCruiseTmpl = template.Must(template.New("cruise").Parse(`<!doctype html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>巡航 · {{.Project}}</title><style>body{font-family:system-ui,sans-serif;max-width:920px;margin:2rem auto;padding:0 1rem;color:#1f2328}pre{background:#f6f8fa;padding:1rem;border-radius:8px;overflow:auto;font-size:13px;white-space:pre-wrap}h2{margin-top:2rem}h3{margin:1.2rem 0 .4rem}.muted{color:#656d76;font-size:13px}</style></head><body>
+<h1>巡航 · {{.Project}}</h1>
+<p class="muted">me={{.Me}} · {{.SyncTime}} · 只读投影（晨间简报 = 状态 + 各座位下一活；驱动器与宪章见 adapter cruise 资产）</p>
+<h2>整体状态</h2><pre>{{.Status}}</pre>
+<h2>各座位下一活</h2>
+{{range .Seats}}<h3>{{.Actor}}</h3><pre>{{.Out}}</pre>{{else}}<p class="muted">无 agent 座位</p>{{end}}
+<p><a href="/">← 看板</a></p>
+</body></html>`))
 
 var webDetailTmpl = template.Must(template.New("detail").Funcs(webFuncs).Parse(`<!doctype html>
 <html lang="zh"><head><meta charset="utf-8">

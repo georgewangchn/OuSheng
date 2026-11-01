@@ -43,6 +43,14 @@ var PackageJSON []byte
 //go:embed package-v1.json
 var PackageV1JSON []byte
 
+// CruiseLoopSh 是巡航驱动器（巡航模式设计方案 §3.4）——adapter install
+// --cruise 时写出为仓级 scripts/cruise-loop.sh（默认不装：外层定时器/手动
+// 挂载，launchd/cron 皆可；三闸 = 轮顶/间隔/时窗，参数是治理语义进脚本
+// 参数不进 ousheng 代码——pm 拍板 1）。
+//
+//go:embed cruise-loop.sh
+var CruiseLoopSh []byte
+
 // AgentsMD 是 AGENTS.md 的受管协议段（机器中立：不含路径/身份/环境变量，
 // 机器参数只活在 .opencode/ousheng.json）。adapter install 以
 // <!-- ousheng:begin --> / <!-- ousheng:end --> 标记幂等写入/替换。

@@ -8,12 +8,15 @@
 package opencode
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOpencodeAdapterConfigIsSchemaValid(t *testing.T) {
@@ -115,17 +118,30 @@ func TestPluginCompiles(t *testing.T) {
 	if err != nil {
 		t.Skip("bun 不可用，跳过 plugin 真编译检查")
 	}
-	// v2 plugin import @opencode/plugin——需先 bun install 装依赖才能 build
+	// v2 plugin import @opencode/plugin——需先 bun install 装依赖才能 build。
+	// 网络步骤带 3 分钟硬超时（2026-11-01 实锤：registry 网络挂死把整个测试
+	// 套件拖到 10min panic——环境劣化应 Skip 不应挂死）。
+	run := func(args ...string) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, bun, args...)
+		out, err := cmd.CombinedOutput()
+		if ctx.Err() == context.DeadlineExceeded {
+			return out, fmt.Errorf("timeout (network?)")
+		}
+		return out, err
+	}
 	tmp := t.TempDir()
 	pkgJSON, _ := os.ReadFile("package.json")
 	os.WriteFile(filepath.Join(tmp, "package.json"), pkgJSON, 0o644)
 	pluginTS, _ := os.ReadFile("plugin.ts")
 	os.WriteFile(filepath.Join(tmp, "plugin.ts"), pluginTS, 0o644)
-	if installOut, err := exec.Command(bun, "install", "--cwd", tmp).CombinedOutput(); err != nil {
+	installOut, err := run("install", "--cwd", tmp)
+	if err != nil {
 		t.Skipf("bun install 失败（网络?），跳过编译检查：%v\n%s", err, installOut)
 	}
-	out, err := exec.Command(bun, "build", filepath.Join(tmp, "plugin.ts"), "--target=bun",
-		"--outfile="+filepath.Join(tmp, "plugin.js")).CombinedOutput()
+	out, err := run("build", filepath.Join(tmp, "plugin.ts"), "--target=bun",
+		"--outfile="+filepath.Join(tmp, "plugin.js"))
 	if err != nil {
 		t.Fatalf("plugin.ts 编译失败（坏插件静默瘫掉所有座位）：%v\n%s", err, out)
 	}

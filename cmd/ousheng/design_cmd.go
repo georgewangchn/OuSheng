@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"ousheng/internal/model"
@@ -107,6 +108,32 @@ func designShow(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	stdout.Write(out)
+	// 巡航表决投影（巡航模式 §3.1 二期：最新轮发言者按系统去重——法定人数
+	// 按"不同系统"计，防同系统多窗口复本刷票。纯事实行，收敛与否由宪章判）。
+	if infos, err := repo.ListDesigns(); err == nil {
+		for _, di := range infos {
+			if di.Topic != topic || len(di.LatestSpeakers) == 0 {
+				continue
+			}
+			sysSet := map[string]bool{}
+			if asgs, err := repo.ListAssignments(); err == nil {
+				for _, a := range asgs {
+					for _, sp := range di.LatestSpeakers {
+						if a.Actor == sp {
+							sysSet[a.System] = true
+						}
+					}
+				}
+			}
+			var syss []string
+			for sys := range sysSet {
+				syss = append(syss, sys)
+			}
+			sort.Strings(syss)
+			fmt.Fprintf(stdout, "\n-- 巡航表决投影：最新轮发言 %s（跨 %d 个系统：%s）——法定人数与收敛规则见宪章\n",
+				strings.Join(di.LatestSpeakers, ","), len(syss), strings.Join(syss, ","))
+		}
+	}
 	return 0
 }
 

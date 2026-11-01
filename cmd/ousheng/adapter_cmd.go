@@ -37,6 +37,7 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 	fs.dir = fs.String("dir", ".", "code repo dir (default: .)")
 	wsFlag := fs.String("workspace", "", "ousheng workspace dir (default: colocated .ousheng > .opencode/ousheng.json > $OUSHENG_DIR)")
 	actorFlag := fs.String("actor", "", "AI 窗口身份写入 ousheng.json（默认 me）——PM 机 AI 会话 ≠ me 时用")
+	cruiseFlag := fs.Bool("cruise", false, "另写出巡航驱动器 scripts/cruise-loop.sh（默认不装——无人值守场景手动/定时器挂载）")
 	if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 		return usageErr(stderr, err)
 	}
@@ -137,6 +138,20 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	fmt.Fprintf(stdout, "gitignore     .opencode/.gitignore  %s\n", st)
+
+	// 巡航驱动器（可选资产，巡航模式 §3.4）：外层定时器驱动，默认不装。
+	if *cruiseFlag {
+		cruisePath := filepath.Join(dir, "scripts", "cruise-loop.sh")
+		if err := os.MkdirAll(filepath.Dir(cruisePath), 0o755); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if err := os.WriteFile(cruisePath, opencode.CruiseLoopSh, 0o755); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "cruise        scripts/cruise-loop.sh  written（挂载：launchd/cron/手动；三闸见脚本头注释）\n")
+	}
 
 	// 5. AGENTS.md：机器中立协议段，标记段幂等替换，段外内容不触碰。
 	st, err = upsertAgentsSection(filepath.Join(dir, "AGENTS.md"), opencode.AgentsMD)
