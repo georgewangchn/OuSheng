@@ -106,3 +106,9 @@ pm 观察：opencode 能循环但要每次明说"循环等待"。固化形态（
 | 3 | 投票落 evidence 不建 notice 模板 | 正推：evidence = 既有 append-only + 引用主体明确（那张单）+ work show 可见；消费者（PM 晨间、利益相关系统）都读单。反证：跨系统广播需求真实出现时再上 notice（记判据）——先建模板 = 为假想读者造面 | ✓ 成立 |
 
 v0.1 → v0.2（拍板版）：一期范围锁定 = 宪章约定（本文档即模板）+ `cruise plan/status` + 协议段巡航节 + `adapter install --cruise` 可选资产；二期 = design show 计票行 + web 巡航视图；claude runner 随一期资产形态交付（有明确载体）；token 计量维持延后（判据未变：无稳定计量源，轮次顶已满足预算控制）。
+
+## 九、两形态修正（2026-11-01，实栈 mlake T-061 反例驱动）
+
+**反例**：mlake 座位于 11-01 在单一 opencode session 内实现自循环（`干活→sleep 3600→sync→evidence`，20+ 轮、48h 待命计划、跨系统发单 BUG-076/077）——证伪本方案"opencode 无自循环"的隐含假设（原否决项针对 plugin 自主起新 session，session 内自循环是另一形态，此前漏收）。
+
+**修正**：巡航 = **A 值班哨兵（session 内自循环）+ B 外层 runner** 两形态分工——A 适合观测/巡检/上报（轻轮、要历史记忆、零冷启动），B 适合实现类重活（干净上下文 + 三闸）。A 的膨胀缺陷用"上下文近顶 → handover save + 自终结，单留绳上待接力"纪律补（handover 是 A↔B 的桥）；A 的失联风险由"每轮 evidence 在绳"可见性兜底。协议段已两形态并收——mlake 的即兴从此是全员协议。
