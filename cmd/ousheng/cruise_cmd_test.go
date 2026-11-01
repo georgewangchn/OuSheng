@@ -73,10 +73,15 @@ func TestCruisePlan(t *testing.T) {
 	if i, j := strings.Index(out, "1·resume"), strings.Index(out, "2·claim"); i > j || i < 0 {
 		t.Fatalf("优先序恢复先于领活:\n%s", out)
 	}
-	// --allow-new 打开第 4 节。
+	// --allow-new 打开第 4 节 + JSON 面（复查修正：断言前置——后续段落会突变
+	// 看板状态，时序耦合防后人踩雷）。
 	out = mustRun(t, dir, "cruise", "plan", "--actor", "data", "--allow-new")
 	if !strings.Contains(out, "4·new 自提（--allow-new）") || !strings.Contains(out, "只许 task/bug/test/notice") {
 		t.Fatalf("allow-new must open self-propose section:\n%s", out)
+	}
+	js := mustRun(t, dir, "cruise", "plan", "--actor", "data", "--json")
+	if !strings.Contains(js, `"idle": false`) {
+		t.Fatalf("json idle flag:\n%s", js)
 	}
 	// tester 视角：待测池必须进反应节（复查缺陷 ③ 的锁）。
 	mustRun(t, dir, "team", "add", "testbot", "--type", "agent", "--responsible-human", "data", "--role", "tester", "--system", "lake")
@@ -94,11 +99,6 @@ func TestCruisePlan(t *testing.T) {
 	out = mustRun(t, dir, "cruise", "plan", "--actor", "nobody-seat")
 	if !strings.Contains(out, "cruise: idle") || !strings.Contains(out, "造活是病") {
 		t.Fatalf("empty seat must be idle:\n%s", out)
-	}
-	// JSON 面。
-	js := mustRun(t, dir, "cruise", "plan", "--actor", "data", "--json")
-	if !strings.Contains(js, `"idle": false`) {
-		t.Fatalf("json idle flag:\n%s", js)
 	}
 }
 

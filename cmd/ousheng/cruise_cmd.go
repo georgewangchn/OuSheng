@@ -57,12 +57,7 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "--actor required（或本机先 ousheng me）")
 		return 2
 	}
-	idx, _, err := loadSnapshot(fs.Dir())
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	// 上下文复用 context.Service（一语义一实现：ActiveWork/阻塞派生不自算）。
+	// 单源装载（复查修正）：context.New 自带 Idx——不再叠加 loadSnapshot 双份快照。
 	svcCtx, err := context.New(gityaml.Open(fs.Dir()))
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -73,6 +68,7 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	idx := svcCtx.Idx
 
 	type planItem struct {
 		ID    string `json:"id"`

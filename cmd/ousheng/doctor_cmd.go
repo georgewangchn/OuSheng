@@ -222,13 +222,13 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 						if i := strings.Index(ref, "#"); i > 0 {
 							filePart = ref[:i]
 						}
-						// 位置层唯一合法值区是 secrets/（评审 🔵：无前缀 ref
-						// 原 Stat 到 .ousheng 根，报错文案指错文件）。
+						// 位置层唯一合法值区是 secrets/（复查修正：ref 非此前缀时
+						// 不猜测改写路径——WARN 修正 ref，人改登记表）。
 						if filePart == "" {
-							filePart = c.System + ".env"
-						}
-						if !strings.HasPrefix(filePart, "secrets/") {
-							filePart = "secrets/" + filePart
+							filePart = "secrets/" + c.System + ".env"
+						} else if !strings.HasPrefix(filePart, "secrets/") {
+							check("WARN", fmt.Sprintf("凭据 %s：local-file ref %q 应相对 secrets/（如 secrets/%s.env#KEY）", c.ID, filePart, c.System))
+							continue
 						}
 						if _, serr := os.Stat(filepath.Join(ws, ".ousheng", filepath.FromSlash(filePart))); serr != nil {
 							missing = append(missing, fmt.Sprintf("%s（%s）", c.ID, filePart))

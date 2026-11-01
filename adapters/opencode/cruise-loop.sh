@@ -20,7 +20,9 @@ while :; do
   run=$((run+1))
   [ $run -gt $MAXR ] && { echo "[cruise] 轮顶 $MAXR 达成，停"; break; }
   [ -z "$(inwin)" ] && { echo "[cruise] 时窗外 $WIN，停"; break; }
-  PLAN=$("$OUSHENG" cruise plan --dir "$WS" --actor "$ACTOR" $EXTRA 2>&1) || { echo "[cruise] plan 失败：$PLAN"; break; }
+  # stderr 只进日志不进 prompt（复查修正：噪声混进指令源 = 数据面污染）
+  PLAN=$("$OUSHENG" cruise plan --dir "$WS" --actor "$ACTOR" $EXTRA 2>/tmp/cruise-plan.err) || { echo "[cruise] plan 失败：$(cat /tmp/cruise-plan.err)"; break; }
+  [ -s /tmp/cruise-plan.err ] && echo "[cruise] plan stderr: $(cat /tmp/cruise-plan.err)"
   if echo "$PLAN" | grep -q "cruise: idle"; then
     idle=$((idle+1)); [ $idle -ge 2 ] && { echo "[cruise] 连续 idle，停"; break; }
   else

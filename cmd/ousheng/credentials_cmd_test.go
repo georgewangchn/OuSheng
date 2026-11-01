@@ -123,6 +123,13 @@ func TestCredentialsDoctor(t *testing.T) {
 		t.Fatalf("pm-without-ref must WARN:\n%s", out)
 	}
 
+	// malformed ref（非 secrets/ 前缀）→ WARN 提示修正，不猜测改写路径。
+	writeCredentials(t, ws, "schema_version: 1\ncredentials:\n  - id: bad-ref\n    system: lake\n    env: dev\n    location: {kind: local-file, ref: lake.env#DB_PASS}\n")
+	gitRun(t, ws, "add", ".ousheng")
+	if out := mustRun(t, repo, "doctor"); !strings.Contains(out, "bad-ref：local-file ref \"lake.env\" 应相对 secrets/") {
+		t.Fatalf("malformed ref must WARN without guessing:\n%s", out)
+	}
+
 	// 坏登记表（非法 kind）→ FAIL（校验手写纪律）。
 	writeCredentials(t, ws, "schema_version: 1\ncredentials:\n  - id: x\n    system: lake\n    location: {kind: inline-value, ref: hunter2}\n")
 	gitRun(t, ws, "add", ".ousheng")

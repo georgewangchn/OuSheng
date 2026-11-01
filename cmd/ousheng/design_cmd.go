@@ -108,11 +108,11 @@ func designShow(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	stdout.Write(out)
-	// 巡航表决投影（巡航模式 §3.1 二期：最新轮发言者按系统去重——法定人数
-	// 按"不同系统"计，防同系统多窗口复本刷票。纯事实行，收敛与否由宪章判）。
+	// 巡航表决投影（巡航模式 §3.1 二期）：只在 draft 上有表决场景——
+	// agreed/superseded 已拍板，投影行纯噪声（复查修正）。
 	if infos, err := repo.ListDesigns(); err == nil {
 		for _, di := range infos {
-			if di.Topic != topic || len(di.LatestSpeakers) == 0 {
+			if di.Topic != topic || len(di.LatestSpeakers) == 0 || di.Design.Status != model.DesignDraft {
 				continue
 			}
 			// 明细而非聚合数（复查修正）：发言者的 assignment 覆盖面 ≠ 独立座位——
