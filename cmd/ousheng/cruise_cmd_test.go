@@ -19,6 +19,7 @@ func cruiseFixture(t *testing.T) string {
 	mustRun(t, dir, "me", "data", "--name", "data 座位")
 	mustRun(t, dir, "system", "add", "lake")
 	mustRun(t, dir, "team", "add", "data", "--type", "agent", "--responsible-human", "data", "--role", "dev", "--system", "lake")
+	os.WriteFile(filepath.Join(dir, ".ousheng", "roles.yaml"), []byte("schema_version: 1\nroles:\n    - id: dev\n      name: dev\n    - id: tester\n      name: tester\n"), 0o644)
 	mustRun(t, dir, "todo", "进行中", "--system", "lake") // T-001
 	mustRun(t, dir, "todo", "等他", "--system", "lake")  // T-002
 	mustRun(t, dir, "todo", "被等", "--system", "lake")  // T-003
@@ -77,6 +78,17 @@ func TestCruisePlan(t *testing.T) {
 	if !strings.Contains(out, "4·new 自提（--allow-new）") || !strings.Contains(out, "只许 task/bug/test/notice") {
 		t.Fatalf("allow-new must open self-propose section:\n%s", out)
 	}
+	// tester 视角：待测池必须进反应节（复查缺陷 ③ 的锁）。
+	mustRun(t, dir, "team", "add", "testbot", "--type", "agent", "--responsible-human", "data", "--role", "tester", "--system", "lake")
+	// 场景 A：testing 单在 dev 手里（未移交）——tester 从待测池看到（§26 本义）。
+	mustRun(t, dir, "work", "update", "T-003", "--status", "ready", "--actor", "data")
+	mustRun(t, dir, "work", "update", "T-003", "--status", "doing", "--actor", "data")
+	mustRun(t, dir, "work", "update", "T-003", "--status", "testing", "--actor", "data")
+	out = mustRun(t, dir, "cruise", "plan", "--actor", "testbot")
+	if !strings.Contains(out, "待测池（testing 态，dev 未移交）") || !strings.Contains(out, "T-003") {
+		t.Fatalf("tester seat must see awaiting_test in react:\n%s", out)
+	}
+
 	// idle：新注册的空座位视角 = 无活（造活是病）。
 	mustRun(t, dir, "team", "add", "nobody-seat", "--type", "agent", "--responsible-human", "data")
 	out = mustRun(t, dir, "cruise", "plan", "--actor", "nobody-seat")
@@ -161,7 +173,7 @@ func TestDesignShowCruiseQuorum(t *testing.T) {
 	os.MkdirAll(filepath.Dir(rd), 0o755)
 	os.WriteFile(rd, []byte("## data — 11-01\n方案 A\n"), 0o644)
 	out := mustRun(t, dir, "design", "show", "night-plan")
-	if !strings.Contains(out, "巡航表决投影：最新轮发言 data（跨 1 个系统：lake）") {
+	if !strings.Contains(out, "巡航表决投影：最新轮发言 1 人 data(lake)") {
 		t.Fatalf("quorum line missing:\n%s", out)
 	}
 }

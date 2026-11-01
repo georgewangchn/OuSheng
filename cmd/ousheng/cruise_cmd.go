@@ -96,6 +96,11 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 		}
 		react = append(react, planItem{ID: w.ID, Title: w.Title, Note: note})
 	}
+	// awaiting_test（复查补）：tester 视角的待测池（§26 机制）——巡航时反应节
+	// 必须含它，否则 tester 座位整夜失明。事实投影非派活指令，tester 自行 show 判断。
+	for _, w := range mc.AwaitingTest {
+		react = append(react, planItem{ID: w.ID, Title: w.Title, Note: "待测池（testing 态，dev 未移交）——work show 判断后接手"})
+	}
 	// 待领池：我的执行系统 × ready 无主（backlog 不列——巡航只领能直接开工的）。
 	mySystems := map[string]bool{}
 	for _, s := range mc.Systems {

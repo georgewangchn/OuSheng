@@ -115,23 +115,31 @@ func designShow(args []string, stdout, stderr io.Writer) int {
 			if di.Topic != topic || len(di.LatestSpeakers) == 0 {
 				continue
 			}
-			sysSet := map[string]bool{}
+			// 明细而非聚合数（复查修正）：发言者的 assignment 覆盖面 ≠ 独立座位——
+			// agentos 一人可坐 3 系统，聚合"跨 N 系统"会把单人当 3 票。展示
+			// 人×系统明细，法定人数判定留给宪章（语义，绳不判）。
+			sysOf := map[string][]string{}
 			if asgs, err := repo.ListAssignments(); err == nil {
 				for _, a := range asgs {
 					for _, sp := range di.LatestSpeakers {
 						if a.Actor == sp {
-							sysSet[a.System] = true
+							sysOf[sp] = append(sysOf[sp], a.System)
 						}
 					}
 				}
 			}
-			var syss []string
-			for sys := range sysSet {
-				syss = append(syss, sys)
+			var parts []string
+			for _, sp := range di.LatestSpeakers {
+				ss := sysOf[sp]
+				sort.Strings(ss)
+				if len(ss) == 0 {
+					parts = append(parts, sp+"(未映射)")
+					continue
+				}
+				parts = append(parts, fmt.Sprintf("%s(%s)", sp, strings.Join(ss, "+")))
 			}
-			sort.Strings(syss)
-			fmt.Fprintf(stdout, "\n-- 巡航表决投影：最新轮发言 %s（跨 %d 个系统：%s）——法定人数与收敛规则见宪章\n",
-				strings.Join(di.LatestSpeakers, ","), len(syss), strings.Join(syss, ","))
+			fmt.Fprintf(stdout, "\n-- 巡航表决投影：最新轮发言 %d 人 %s——一人可坐多系统（+ 连接），法定人数按宪章\n",
+				len(di.LatestSpeakers), strings.Join(parts, " "))
 		}
 	}
 	return 0

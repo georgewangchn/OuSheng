@@ -146,3 +146,21 @@ func TestPluginCompiles(t *testing.T) {
 		t.Fatalf("plugin.ts 编译失败（坏插件静默瘫掉所有座位）：%v\n%s", err, out)
 	}
 }
+
+// TestCruiseLoopSyntax：巡航驱动器 bash 语法锁（坏脚本静默瘫掉整夜巡航）。
+func TestCruiseLoopSyntax(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash 不可用")
+	}
+	out, err := exec.Command("bash", "-n", "cruise-loop.sh").CombinedOutput()
+	if err != nil {
+		t.Fatalf("cruise-loop.sh 语法错误：%v\n%s", err, out)
+	}
+	// 关键护栏在位：代码仓参数硬门 + 三闸。
+	s := string(CruiseLoopSh)
+	for _, want := range []string{"code-repo", "轮顶", "时窗", "idle", "cruise plan"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("cruise-loop.sh 缺护栏 %q", want)
+		}
+	}
+}
