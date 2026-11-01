@@ -9,6 +9,8 @@ set -euo pipefail
 WS=$1; ACTOR=$2; REPO=$3; MAXR=${4:-20}; GAP=${5:-300}; WIN=${6:-22:00-07:00}
 if [ -z "$REPO" ]; then echo "[cruise] 缺 code-repo 参数——opencode 必须在代码仓开 session（在看板仓里干活=跑错地方）" >&2; exit 2; fi
 OUSHENG=${OUSHENG_BIN:-ousheng}; OC=${OC_BIN:-opencode}
+# 夜间省钱旋钮：OC_ARGS 透传给 opencode run（如 OC_ARGS="--model <便宜模型>"）。
+OC_ARGS=${OC_ARGS:-}
 EXTRA=${CRUISE_EXTRA:-}
 run=0; idle=0
 inwin() { python3 -c "
@@ -28,7 +30,7 @@ while :; do
   else
     idle=0
     echo "[cruise] round $run → $OC"
-    ( cd "$REPO" && $OC run --prompt "巡航执行（严格按 AGENTS.md 巡航协议节）：处理以下清单，一次一轮，触 human 门即挂起转下一项；收尾 ousheng handover save --system <你的系统> --actor $ACTOR 后 ousheng sync。
+    ( cd "$REPO" && $OC run $OC_ARGS --prompt "巡航执行（严格按 AGENTS.md 巡航协议节）：处理以下清单，一次一轮，触 human 门即挂起转下一项；收尾 ousheng handover save --system <你的系统> --actor $ACTOR 后 ousheng sync。
 
 $PLAN" ) || true
   fi
