@@ -20,7 +20,7 @@ const OUSHENG_BIN = process.env.OUSHENG_BIN || "ousheng"
 const BOARD_DIR = process.env.OUSHENG_BOARD_DIR || ".ousheng"
 const BOARD_BIN = process.env.OUSHENG_BOARD_BIN || "board"
 
-type MachineCfg = { workspace: string; actor: string }
+type MachineCfg = { workspace: string; actor: string; system: string }
 
 const cfgCache = new Map<string, MachineCfg>()
 
@@ -31,6 +31,7 @@ async function readCfg(directory: string): Promise<MachineCfg> {
   let cfg: MachineCfg = {
     workspace: process.env.OUSHENG_DIR || ".",
     actor: process.env.OUSHENG_ACTOR || "",
+    system: "",
   }
   try {
     const raw = await Bun.file(`${directory}/.opencode/ousheng.json`).text()
@@ -39,6 +40,7 @@ async function readCfg(directory: string): Promise<MachineCfg> {
       cfg = {
         workspace: parsed.workspace,
         actor: typeof parsed.actor === "string" ? parsed.actor : "",
+        system: typeof parsed.system === "string" ? parsed.system : "",
       }
     }
   } catch {
@@ -81,8 +83,11 @@ export default Plugin.define({
     const controller = new AbortController()
     void (async () => {
       for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-        // 时机①：session 启动 —— 拉取 + 刷新 + 我的上下文
+        // 时机①：session 启动 —— 拉取 + 刷新 + 我的上下文 + 捕获 sid（代际制）
+        let seatSessionId = ""
         if (event.type === "session.created") {
+          const props = (event as any).properties || {}
+          seatSessionId = props.sessionID || props.id || ""
           try {
             const cfg = await readCfg(directory)
             const args = cfg.actor ? ["sync", "--actor", cfg.actor] : ["sync"]
@@ -152,6 +157,22 @@ export default Plugin.define({
             }
           } catch (err) {
             await log(ctx, "error", `[OuSheng] session.idle sampling failed: ${String(err)}`)
+          }
+
+          // 时机③（续）：代际指针补记（档案 §34 盲区修复：A 形态哨兵/web 发令
+          // 场景下 agent 不知道自己的 sid——plugin 从 session.created 事件捕获，
+          // idle 时自动 attach。agent 只管 save（内容），指针由 plugin/runner 管（基础设施）。
+          if (seatSessionId) {
+            try {
+              const cfg = await readCfg(directory)
+              if (cfg.system && cfg.actor) {
+                await run([OUSHENG_BIN, "handover", "attach", "--dir", cfg.workspace,
+                  "--system", cfg.system, "--actor", cfg.actor,
+                  "--session", seatSessionId], directory)
+              }
+            } catch {
+              // attach 非致命——指针缺位下轮 plan 无 attach 行，退化为新代（可用）
+            }
           }
 
           // 时机③（续）：未推提交自动收口

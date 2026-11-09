@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"ousheng/adapters/opencode"
+	"ousheng/internal/machine"
 )
 
 // cmdAdapter：`ousheng adapter install [--dir <代码仓>] [--workspace <工作区>]`。
@@ -39,6 +40,7 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 	wsFlag := fs.String("workspace", "", "ousheng workspace dir (default: colocated .ousheng > .opencode/ousheng.json > $OUSHENG_DIR)")
 	actorFlag := fs.String("actor", "", "AI 窗口身份写入 ousheng.json（默认 me）——PM 机 AI 会话 ≠ me 时用")
 	cruiseFlag := fs.Bool("cruise", false, "另写出巡航驱动器 scripts/cruise-loop.sh（默认不装——无人值守场景手动/定时器挂载）")
+	systemFlag := fs.String("system", "", "本座位归属系统（写入 ousheng.json——plugin 代际 attach 用；默认从 repos.yaml 反查 --dir）")
 	if err := parseLoose(fs.FlagSet, args[1:]); err != nil {
 		return usageErr(stderr, err)
 	}
@@ -116,7 +118,20 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "opencode.json .opencode/opencode.json  %s\n", st)
 
 	// 4. ousheng.json：机器本地配置（plugin 的单一事实源），恒同步。
-	mc, err := json.MarshalIndent(map[string]string{"workspace": ws, "actor": actor}, "", "  ")
+	system := *systemFlag
+	if system == "" {
+		// repos.yaml 反查：--dir 路径命中的系统（唯一命中才用，多命中/零命中留空）
+		for sys, repoDir := range machine.LoadRepoMap(ws) {
+			if repoDir == dir {
+				if system != "" {
+					system = "" // 多命中歧义 → 留空
+					break
+				}
+				system = sys
+			}
+		}
+	}
+	mc, err := json.MarshalIndent(map[string]string{"workspace": ws, "actor": actor, "system": system}, "", "  ")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

@@ -165,3 +165,21 @@ func TestCruiseLoopSyntax(t *testing.T) {
 		}
 	}
 }
+
+// TestPluginSessionAttach：plugin 源码含代际 attach 护栏（盲区修复回归锁）。
+func TestPluginSessionAttach(t *testing.T) {
+	b, err := os.ReadFile("plugin.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, want := range []string{
+		"seatSessionId",     // session.created 捕获 sid
+		"handover", "attach", // idle 时自动 attach
+		"cfg.system",         // 从 ousheng.json 读 system
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("plugin.ts 缺代际 attach 护栏 %q", want)
+		}
+	}
+}

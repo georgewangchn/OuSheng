@@ -49,3 +49,47 @@ func TestPresenceCmd(t *testing.T) {
 	_ = filepath.Join
 	_ = strings.Contains
 }
+
+// TestAdapterSystemField：--system / repos.yaml 反查 → ousheng.json 含 system 字段
+// （plugin 代际 attach 的前置——盲区修复锁）。
+func TestAdapterSystemField(t *testing.T) {
+	repo, ws := seatFor(t)
+	mustRun(t, repo, "adapter", "install", "--workspace", ws)
+	b, _ := os.ReadFile(filepath.Join(repo, ".opencode", "ousheng.json"))
+	if strings.Contains(string(b), `"system": "data"`) || strings.Contains(string(b), `"system": "lake"`) {
+		t.Fatalf("未映射系统时 system 应为空（不猜）:\n%s", b)
+	}
+	// repos.yaml 反查：ws 仓的 repos.yaml 里 data→repo 路径 → install 后 system=data。
+	mustRun(t, ws, "repo", "set", "data", repo)
+	mustRun(t, repo, "adapter", "install", "--workspace", ws)
+	b, _ = os.ReadFile(filepath.Join(repo, ".opencode", "ousheng.json"))
+	if !strings.Contains(string(b), `"system": "data"`) {
+		t.Fatalf("repos.yaml 反查应填 system=data:\n%s", b)
+	}
+	// 显式 --system 覆盖。
+	mustRun(t, repo, "adapter", "install", "--workspace", ws, "--system", "lake")
+	b, _ = os.ReadFile(filepath.Join(repo, ".opencode", "ousheng.json"))
+	if !strings.Contains(string(b), `"system": "lake"`) {
+		t.Fatalf("--system 显式覆盖:\n%s", b)
+	}
+}
+
+// TestPluginSessionAttach：plugin 源码含 seatSessionId 捕获 + idle attach 调用
+// （盲区修复的回归锁——plugin 是 ts 不跑 go test，锁源码护栏）。
+func TestPluginSessionAttach(t *testing.T) {
+	b, err := os.ReadFile("plugin.ts")
+	if err != nil {
+		t.Skip("不在 adapter 目录")
+	}
+	s := string(b)
+	for _, want := range []string{
+		"seatSessionId",          // session.created 捕获
+		"handover.*attach",       // idle 时自动 attach
+		"cfg.system",             // 从 ousheng.json 读 system
+		"system.*string.*system", // MachineCfg 含 system 字段
+	} {
+		if !strings.Contains(s, want) && !strings.Contains(s, strings.ReplaceAll(want, ".*", "")) {
+			t.Fatalf("plugin.ts 缺代际 attach 护栏 %q", want)
+		}
+	}
+}
