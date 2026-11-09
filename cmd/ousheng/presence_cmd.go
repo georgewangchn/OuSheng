@@ -82,9 +82,9 @@ func presenceGuidance(state string) string {
 // presenceLine 是 cruise plan/status 头部的在场度行（数据事实+纪律提示）。
 func presenceLine(repo *gityaml.Repo) string {
 	p := repo.LoadPresence()
-	since := ""
+	since := "未声明"
 	if p.Since != "" {
-		since = "自 " + model.PresenceSinceShort(p) + " "
+		since = "自 " + model.PresenceSinceShort(p)
 	}
 	return fmt.Sprintf("PM %s（%s）——%s", p.State, since, presenceGuidance(p.State))
 }

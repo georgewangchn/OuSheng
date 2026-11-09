@@ -227,7 +227,7 @@ func TestWebCruiseView(t *testing.T) {
 		t.Fatalf("cruise view broken: %d\n%s", resp.StatusCode, body[:300])
 	}
 	// P4 驾驶舱：观察 + 发单 + 拍板表单（写路径复用既有 POST 端点）。
-	for _, want := range []string{"快速发单", "/work/create", "挂起待你处理", "值守（present）", "/cruise/pm-away"} {
+	for _, want := range []string{"快速发单", "/work/create", "挂起待你处理", "值守（present）", "/cruise/pm-presence", "我离开（away）"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("cockpit missing %q:\n%s", want, body[:300])
 		}

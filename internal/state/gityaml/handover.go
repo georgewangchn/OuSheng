@@ -153,7 +153,11 @@ func (r *Repo) AttachSession(system, actor, session, msg string) error {
 		return err
 	}
 	if _, err := gitRun(r.Dir, "commit", "-m", msg); err != nil {
-		return err
+		// 同 sid 连续 attach = 无变化空提交（评审 🔴：驱动器续代场景必触发）
+		if !strings.Contains(err.Error(), "nothing to commit") &&
+			!strings.Contains(err.Error(), "no changes added to commit") {
+			return err
+		}
 	}
 	return nil
 }

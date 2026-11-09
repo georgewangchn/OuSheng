@@ -47,7 +47,7 @@ while :; do
   [ -n "$SESS" ] && OCARGS="-s $SESS"
   echo "[cruise] round $run → $OC ${SESS:+(续代 $SESS)}"
 
-  ( cd "$REPO" && $OC run $OCARGS $OC_ARGS --format json --prompt "巡航执行（严格按 AGENTS.md 巡航协议节）：处理以下清单，一次一轮，触 human 门即挂起转下一项；收尾 ousheng handover save --system <你的系统> --actor $ACTOR 后 ousheng sync。
+  ( cd "$REPO" && $OC run $OCARGS $OC_ARGS --format json --prompt "巡航执行（严格按 AGENTS.md 巡航协议节）：处理以下清单，一次一轮，触 human 门即挂起转下一项；收尾 ousheng handover save --system $SYSTEM --actor $ACTOR 后 ousheng sync。
 
 $PLAN" ) > /tmp/cruise-round.out 2>>/tmp/cruise-loop.err || echo "[cruise] opencode 非零退出，继续下一轮" >&2
 

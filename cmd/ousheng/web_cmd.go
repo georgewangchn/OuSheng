@@ -119,8 +119,7 @@ func newWebMux(dir string) *http.ServeMux {
 	mux.HandleFunc("POST /work/{id}/ack", s.guard(s.handleAck))
 	mux.HandleFunc("POST /work/create", s.guard(s.handleCreate))
 	mux.HandleFunc("GET /cruise", s.handleCruise)
-	mux.HandleFunc("GET /cruise/pm-present", s.handlePresenceSet("present"))
-	mux.HandleFunc("GET /cruise/pm-away", s.handlePresenceSet("away"))
+	mux.HandleFunc("POST /cruise/pm-presence", s.guard(s.handlePresenceSet))
 	mux.HandleFunc("GET /design/{topic}", s.handleDesignView)
 	mux.HandleFunc("POST /design/{topic}/decide", s.guard(s.handleDecide))
 	mux.HandleFunc("POST /design/{topic}/supersede", s.guard(s.handleSupersede))
@@ -701,17 +700,20 @@ type designDetailData struct {
 }
 
 // handleDesignView：方案详情（正文 + 讨论轮次全览——PM 反馈「有方案但查看不了」）。
-// handlePresenceSet：驾驶舱一键在场度（GET 便利面，等价 CLI pm present/away；
-// 身份恒 = 本机 me 且必须 human——与 CLI 同门）。
-func (s *webServer) handlePresenceSet(state string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		code, out, _ := s.exec("pm", state)
-		if code != 0 {
-			s.fail(w, http.StatusBadRequest, "在场度设置失败", out)
-			return
-		}
-		http.Redirect(w, r, "/cruise", http.StatusSeeOther)
+// handlePresenceSet：驾驶舱一键在场度（POST + guard：Origin 门/loopback——
+// 评审 🟡 修复，state-changing GET 是 CSRF 面；身份恒 = 本机 me 且 human）。
+func (s *webServer) handlePresenceSet(w http.ResponseWriter, r *http.Request) {
+	state := r.FormValue("state")
+	if state != "present" && state != "away" {
+		s.fail(w, http.StatusBadRequest, "state 只能是 present|away", "")
+		return
 	}
+	code, out, _ := s.exec("pm", state)
+	if code != 0 {
+		s.fail(w, http.StatusBadRequest, "在场度设置失败", out)
+		return
+	}
+	http.Redirect(w, r, "/cruise", http.StatusSeeOther)
 }
 
 // cruiseStatusParsed 是 cruise status --json 的驾驶舱消费子集。
@@ -755,8 +757,8 @@ func (s *webServer) handleCruise(w http.ResponseWriter, r *http.Request) {
 	// 驾驶舱操作面（P4）：挂起三类 + 快速建单——写路径全部复用既有 POST
 	// handler（decide/ack/create + guard），本页只做聚合呈现，无新写语义。
 	type pendingOp struct {
-		Kind string // decide | ack
-		Key  string // topic | work id
+		Kind  string // decide | ack
+		Key   string // topic | work id
 		Label string
 	}
 	var pend []pendingOp
@@ -769,13 +771,13 @@ func (s *webServer) handleCruise(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	data := struct {
-		Me        string
-		Project   string
-		Status    string
-		Seats     []seatPlan
-		SyncTime  string
-		Pending   []pendingOp
-		Systems   []string
+		Me       string
+		Project  string
+		Status   string
+		Seats    []seatPlan
+		SyncTime string
+		Pending  []pendingOp
+		Systems  []string
 	}{Me: s.me, Status: strings.TrimSpace(statusOut), Seats: seats, SyncTime: time.Now().Format("15:04:05"), Pending: pend}
 	if systems, err := repo.ListSystems(); err == nil {
 		for _, sy := range systems {
@@ -1209,7 +1211,8 @@ var webCruiseTmpl = template.Must(template.New("cruise").Parse(`<!doctype html>
 <p class="muted">me={{.Me}} · {{.SyncTime}} · 只读投影（晨间简报 = 状态 + 各座位下一活；驱动器与宪章见 adapter cruise 资产）</p>
 <h2>整体状态</h2><pre>{{.Status}}</pre>
 <div style="margin:.5rem 0">
-<a href="/cruise/pm-present">我来值守（present）</a> · <a href="/cruise/pm-away">我离开（away）</a>
+<form method="post" action="/cruise/pm-presence" style="display:inline"><input type="hidden" name="state" value="present"><button>我来值守（present）</button></form>
+<form method="post" action="/cruise/pm-presence" style="display:inline"><input type="hidden" name="state" value="away"><button>我离开（away）</button></form>
 </div>
 {{if .Pending}}
 <h2>挂起待你处理</h2>
