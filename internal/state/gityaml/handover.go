@@ -10,6 +10,8 @@ import (
 
 	"ousheng/internal/model"
 	"ousheng/internal/state"
+
+	"gopkg.in/yaml.v3"
 )
 
 // --- 交接快照（上下文交接方案 §H1，TASK-044）---
@@ -54,7 +56,7 @@ func (r *Repo) ListHandover() ([]model.HandoverInfo, error) {
 			}
 			// 座位身份以文件名为准（frontmatter 可能漂移；show/claim 都按路径）。
 			out = append(out, model.HandoverInfo{
-				System: system, Actor: actor, SavedAt: hf.SavedAt, Size: int64(len(raw)),
+				System: system, Actor: actor, SavedAt: hf.SavedAt, Session: hf.Session, Size: int64(len(raw)),
 			})
 		}
 	}
@@ -84,7 +86,8 @@ func (r *Repo) GetHandover(system, actor string) (model.HandoverFile, string, er
 
 // SaveHandover 写座位快照（覆盖式）+ git commit。
 // 4KB 硬门在此（写路径 fail-closed）；git 历史即版本链（旧快照档案可回溯）。
-func (r *Repo) SaveHandover(system, actor, body, msg string) (model.HandoverInfo, error) {
+// session：本代 opencode session id；空 = 换代信号（代际制，档案 §34）。
+func (r *Repo) SaveHandover(system, actor, session, body, msg string) (model.HandoverInfo, error) {
 	if !handoverSegRe.MatchString(system) {
 		return model.HandoverInfo{}, fmt.Errorf("invalid system %q (lowercase-hyphen)", system)
 	}
@@ -100,7 +103,7 @@ func (r *Repo) SaveHandover(system, actor, body, msg string) (model.HandoverInfo
 		return model.HandoverInfo{}, fmt.Errorf("unknown actor %q — 先注册（ousheng me / team add）", actor)
 	}
 	savedAt := model.Now()
-	raw := model.EncodeHandover(system, actor, savedAt, body)
+	raw := model.EncodeHandover(system, actor, savedAt, session, body)
 	if len(raw) > model.HandoverMaxBytes {
 		return model.HandoverInfo{}, fmt.Errorf("handover %d bytes > %d gate — 导航态超限即内容错居（细节去 design/单/architecture，此处只留指针）", len(raw), model.HandoverMaxBytes)
 	}
@@ -119,7 +122,84 @@ func (r *Repo) SaveHandover(system, actor, body, msg string) (model.HandoverInfo
 	if _, err := gitRun(r.Dir, "commit", "-m", msg); err != nil {
 		return model.HandoverInfo{}, err
 	}
-	return model.HandoverInfo{System: system, Actor: actor, SavedAt: savedAt, Size: int64(len(raw))}, nil
+	return model.HandoverInfo{System: system, Actor: actor, SavedAt: savedAt, Session: session, Size: int64(len(raw))}, nil
+}
+
+// AttachSession 补记本代 session id（驱动器侧：opencode run 结束后调用）。
+// 只改 frontmatter 的 session 字段，正文与 saved_at 原样——正文是 agent 的
+// 事实，驱动器只补自己知道的指针。session 为空 = 清除指针（强制换代）。
+func (r *Repo) AttachSession(system, actor, session, msg string) error {
+	if !handoverSegRe.MatchString(system) || !handoverSegRe.MatchString(actor) {
+		return fmt.Errorf("invalid handover seat %s/%s", system, actor)
+	}
+	raw, err := os.ReadFile(filepath.Join(r.handoverDir(), system, actor+".md"))
+	if err != nil {
+		return err
+	}
+	hf, body, err := model.DecodeHandover(raw)
+	if err != nil {
+		return err
+	}
+	out := model.EncodeHandover(hf.System, hf.Actor, hf.SavedAt, session, body)
+	unlock, err := r.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := writeFileMk(filepath.Join(r.handoverDir(), system, actor+".md"), out, 0o644); err != nil {
+		return err
+	}
+	if _, err := gitRun(r.Dir, "add", ".ousheng"); err != nil {
+		return err
+	}
+	if _, err := gitRun(r.Dir, "commit", "-m", msg); err != nil {
+		return err
+	}
+	return nil
+}
+
+// --- 在场度（档案 §34，P1）---
+
+func (r *Repo) presencePath() string { return filepath.Join(r.root(), "presence.yaml") }
+
+// SavePresence 写在场度（human 座位声明；入 git 全队同步）。
+func (r *Repo) SavePresence(p model.Presence, msg string) error {
+	unlock, err := r.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	body := fmt.Sprintf("schema_version: 1\nactor: %s\nstate: %s\nsince: %s\n", p.Actor, p.State, p.Since)
+	if err := writeFileMk(r.presencePath(), []byte(body), 0o644); err != nil {
+		return err
+	}
+	if _, err := gitRun(r.Dir, "add", ".ousheng"); err != nil {
+		return err
+	}
+	if _, err := gitRun(r.Dir, "commit", "-m", msg); err != nil {
+		return err
+	}
+	return nil
+}
+
+// LoadPresence 读在场度；缺失/坏值 → away（悲观默认，档案 §34）。
+func (r *Repo) LoadPresence() model.Presence {
+	raw, err := os.ReadFile(r.presencePath())
+	if err != nil {
+		return model.Presence{State: model.PresenceAway, Since: ""}
+	}
+	var f struct {
+		Actor string `yaml:"actor"`
+		State string `yaml:"state"`
+		Since string `yaml:"since"`
+	}
+	if yamlErr := yaml.Unmarshal(raw, &f); yamlErr != nil {
+		return model.Presence{State: model.PresenceAway}
+	}
+	if f.State != model.PresencePresent {
+		f.State = model.PresenceAway
+	}
+	return model.Presence{Actor: f.Actor, State: f.State, Since: f.Since}
 }
 
 // --- credentials 登记表（§H2，TASK-045）---

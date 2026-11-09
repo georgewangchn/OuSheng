@@ -12,6 +12,8 @@
 
 **巡航协议（无人值守自主优化，详见产品仓《巡航模式设计方案》+ 项目宪章 .ousheng/designs/cruise/）**：巡航两形态，按活分工——
 - **A 值班哨兵（session 内自循环，mlake T-061 实证）**：适合观测/巡检/跨系统上报类轻活。一个 session 内 `干活 → sleep ~3600 → sync → 下一轮 → evidence 记本轮（注明第 N 轮/时长）`；发现他系统问题立即上绳（bug report 指向归属系统）；**上下文近上限时 `handover save` + 自终结**，单留绳上待次日/runner 接力——哨兵不死撑，记忆上绳。
+- **会话代际（续代省重构，换代保精简）**：收尾 `handover save --session <本代id>`（驱动器会自动补记）→ 下轮 `cruise plan` 给 `attach:` 行即续同代；上下文近顶或跨任务域切换时 save **不带** --session（换代，4KB 导航态重起）。需要 pm 答复的问题写成单内 evidence `Q:` 条目**攒批**，不逐条追问、不在会话里口头问 pm——pm 在 web 驾驶舱批量回复/拍板。
+- **在场度分叉**（`ousheng pm status` 可查）：present=问完等（分钟级回复可期）；away=**遇 human 门立即挂起转下一活，绝不空等**，问题按 Q: 攒批晨间处理。默认按 away 行事（未声明=悲观默认）。
 - **B 外层 runner（cruise-loop.sh，实现类重活）**：每轮 `cruise plan`（优先序 恢复>领活>反应>新提）→ 一轮干净 session → 收尾 save+sync；三闸（时窗/轮顶/idle）硬顶。
 铁律（两形态通用）：①等不空转——blocked 就去清单下一项，不轮询不 spin；②自提单只许 task/bug/test/notice，feature/requirement 是 human 门（动土先起 design + 拍板）；自提正文必须含第一性推演与反事实推演过程；③冲突先协商（对方单上 evidence 陈述），协商不果按宪章投票（≥2 个不同系统计法定人数，结果落 evidence），平票或触线即挂起——**挂起是巡航的正确终局，不是失败**；④C2/拍板门永不绕过，挂起等 human；⑤每轮收尾 `handover save` + `sync`；⑥无活即停（cruise: idle）——为跑而造活是病。
 

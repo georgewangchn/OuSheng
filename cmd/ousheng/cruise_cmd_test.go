@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // cruiseFixture：data 座位——T-001 doing（恢复）、TASK-009 ready 无主（领活）、
@@ -208,6 +209,12 @@ func TestDesignShowCruiseQuorum(t *testing.T) {
 func TestWebCruiseView(t *testing.T) {
 	dir := cruiseFixture(t)
 	mkCruiseBoard(t, dir)
+	// 造挂起项：draft design 齐轮次（驾驶舱应出拍板表单）。
+	writeDesignFile(t, dir, "night-plan",
+		"status: draft\nowner: data\nsystems: [lake]\nrelated_items: []\n", "# 夜间方案\n")
+	rd := filepath.Join(dir, ".ousheng", "designs", "night-plan", "round-1.md")
+	os.MkdirAll(filepath.Dir(rd), 0o755)
+	os.WriteFile(rd, []byte("## data — 11-09\n方案 A\n"), 0o644)
 	srv := httptest.NewServer(newWebMux(dir))
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/cruise")
@@ -219,7 +226,74 @@ func TestWebCruiseView(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(body, "巡航") || !strings.Contains(body, "下一活") {
 		t.Fatalf("cruise view broken: %d\n%s", resp.StatusCode, body[:300])
 	}
-	if strings.Contains(body, "<form") {
-		t.Fatalf("cruise view must be read-only (no forms)")
+	// P4 驾驶舱：观察 + 发单 + 拍板表单（写路径复用既有 POST 端点）。
+	for _, want := range []string{"快速发单", "/work/create", "挂起待你处理", "值守（present）", "/cruise/pm-away"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("cockpit missing %q:\n%s", want, body[:300])
+		}
+	}
+}
+
+// TestHandoverSessionGenerations（P0 代际制）：save --session → plan attach 行；
+// save 换代 → attach 消失；attach 命令补记。
+func TestHandoverSessionGenerations(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	saveHandover(t, dir, "lake", "data", "# gen1\n导航\n")
+	// 无 session：无 attach 行。
+	out := mustRun(t, dir, "cruise", "plan", "--actor", "data")
+	if strings.Contains(out, "attach:") {
+		t.Fatalf("no session recorded — no attach line:\n%s", out)
+	}
+	// 驱动器补记 session → plan 出 attach 行。
+	mustRun(t, dir, "handover", "attach", "--system", "lake", "--actor", "data", "--session", "ses_gen1")
+	out = mustRun(t, dir, "cruise", "plan", "--actor", "data")
+	if !strings.Contains(out, "attach: ses_gen1") || !strings.Contains(out, "opencode run -s ses_gen1") {
+		t.Fatalf("attach line missing after driver attach:\n%s", out)
+	}
+	// agent save 不带 session（换代）→ attach 消失（新代起点）。
+	saveHandover(t, dir, "lake", "data", "# gen2\n换代后的导航\n")
+	out = mustRun(t, dir, "cruise", "plan", "--actor", "data")
+	if strings.Contains(out, "attach: ses_gen1") {
+		t.Fatalf("generation rollover must clear attach:\n%s", out)
+	}
+}
+
+// TestCruisePlanWait（P2 活到即醒）：有活立即返回（耗时 << wait）；空闲超时返回 idle。
+func TestCruisePlanWait(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	start := nowUnix()
+	out := mustRun(t, dir, "cruise", "plan", "--actor", "data", "--wait", "30")
+	if !strings.Contains(out, "1·resume") || nowUnix()-start > 10 {
+		t.Fatalf("work present must return fast (wait must not block): took %ds\n%s", nowUnix()-start, out)
+	}
+	// 空座位：--wait 2 秒超时后返回 idle（不悬挂）。
+	fresh := t.TempDir()
+	mustRun(t, fresh, "init")
+	mustRun(t, fresh, "me", "pm", "--name", "PM")
+	mustRun(t, fresh, "system", "add", "lake")
+	mustRun(t, fresh, "team", "add", "s1", "--type", "agent", "--responsible-human", "pm", "--system", "lake")
+	start = nowUnix()
+	out = mustRun(t, fresh, "cruise", "plan", "--actor", "s1", "--wait", "2")
+	if !strings.Contains(out, "cruise: idle") || nowUnix()-start > 15 {
+		t.Fatalf("idle seat must time out to idle, took %ds:\n%s", nowUnix()-start, out)
+	}
+}
+
+func nowUnix() int64 { return time.Now().Unix() }
+
+// TestCruiseStatusStall（P3 空转曝光）：doing 无 evidence → ⚠；有新证据不报。
+func TestCruiseStatusStall(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	out := mustRun(t, dir, "cruise", "status", "--hours", "1", "--stall-hours", "12")
+	if !strings.Contains(out, "空转嫌疑") || !strings.Contains(out, "T-001") || !strings.Contains(out, "从未有证据") {
+		t.Fatalf("stalled doing item must surface:\n%s", out)
+	}
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x", "--note", "推进", "--actor", "data")
+	out = mustRun(t, dir, "cruise", "status", "--hours", "1", "--stall-hours", "12")
+	if strings.Contains(out, "T-001（从未") {
+		t.Fatalf("fresh evidence must clear stall:\n%s", out)
 	}
 }

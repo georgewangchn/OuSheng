@@ -147,6 +147,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdHandover(args[1:], stdout, stderr)
 	case "cruise":
 		return cmdCruise(args[1:], stdout, stderr)
+	case "pm":
+		return cmdPm(args[1:], stdout, stderr)
 	case "context":
 		return cmdContext(args[1:], stdout, stderr)
 	case "work":

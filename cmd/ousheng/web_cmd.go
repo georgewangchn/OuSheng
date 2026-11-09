@@ -119,6 +119,8 @@ func newWebMux(dir string) *http.ServeMux {
 	mux.HandleFunc("POST /work/{id}/ack", s.guard(s.handleAck))
 	mux.HandleFunc("POST /work/create", s.guard(s.handleCreate))
 	mux.HandleFunc("GET /cruise", s.handleCruise)
+	mux.HandleFunc("GET /cruise/pm-present", s.handlePresenceSet("present"))
+	mux.HandleFunc("GET /cruise/pm-away", s.handlePresenceSet("away"))
 	mux.HandleFunc("GET /design/{topic}", s.handleDesignView)
 	mux.HandleFunc("POST /design/{topic}/decide", s.guard(s.handleDecide))
 	mux.HandleFunc("POST /design/{topic}/supersede", s.guard(s.handleSupersede))
@@ -699,6 +701,38 @@ type designDetailData struct {
 }
 
 // handleDesignView：方案详情（正文 + 讨论轮次全览——PM 反馈「有方案但查看不了」）。
+// handlePresenceSet：驾驶舱一键在场度（GET 便利面，等价 CLI pm present/away；
+// 身份恒 = 本机 me 且必须 human——与 CLI 同门）。
+func (s *webServer) handlePresenceSet(state string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code, out, _ := s.exec("pm", state)
+		if code != 0 {
+			s.fail(w, http.StatusBadRequest, "在场度设置失败", out)
+			return
+		}
+		http.Redirect(w, r, "/cruise", http.StatusSeeOther)
+	}
+}
+
+// cruiseStatusParsed 是 cruise status --json 的驾驶舱消费子集。
+type cruiseStatusParsed struct {
+	waitDecide []string
+	waitAck    []string
+}
+
+// parseCruiseStatusJSON 跑一次 status --json 并解析挂起清单（best-effort）。
+func parseCruiseStatusJSON(s *webServer, hours int) *cruiseStatusParsed {
+	_, out, _ := s.exec("cruise", "status", "--hours", fmt.Sprint(hours), "--json")
+	var raw struct {
+		WaitingDecide []string `json:"waiting_decide"`
+		WaitingAck    []string `json:"waiting_ack"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &raw); err != nil {
+		return nil
+	}
+	return &cruiseStatusParsed{waitDecide: raw.WaitingDecide, waitAck: raw.WaitingAck}
+}
+
 // handleCruise：巡航视图（巡航模式 §3.3 二期——PM 晨间简报的 web 面）。
 // 复用 CLI 派发器（一语义一实现）：status 原文 + 各座位 plan 摘要（只读）。
 func (s *webServer) handleCruise(w http.ResponseWriter, r *http.Request) {
@@ -718,13 +752,36 @@ func (s *webServer) handleCruise(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_, statusOut, _ := s.exec("cruise", "status")
+	// 驾驶舱操作面（P4）：挂起三类 + 快速建单——写路径全部复用既有 POST
+	// handler（decide/ack/create + guard），本页只做聚合呈现，无新写语义。
+	type pendingOp struct {
+		Kind string // decide | ack
+		Key  string // topic | work id
+		Label string
+	}
+	var pend []pendingOp
+	if st := parseCruiseStatusJSON(s, 12); st != nil {
+		for _, t := range st.waitDecide {
+			pend = append(pend, pendingOp{Kind: "decide", Key: t, Label: "拍板 " + t})
+		}
+		for _, id := range st.waitAck {
+			pend = append(pend, pendingOp{Kind: "ack", Key: id, Label: "C2 ack " + id})
+		}
+	}
 	data := struct {
-		Me       string
-		Project  string
-		Status   string
-		Seats    []seatPlan
-		SyncTime string
-	}{Me: s.me, Status: strings.TrimSpace(statusOut), Seats: seats, SyncTime: time.Now().Format("15:04:05")}
+		Me        string
+		Project   string
+		Status    string
+		Seats     []seatPlan
+		SyncTime  string
+		Pending   []pendingOp
+		Systems   []string
+	}{Me: s.me, Status: strings.TrimSpace(statusOut), Seats: seats, SyncTime: time.Now().Format("15:04:05"), Pending: pend}
+	if systems, err := repo.ListSystems(); err == nil {
+		for _, sy := range systems {
+			data.Systems = append(data.Systems, sy.ID)
+		}
+	}
 	if proj, err := repo.GetProject(); err == nil {
 		data.Project = proj.ID
 	}
@@ -1151,6 +1208,27 @@ var webCruiseTmpl = template.Must(template.New("cruise").Parse(`<!doctype html>
 <h1>巡航 · {{.Project}}</h1>
 <p class="muted">me={{.Me}} · {{.SyncTime}} · 只读投影（晨间简报 = 状态 + 各座位下一活；驱动器与宪章见 adapter cruise 资产）</p>
 <h2>整体状态</h2><pre>{{.Status}}</pre>
+<div style="margin:.5rem 0">
+<a href="/cruise/pm-present">我来值守（present）</a> · <a href="/cruise/pm-away">我离开（away）</a>
+</div>
+{{if .Pending}}
+<h2>挂起待你处理</h2>
+{{range .Pending}}
+{{if eq .Kind "decide"}}
+<form method="post" action="/design/{{.Key}}/decide"><input type="hidden" name="actor" value="{{$.Me}}"><button>{{.Label}}</button></form>
+{{else}}
+<form method="post" action="/work/{{.Key}}/ack"><input type="hidden" name="approver" value="{{$.Me}}"><button>{{.Label}}</button></form>
+{{end}}
+{{end}}
+{{end}}
+<h2>快速发单（task/bug，走板不走窗口）</h2>
+<form method="post" action="/work/create">
+<input type="hidden" name="actor" value="{{$.Me}}">
+<select name="system">{{range .Systems}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+<select name="type"><option value="task">task</option><option value="bug">bug</option></select>
+<input name="title" placeholder="标题" style="width:40%">
+<input type="submit" value="建单">
+</form>
 <h2>各座位下一活</h2>
 {{range .Seats}}<h3>{{.Actor}}</h3><pre>{{.Out}}</pre>{{else}}<p class="muted">无 agent 座位</p>{{end}}
 <p><a href="/">← 看板</a></p>

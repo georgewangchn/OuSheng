@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeDoc 在工作区里落地一篇文档（git add 前调用）。
@@ -256,12 +257,15 @@ func TestDocCheckBloat(t *testing.T) {
 		"status: draft\nowner: george\nsystems: [cms-api]\ndoc: docs/design/grow.md\n", "# x\n")
 	writeDesignFile(t, dir, "calm-plan",
 		"status: draft\nowner: george\nsystems: [cms-api]\ndoc: docs/design/calm.md\n", "# x\n")
+	// 相对日期（防时间炸弹：固定日期会随真实时间滑出 7 天环比窗口）。
+	d1 := time.Now().AddDate(0, 0, -10).Format("2006-01-02T15:00:00+08:00")
+	d2 := time.Now().AddDate(0, 0, -1).Format("2006-01-02T15:00:00+08:00")
 	gitRun(t, dir, "add", "-A")
-	gitCommitAt(t, dir, "2026-10-20T10:00:00+08:00", "v1 small")
+	gitCommitAt(t, dir, d1, "v1 small")
 	writeDoc(t, dir, "docs/design/grow.md", strings.Repeat("g", 33*1024))
 	writeDoc(t, dir, "docs/design/calm.md", strings.Repeat("c", 7*1024))
 	gitRun(t, dir, "add", "-A")
-	gitCommitAt(t, dir, "2026-10-28T10:00:00+08:00", "v2 grown")
+	gitCommitAt(t, dir, d2, "v2 grown")
 
 	// 契约正本：系统映射仓 + contract_doc 声明。
 	sysRepo := t.TempDir()
@@ -270,7 +274,7 @@ func TestDocCheckBloat(t *testing.T) {
 	gitRun(t, sysRepo, "config", "user.email", "t@t.local")
 	os.WriteFile(filepath.Join(sysRepo, "INFO-CARD.md"), []byte(strings.Repeat("i", 96*1024)), 0o644)
 	gitRun(t, sysRepo, "add", "-A")
-	gitCommitAt(t, sysRepo, "2026-10-20T10:00:00+08:00", "contract v1")
+	gitCommitAt(t, sysRepo, time.Now().AddDate(0, 0, -10).Format("2006-01-02T15:00:00+08:00"), "contract v1")
 	mustRun(t, dir, "repo", "set", "cms-api", sysRepo)
 	setContractDoc(t, dir, "cms-api", "INFO-CARD.md")
 

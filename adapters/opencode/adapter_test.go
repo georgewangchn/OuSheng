@@ -158,7 +158,8 @@ func TestCruiseLoopSyntax(t *testing.T) {
 	}
 	// 关键护栏在位：代码仓参数硬门 + 三闸。
 	s := string(CruiseLoopSh)
-	for _, want := range []string{"code-repo", "轮顶", "时窗", "idle", "cruise plan"} {
+	for _, want := range []string{"code-repo", "轮顶", "时窗", "idle", "cruise plan",
+		"--wait", "attach", "-s $SESS", "handover attach", "plan 失败(", "$SYSTEM"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("cruise-loop.sh 缺护栏 %q", want)
 		}

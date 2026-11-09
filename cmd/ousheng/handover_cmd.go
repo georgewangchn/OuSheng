@@ -18,12 +18,14 @@ import (
 // 三命令语义收 gityaml；注入面只经 context me 的指针行（T10）。
 func cmdHandover(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: ousheng handover <save|show|list>")
+		fmt.Fprintln(stderr, "usage: ousheng handover <save|attach|show|list>")
 		return 2
 	}
 	switch args[0] {
 	case "save":
 		return handoverSave(args[1:], stdout, stderr)
+	case "attach":
+		return handoverAttach(args[1:], stdout, stderr)
 	case "show":
 		return handoverShow(args[1:], stdout, stderr)
 	case "list":
@@ -39,6 +41,7 @@ func handoverSave(args []string, stdout, stderr io.Writer) int {
 	system := fs.String("system", "", "system id (required — 快照是座位级 system×actor)")
 	actor := fs.String("actor", "", "seat actor (default: me)")
 	file := fs.String("file", "", "body from file (default: stdin)")
+	session := fs.String("session", "", "本代 opencode session id（代际制：带=下轮可续同代；空=换代信号）")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
@@ -63,13 +66,45 @@ func handoverSave(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	repo := gityaml.Open(fs.Dir())
-	info, err := repo.SaveHandover(*system, a, string(body), "handover: save "+*system+"/"+a)
+	info, err := repo.SaveHandover(*system, a, *session, string(body), "handover: save "+*system+"/"+a)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "handover saved %s/%s (%dB) @ %s — git 历史即版本链\n", info.System, info.Actor, info.Size, info.SavedAt)
+	gen := "换代（新代起点）"
+	if info.Session != "" {
+		gen = "续代 " + info.Session
+	}
+	fmt.Fprintf(stdout, "handover saved %s/%s (%dB) @ %s · %s — git 历史即版本链\n", info.System, info.Actor, info.Size, info.SavedAt, gen)
 	return 0
+}
+
+// handoverAttach：驱动器/驾驶舱补记本代 session id（不动 agent 正文）。
+func handoverAttach(args []string, stdout, stderr io.Writer) int {
+	fs := newFS("handover attach")
+	system := fs.String("system", "", "system id (required)")
+	actor := fs.String("actor", "", "seat actor (required)")
+	session := fs.String("session", "", "session id（空=清除指针强制换代）")
+	if err := parseLoose(fs.FlagSet, args); err != nil {
+		return usageErr(stderr, err)
+	}
+	if *system == "" || *actor == "" {
+		fmt.Fprintln(stderr, "--system 与 --actor 必填")
+		return 2
+	}
+	if err := gityaml.Open(fs.Dir()).AttachSession(*system, *actor, *session, "handover: attach session "+*system+"/"+*actor); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "handover attach %s/%s → %s\n", *system, *actor, orDash(*session))
+	return 0
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "（清除，强制换代）"
+	}
+	return s
 }
 
 func handoverShow(args []string, stdout, stderr io.Writer) int {

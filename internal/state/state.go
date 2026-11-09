@@ -63,7 +63,11 @@ type Repository interface {
 	// 交接快照（上下文交接方案 §H1）：座位级单页，覆盖式 + 4KB 门。
 	ListHandover() ([]model.HandoverInfo, error)
 	GetHandover(system, actor string) (model.HandoverFile, string, error)
-	SaveHandover(system, actor, body, msg string) (model.HandoverInfo, error)
+	SaveHandover(system, actor, session, body, msg string) (model.HandoverInfo, error)
+	AttachSession(system, actor, session, msg string) error
+	// 在场度（档案 §34）：human 座位的决策响应预期声明。
+	SavePresence(p model.Presence, msg string) error
+	LoadPresence() model.Presence
 	// credentials 登记表（§H2）：位置入册；值永不入 git。
 	LoadCredentials() (model.CredentialsFile, bool, error)
 	GetDesignRaw(topic string) (model.DesignDoc, []byte, error)

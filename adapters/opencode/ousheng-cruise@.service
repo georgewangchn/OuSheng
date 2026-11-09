@@ -1,0 +1,29 @@
+# ousheng-cruise@.service —— 巡航驱动器 systemd 模板（档案 §34 P2：自愈拉起）
+#
+# 安装（每座位一次）：
+#   cp scripts/ousheng-cruise@.service /etc/systemd/system/
+#   cat > /etc/default/ousheng-cruise-<actor> <<EOF
+#   OUSHENG_CRUISE_ARGS="<kanban工作区> <actor> <system> <代码仓> 20 600 22:00-07:00"
+#   EOF
+#   systemctl daemon-reload && systemctl enable --now ousheng-cruise@<actor>
+#
+# 语义：Restart=on-failure + 退避——驱动器退出码非 0（plan 连败/环境错）自动拉起；
+# 轮顶/时窗/idle 的正常停机（exit 0）不拉起，下个时窗由 cron/人工再启或改用
+# RestartForceExitStatus 定制。日志 journalctl -u ousheng-cruise@<actor> -f
+[Unit]
+Description=OuSheng cruise driver (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/ousheng-cruise-%i
+ExecStart=/bin/bash -c 'exec scripts/cruise-loop.sh $OUSHENG_CRUISE_ARGS'
+WorkingDirectory=/data/tide
+Restart=on-failure
+RestartSec=120
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

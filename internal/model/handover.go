@@ -18,6 +18,7 @@ type HandoverInfo struct {
 	System  string
 	Actor   string
 	SavedAt string // RFC3339
+	Session string // 本代 opencode session id（空=换代或未记录）——代际制指针
 	Size    int64
 }
 
@@ -27,11 +28,20 @@ type HandoverFile struct {
 	System  string `yaml:"system"`
 	Actor   string `yaml:"actor"`
 	SavedAt string `yaml:"saved_at"`
+	// Session 是本代 opencode session id（会话代际制，档案 §34）：
+	//   非空 = 下一轮可续同代（opencode run -s <id>）——延续性
+	//   空   = 换代信号（save 时未带）——上下文精简的重起点
+	// 由 save --session 或 handover attach（驱动器补记）写入。
+	Session string `yaml:"session,omitempty"`
 }
 
 // EncodeHandover 组装快照文件（frontmatter + 正文原样）。
-func EncodeHandover(system, actor, savedAt, body string) []byte {
-	fm := fmt.Sprintf("---\nsystem: %s\nactor: %s\nsaved_at: %s\n---\n", system, actor, savedAt)
+func EncodeHandover(system, actor, savedAt, session, body string) []byte {
+	sess := ""
+	if session != "" {
+		sess = "session: " + session + "\n"
+	}
+	fm := fmt.Sprintf("---\nsystem: %s\nactor: %s\nsaved_at: %s\n%s---\n", system, actor, savedAt, sess)
 	return []byte(fm + body)
 }
 
