@@ -205,7 +205,16 @@ func cmdTeamAdd(args []string, stdout, stderr io.Writer) int {
 	}
 	dir := fs.Dir()
 	repo := gityaml.Open(dir)
-	if _, err := repo.GetActor(id); err == nil {
+	if af, err := repo.GetActor(id); err == nil {
+		// 幂等 skip，但类型不匹配必须大声说（评审 §36 Y6：`me x`（human）先于
+		// `team add x --type agent` 时静默保留 human 型——自家测试 fixture 中过
+		// 此招；exit 0 掩盖 = F4 门/决策位坐执行位警告/pm present 借道全失真）。
+		if string(af.Actor.Type) != *typ {
+			fmt.Fprintf(stderr, "⚠ actor %s 已注册为 %s（请求 --type %s 不生效，type 不可改）\n", id, af.Actor.Type, *typ)
+			if *typ == "agent" {
+				fmt.Fprintf(stderr, "  agent 座位正确顺序：先 team add %s --type agent 再 ousheng me %s；当前残留 human 型注册\n", id, id)
+			}
+		}
 		fmt.Fprintf(stdout, "actor %s exists\n", id)
 		return 0
 	}

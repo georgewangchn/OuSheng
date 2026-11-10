@@ -15,6 +15,13 @@ WS=$1; ACTOR=$2; SYSTEM=$3; REPO=$4; MAXR=${5:-20}; WAIT=${6:-600}; WIN=${7:-22:
 OUSHENG=${OUSHENG_BIN:-ousheng}; OC=${OC_BIN:-opencode}
 EXTRA=${CRUISE_EXTRA:-}
 run=0; idle=0; planfail=0
+# /tmp 隔离（评审 🔴 修复）：同机多座位并行时共享 /tmp 会互读他座位的
+# round 输出——NEWSID 错配 = 把 B 的 session attach 到 A 的快照（静默）。
+# 命名 = 座位 + PID；跨轮日志按座位稳定（人工查 /tmp/cruise-loop.<actor>.err）。
+TAG="$ACTOR.$$"
+PLANERR=/tmp/cruise-plan.$TAG.err
+ROUNDOUT=/tmp/cruise-round.$TAG.out
+LOOPERR=/tmp/cruise-loop.$ACTOR.err
 # idle 指数退避（档案 §35 P3，实栈 lhcp 早停实锤+PM BUG-123 配套）：
 # idle→30min→1h→2h→4h→停。探测统一走 cruise plan（机制断言），不自判。
 idle_wait() {
@@ -37,9 +44,9 @@ print('1' if (lo<=n<=hi) if lo<hi else (n>=lo or n<=hi) else '')"; }
 getplan() {
   local tries=0 out
   while [ $tries -lt 3 ]; do
-    out=$("$OUSHENG" cruise plan --dir "$WS" --actor "$ACTOR" --wait "$WAIT" $EXTRA 2>/tmp/cruise-plan.err) && { echo "$out"; return 0; }
-    tries=$((tries+1)); echo "[cruise] plan 失败($tries/3)：$(tail -1 /tmp/cruise-plan.err)" >&2
-    [ -s /tmp/cruise-plan.err ] && cat /tmp/cruise-plan.err >> /tmp/cruise-loop.err
+    out=$("$OUSHENG" cruise plan --dir "$WS" --actor "$ACTOR" --wait "$WAIT" $EXTRA 2>"$PLANERR") && { echo "$out"; return 0; }
+    tries=$((tries+1)); echo "[cruise] plan 失败($tries/3)：$(tail -1 "$PLANERR")" >&2
+    [ -s "$PLANERR" ] && cat "$PLANERR" >> "$LOOPERR"
     sleep 60
   done
   return 1
@@ -50,7 +57,7 @@ while :; do
   [ $run -gt $MAXR ] && { echo "[cruise] 轮顶 $MAXR 达成，停"; break; }
   [ -z "$(inwin)" ] && { echo "[cruise] 时窗外 $WIN，停"; break; }
 
-  PLAN=$(getplan) || { echo "[cruise] plan 连败 3 次，停（systemd 会拉起；手动模式人工查 /tmp/cruise-loop.err）"; break; }
+  PLAN=$(getplan) || { echo "[cruise] plan 连败 3 次，停（systemd 会拉起；手动模式人工查 $LOOPERR）"; break; }
 
   if echo "$PLAN" | grep -q "cruise: idle"; then
     idle=$((idle+1))
@@ -79,9 +86,9 @@ while :; do
 
   ( cd "$REPO" && $OC run $OCARGS $OC_ARGS --format json --prompt "巡航执行（严格按 AGENTS.md 巡航协议节）：处理以下清单，一次一轮，触 human 门即挂起转下一项；收尾 ousheng handover save --system $SYSTEM --actor $ACTOR 后 ousheng sync。
 
-$PLAN" ) > /tmp/cruise-round.out 2>>/tmp/cruise-loop.err || echo "[cruise] opencode 非零退出，继续下一轮" >&2
+$PLAN" ) > "$ROUNDOUT" 2>>"$LOOPERR" || echo "[cruise] opencode 非零退出，继续下一轮" >&2
 
   # 驱动器补记本代 session id（正文是 agent 的事，指针是驱动器的事）
-  NEWSID=$(grep -oE '"sessionID":"[^"]+"' /tmp/cruise-round.out | head -1 | cut -d'"' -f4)
+  NEWSID=$(grep -oE '"sessionID":"[^"]+"' "$ROUNDOUT" | head -1 | cut -d'"' -f4)
   [ -n "$NEWSID" ] && "$OUSHENG" handover attach --dir "$WS" --system "$SYSTEM" --actor "$ACTOR" --session "$NEWSID" 2>/dev/null || true
 done

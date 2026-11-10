@@ -177,3 +177,27 @@ func TestDoctorAuditChecks(t *testing.T) {
 		}
 	})
 }
+
+// TestDoctorSystemHint（§36 Y7 锁）：ousheng.json 缺 system 字段 → WARN
+// （plugin 代际 attach 静默断链的可查面）；补齐后 WARN 消失。
+func TestDoctorSystemHint(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ws := mkDoctorWorkspace(t, "data")
+	repo := t.TempDir()
+	mustRun(t, repo, "adapter", "install", "--workspace", ws)
+	so, _, code := runIn(t, repo, "doctor")
+	if code != 0 {
+		t.Fatalf("WARN 不扣退出码:\n%s", so)
+	}
+	if !strings.Contains(so, "无 system 字段") {
+		t.Fatalf("缺 system 必须 WARN:\n%s", so)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".opencode", "ousheng.json"),
+		[]byte(`{"workspace":"`+ws+`","actor":"data","system":"lake"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	so, _, _ = runIn(t, repo, "doctor")
+	if strings.Contains(so, "无 system 字段") {
+		t.Fatalf("补 system 后 WARN 应消失:\n%s", so)
+	}
+}

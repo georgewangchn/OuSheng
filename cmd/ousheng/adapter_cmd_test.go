@@ -321,3 +321,39 @@ func TestAdapterInstallGrantsWorkspacePermission(t *testing.T) {
 		t.Fatalf("非对象结构应给人话指引:\n%s", se)
 	}
 }
+
+// TestAdapterSystemPathNorm（§36 Y7 锁）：repos.yaml 反查的路径归一——
+// 相对路径（工作区属地）与 symlink 形态必须仍命中；原实现原样比对，
+// 任一形态零命中 → system 空 → plugin 代际 attach 静默断链。
+func TestAdapterSystemPathNorm(t *testing.T) {
+	repo, ws := seatFor(t)
+	// 相对路径：值相对工作区（repos.yaml 的属地）。
+	rel, err := filepath.Rel(ws, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(ws, ".ousheng"), 0o755)
+	if err := os.WriteFile(filepath.Join(ws, ".ousheng", "repos.yaml"),
+		[]byte("data: "+filepath.ToSlash(rel)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, repo, "adapter", "install", "--workspace", ws)
+	b, _ := os.ReadFile(filepath.Join(repo, ".opencode", "ousheng.json"))
+	if !strings.Contains(string(b), `"system": "data"`) {
+		t.Fatalf("相对路径反查应命中 system=data:\n%s", b)
+	}
+	// symlink 形态：映射指向仓的符号链接 → EvalSymlinks 归一后同仓命中。
+	link := filepath.Join(t.TempDir(), "repo-link")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Skip("symlink 不可用")
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".ousheng", "repos.yaml"),
+		[]byte("data: "+link+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, repo, "adapter", "install", "--workspace", ws)
+	b, _ = os.ReadFile(filepath.Join(repo, ".opencode", "ousheng.json"))
+	if !strings.Contains(string(b), `"system": "data"`) {
+		t.Fatalf("symlink 反查应命中 system=data:\n%s", b)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // cruiseFixture：data 座位——T-001 doing（恢复）、TASK-009 ready 无主（领活）、
@@ -17,9 +18,13 @@ func cruiseFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	mustRun(t, dir, "init")
-	mustRun(t, dir, "me", "data", "--name", "data 座位")
+	// 注册序 = 协议正序：human pm 先上绳（F4 门）→ data 以 agent 型注册 → me 切
+	// data。原 fixture `me data`（human）在前、team add 幂等 skip 不改型——data
+	// 实为 human 型座位（§36 Y6 实锤）。
+	mustRun(t, dir, "me", "pm", "--name", "PM")
 	mustRun(t, dir, "system", "add", "lake")
-	mustRun(t, dir, "team", "add", "data", "--type", "agent", "--responsible-human", "data", "--role", "dev", "--system", "lake")
+	mustRun(t, dir, "team", "add", "data", "--type", "agent", "--responsible-human", "pm", "--role", "dev", "--system", "lake")
+	mustRun(t, dir, "me", "data", "--name", "data 座位")
 	os.WriteFile(filepath.Join(dir, ".ousheng", "roles.yaml"), []byte("schema_version: 1\nroles:\n    - id: dev\n      name: dev\n    - id: tester\n      name: tester\n"), 0o644)
 	mustRun(t, dir, "todo", "进行中", "--system", "lake") // T-001
 	mustRun(t, dir, "todo", "等他", "--system", "lake")  // T-002
@@ -85,7 +90,7 @@ func TestCruisePlan(t *testing.T) {
 		t.Fatalf("json idle flag:\n%s", js)
 	}
 	// tester 视角：待测池必须进反应节（复查缺陷 ③ 的锁）。
-	mustRun(t, dir, "team", "add", "testbot", "--type", "agent", "--responsible-human", "data", "--role", "tester", "--system", "lake")
+	mustRun(t, dir, "team", "add", "testbot", "--type", "agent", "--responsible-human", "pm", "--role", "tester", "--system", "lake")
 	// 场景 A：testing 单在 dev 手里（未移交）——tester 从待测池看到（§26 本义）。
 	mustRun(t, dir, "work", "update", "T-003", "--status", "ready", "--actor", "data")
 	mustRun(t, dir, "work", "update", "T-003", "--status", "doing", "--actor", "data")
@@ -104,7 +109,7 @@ func TestCruisePlan(t *testing.T) {
 		t.Fatalf("dangling dep must surface in react (夜里无人收敛):\n%s", out)
 	}
 	// 协商信号：他人在我的单上留 evidence → 我的 plan 必须点名（协商闭环）。
-	mustRun(t, dir, "team", "add", "mlake-peer", "--type", "agent", "--responsible-human", "data", "--role", "dev", "--system", "lake")
+	mustRun(t, dir, "team", "add", "mlake-peer", "--type", "agent", "--responsible-human", "pm", "--role", "dev", "--system", "lake")
 	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x", "--note", "与你的实现矛盾，建议协商", "--actor", "mlake-peer")
 	out = mustRun(t, dir, "cruise", "plan", "--actor", "data")
 	if !strings.Contains(out, "mlake-peer 在此单留言") {
@@ -113,7 +118,7 @@ func TestCruisePlan(t *testing.T) {
 
 	// 全局阻塞存在时空座位也不 idle（夜里任何人都能修 converge BLOCKER——
 	// 复查 B 语义：巡航不因"不是我的活"而睡）。
-	mustRun(t, dir, "team", "add", "nobody-seat", "--type", "agent", "--responsible-human", "data")
+	mustRun(t, dir, "team", "add", "nobody-seat", "--type", "agent", "--responsible-human", "pm")
 	out = mustRun(t, dir, "cruise", "plan", "--actor", "nobody-seat")
 	if !strings.Contains(out, "依赖悬空 GHOST-999") {
 		t.Fatalf("global blocker must keep seats awake:\n%s", out)
@@ -298,7 +303,8 @@ func TestCruiseStatusStall(t *testing.T) {
 	}
 }
 
-// TestCruiseReport（P1）：简报结构（座位战果表+FEAT 聚合+待处理）。
+// TestCruiseReport（P1 + §36 强化）：简报结构 + UTF-8 完整（rune 截断）+
+// BUG-123 进清单（原 BUG-0 前缀启发式漏 3 位 bug）+ 座位行序确定 + JSON 面。
 func TestCruiseReport(t *testing.T) {
 	dir := cruiseFixture(t)
 	mkCruiseBoard(t, dir)
@@ -307,10 +313,33 @@ func TestCruiseReport(t *testing.T) {
 	rd := filepath.Join(dir, ".ousheng", "designs", "rep-plan", "round-1.md")
 	os.MkdirAll(filepath.Dir(rd), 0o755)
 	os.WriteFile(rd, []byte("## data — 11-10\n方案\n"), 0o644)
-	out := mustRun(t, dir, "cruise", "report", "--hours", "1")
-	for _, want := range []string{"巡航简报", "每座位战果", "data", "待你处理"} {
+	// Y1：长中文标题——40 字节切分会产出非法 UTF-8（mojibake 实锤），rune 截断必须治。
+	mustRun(t, dir, "work", "create", "--id", "BUG-012", "--type", "bug",
+		"--title", strings.Repeat("汉字截断验证", 12), "--system", "lake",
+		"--detected-by", "data", "--description", "d", "--actor", "data")
+	// Y2：BUG-123（3 位编号）必须进清单。
+	mustRun(t, dir, "bug", "report", "--id", "BUG-123", "--title", "三位编号", "--system", "lake", "--detected-by", "data")
+	mustRun(t, dir, "team", "add", "testbot", "--type", "agent", "--responsible-human", "pm", "--role", "tester", "--system", "lake")
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x", "--note", "tester 也有活动", "--actor", "testbot")
+	out := mustRun(t, dir, "cruise", "report", "--hours", "24")
+	for _, want := range []string{"巡航简报", "每座位战果", "data", "待你处理", "BUG-012", "BUG-123"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("report missing %q:\n%s", want, out)
+		}
+	}
+	if !utf8.ValidString(out) {
+		t.Fatalf("report 必须是合法 UTF-8（rune 截断）:\n%s", out)
+	}
+	// Y4：座位行序确定（按 actor 排序）。
+	iData, iTest := strings.Index(out, "| data |"), strings.Index(out, "| testbot |")
+	if iData < 0 || iTest < 0 || iData > iTest {
+		t.Fatalf("座位行序必须按 actor 排序:\n%s", out)
+	}
+	// JSON 面（cron/web 消费）。
+	js := mustRun(t, dir, "cruise", "report", "--hours", "24", "--json")
+	for _, want := range []string{`"seats"`, `"items"`, `"waiting"`} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("report json missing %q:\n%s", want, js)
 		}
 	}
 }
@@ -329,8 +358,11 @@ func TestCruiseHeartbeat(t *testing.T) {
 func TestCruiseDispatch(t *testing.T) {
 	dir := cruiseFixture(t)
 	mkCruiseBoard(t, dir)
-	out := mustRun(t, dir, "cruise", "dispatch", "--rounds", "1", "--seats", "data")
+	out := mustRun(t, dir, "cruise", "dispatch", "--rounds", "1", "--seats", "data", "--wait", "1")
 	if !strings.Contains(out, "cruise dispatch") || !strings.Contains(out, "data") {
 		t.Fatalf("dispatch output:\n%s", out)
+	}
+	if !strings.Contains(out, "给外部 runner 消费") {
+		t.Fatalf("有活轮必须等消费窗口（§36 Y5 灭自旋）:\n%s", out)
 	}
 }

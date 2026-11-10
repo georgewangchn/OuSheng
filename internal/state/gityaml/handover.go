@@ -1,6 +1,7 @@
 package gityaml
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -141,6 +142,14 @@ func (r *Repo) AttachSession(system, actor, session, msg string) error {
 		return err
 	}
 	out := model.EncodeHandover(hf.System, hf.Actor, hf.SavedAt, session, body)
+	// 幂等门（评审 🔴 实锤修复）：同指针重复 attach = 内容零变化——直接 no-op，
+	// 不落 git。原实现靠匹配 git 输出容错，但工作区持根级 .ousheng.lock
+	// （untracked）时 git 走 "nothing added to commit but untracked files
+	// present" 变体，串匹配漏掉 → 第二次 attach 报错退出（§34 反事实③ 被证伪）。
+	// 内容比对是唯一不依赖 locale/git 版本的判据。
+	if bytes.Equal(out, raw) {
+		return nil
+	}
 	unlock, err := r.lock()
 	if err != nil {
 		return err

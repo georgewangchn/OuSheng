@@ -62,11 +62,18 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		var mc struct {
 			Workspace string `json:"workspace"`
 			Actor     string `json:"actor"`
+			System    string `json:"system"`
 		}
 		if err := json.Unmarshal(raw, &mc); err != nil {
 			check("FAIL", fmt.Sprintf("ousheng.json 非法（%v）→ ousheng adapter install", err))
 		} else {
 			ws, actor = mc.Workspace, mc.Actor
+			// 代际链完整性（评审 §36 Y7）：system 空 → plugin 的 handover attach
+			// 静默跳过（session 代际指针断，退化为每轮新代——可用但费上下文）。
+			// 未映射属合法形态（install 不猜），故 WARN 不 FAIL。
+			if mc.System == "" {
+				check("WARN", "ousheng.json 无 system 字段——代际 attach 不生效（退化为每轮新代）→ ousheng adapter install --system <系统>（或 repos.yaml 映射后重跑）")
+			}
 		}
 	} else if adapterAssetsPresent(dir) {
 		check("FAIL", "检测到 adapter 资产但无 .opencode/ousheng.json（旧形态残留）→ ousheng adapter install --workspace <工作区>")

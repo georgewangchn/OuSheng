@@ -599,3 +599,45 @@ func TestTeamAddResponsibleHumanGate(t *testing.T) {
 		t.Fatalf("agent-type responsible-human must be rejected: code=%d stderr=%s", code, se)
 	}
 }
+
+// TestTeamAddTypeMismatchWarns（§36 Y6 锁）：`me x`（human）先于
+// `team add x --type agent` 时，幂等 skip 必须大声警告——原实现静默保留
+// human 型（exit 0 掩盖），F4 门/决策位警告/pm present 借道全失真，
+// 自家 cruiseFixture 曾中招。正序（team add 先、me 后）无警告。
+func TestTeamAddTypeMismatchWarns(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "system", "add", "lake")
+	mustRun(t, dir, "me", "data", "--name", "data") // human 注册在先
+	_, se, code := runIn(t, dir, "team", "add", "data", "--type", "agent",
+		"--responsible-human", "data", "--role", "dev", "--system", "lake")
+	if code != 0 {
+		t.Fatalf("幂等 skip 应保 exit 0:\n%s", se)
+	}
+	if !strings.Contains(se, "已注册为 human") || !strings.Contains(se, "type 不可改") {
+		t.Fatalf("类型不匹配必须大声警告:\nstderr: %s", se)
+	}
+	// 注册表不被覆盖（仍是 human——type 是事实不可改）。
+	b, err := os.ReadFile(filepath.Join(dir, ".ousheng", "actors", "data.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "type: human") {
+		t.Fatalf("type 不可改（仍应 human）:\n%s", b)
+	}
+	// 正序：team add 先、me 后——无警告，type=agent。
+	d2 := t.TempDir()
+	mustRun(t, d2, "init")
+	mustRun(t, d2, "system", "add", "lake")
+	mustRun(t, d2, "me", "pm", "--name", "PM") // F4 门：responsible-human 须注册 human
+	_, se2, code2 := runIn(t, d2, "team", "add", "dev1", "--type", "agent",
+		"--responsible-human", "pm", "--role", "dev", "--system", "lake")
+	if code2 != 0 || strings.Contains(se2, "type 不可改") {
+		t.Fatalf("正序注册不应告警（code %d）:\n%s", code2, se2)
+	}
+	mustRun(t, d2, "me", "dev1")
+	b2, _ := os.ReadFile(filepath.Join(d2, ".ousheng", "actors", "dev1.yaml"))
+	if !strings.Contains(string(b2), "type: agent") {
+		t.Fatalf("正序应得 agent 型:\n%s", b2)
+	}
+}

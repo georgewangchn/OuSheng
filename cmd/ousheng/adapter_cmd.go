@@ -120,9 +120,34 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 	// 4. ousheng.json：机器本地配置（plugin 的单一事实源），恒同步。
 	system := *systemFlag
 	if system == "" {
-		// repos.yaml 反查：--dir 路径命中的系统（唯一命中才用，多命中/零命中留空）
+		// repos.yaml 反查：--dir 路径命中的系统（唯一命中才用，多命中/零命中留空）。
+		// 路径归一（评审 §36 Y7）：原实现原样比对——repos.yaml 相对路径/~ 未
+		// 展开/symlink（macOS /tmp≠/private/tmp）任一即零命中 → system 空 →
+		// plugin 代际 attach 静默跳过。两侧归一后再比（基准不同：
+		// repos.yaml 值以工作区为属地；--dir 以进程 CWD 为准）。
+		canon := func(p string) string {
+			if abs, aerr := filepath.Abs(p); aerr == nil {
+				p = abs
+			}
+			if real, rerr := filepath.EvalSymlinks(p); rerr == nil {
+				p = real
+			}
+			return filepath.Clean(p)
+		}
+		normRepo := func(p string) string { // repos.yaml 值：~ 展开 + 工作区属地
+			if strings.HasPrefix(p, "~") {
+				if home, herr := os.UserHomeDir(); herr == nil {
+					p = filepath.Join(home, strings.TrimPrefix(p, "~"))
+				}
+			}
+			if !filepath.IsAbs(p) {
+				p = filepath.Join(ws, p)
+			}
+			return canon(p)
+		}
+		normDir := canon(dir)
 		for sys, repoDir := range machine.LoadRepoMap(ws) {
-			if repoDir == dir {
+			if normRepo(repoDir) == normDir {
 				if system != "" {
 					system = "" // 多命中歧义 → 留空
 					break

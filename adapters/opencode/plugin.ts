@@ -22,13 +22,11 @@ const BOARD_BIN = process.env.OUSHENG_BOARD_BIN || "board"
 
 type MachineCfg = { workspace: string; actor: string; system: string }
 
-const cfgCache = new Map<string, MachineCfg>()
-
+// ousheng.json 每次直读（评审 §36）：cfgCache 永不失效——adapter install 重跑
+// 后同进程读旧值（system 字段补写不生效）。事件低频（created/idle），直读无感。
 async function readCfg(directory: string): Promise<MachineCfg> {
-  const cached = cfgCache.get(directory)
-  if (cached) return cached
   // 回退链的兜底：env → "."
-  let cfg: MachineCfg = {
+  const cfg: MachineCfg = {
     workspace: process.env.OUSHENG_DIR || ".",
     actor: process.env.OUSHENG_ACTOR || "",
     system: "",
@@ -37,7 +35,7 @@ async function readCfg(directory: string): Promise<MachineCfg> {
     const raw = await Bun.file(`${directory}/.opencode/ousheng.json`).text()
     const parsed = JSON.parse(raw)
     if (parsed && typeof parsed.workspace === "string" && parsed.workspace) {
-      cfg = {
+      return {
         workspace: parsed.workspace,
         actor: typeof parsed.actor === "string" ? parsed.actor : "",
         system: typeof parsed.system === "string" ? parsed.system : "",
@@ -46,7 +44,6 @@ async function readCfg(directory: string): Promise<MachineCfg> {
   } catch {
     // 无 ousheng.json / 解析失败 → env 回退（cfg 已初始化）
   }
-  cfgCache.set(directory, cfg)
   return cfg
 }
 
