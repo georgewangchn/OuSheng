@@ -170,12 +170,12 @@ func RenderKanban(w io.Writer, cols []KanbanColumn) {
 			if c.Priority != "" {
 				fmt.Fprintf(w, "  Priority  %s\n", c.Priority)
 			}
-		if c.DueOn != "" {
-			fmt.Fprintf(w, "  Due       %s\n", c.DueOn)
-		}
-		if c.Contract != "" {
-			fmt.Fprintf(w, "  Contract  %s\n", c.Contract)
-		}
+			if c.DueOn != "" {
+				fmt.Fprintf(w, "  Due       %s\n", c.DueOn)
+			}
+			if c.Contract != "" {
+				fmt.Fprintf(w, "  Contract  %s\n", c.Contract)
+			}
 			if c.Role != "" {
 				line := "  Role      " + c.Role
 				if c.RoleName != "" {

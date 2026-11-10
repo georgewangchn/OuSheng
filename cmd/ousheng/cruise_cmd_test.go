@@ -297,3 +297,40 @@ func TestCruiseStatusStall(t *testing.T) {
 		t.Fatalf("fresh evidence must clear stall:\n%s", out)
 	}
 }
+
+// TestCruiseReport（P1）：简报结构（座位战果表+FEAT 聚合+待处理）。
+func TestCruiseReport(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x", "--note", "推进", "--actor", "data")
+	writeDesignFile(t, dir, "rep-plan", "status: draft\nowner: data\nsystems: [lake]\n", "# x\n")
+	rd := filepath.Join(dir, ".ousheng", "designs", "rep-plan", "round-1.md")
+	os.MkdirAll(filepath.Dir(rd), 0o755)
+	os.WriteFile(rd, []byte("## data — 11-10\n方案\n"), 0o644)
+	out := mustRun(t, dir, "cruise", "report", "--hours", "1")
+	for _, want := range []string{"巡航简报", "每座位战果", "data", "待你处理"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("report missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestCruiseHeartbeat（P2）：心跳投影+告警线。
+func TestCruiseHeartbeat(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	out := mustRun(t, dir, "cruise", "heartbeat", "--min", "30")
+	if !strings.Contains(out, "座位心跳") || !strings.Contains(out, "data") {
+		t.Fatalf("heartbeat must show seats:\n%s", out)
+	}
+}
+
+// TestCruiseDispatch（P4）：调度器输出（座位列表+活况+idle 汇总）。
+func TestCruiseDispatch(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	out := mustRun(t, dir, "cruise", "dispatch", "--rounds", "1", "--seats", "data")
+	if !strings.Contains(out, "cruise dispatch") || !strings.Contains(out, "data") {
+		t.Fatalf("dispatch output:\n%s", out)
+	}
+}

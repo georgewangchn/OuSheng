@@ -67,8 +67,8 @@ type WorkItem struct {
 
 	// 计划三字段（100 场景推演判必须）：纯数据刻度，无自动化语义。
 	// priority：人拍板的排序档位；due_on：对外承诺日；description：需求正文/验收标准。
-	Priority    string `yaml:"priority,omitempty"`    // P0..P3（空=未定级）
-	DueOn       string `yaml:"due_on,omitempty"`     // YYYY-MM-DD
+	Priority    string `yaml:"priority,omitempty"` // P0..P3（空=未定级）
+	DueOn       string `yaml:"due_on,omitempty"`   // YYYY-MM-DD
 	Description string `yaml:"description,omitempty"`
 
 	Assignee         string `yaml:"assignee,omitempty"`

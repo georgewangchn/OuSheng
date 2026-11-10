@@ -31,6 +31,12 @@ func cmdCruise(args []string, stdout, stderr io.Writer) int {
 		return cruisePlan(args[1:], stdout, stderr)
 	case "status":
 		return cruiseStatus(args[1:], stdout, stderr)
+	case "report":
+		return cruiseReport(args[1:], stdout, stderr)
+	case "heartbeat":
+		return cruiseHeartbeat(args[1:], stdout, stderr)
+	case "dispatch":
+		return cruiseDispatch(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown cruise subcommand: %s\n", args[0])
 		return 2
@@ -406,4 +412,237 @@ func typeOf(snap index.Snapshot, id string) string {
 		}
 	}
 	return "gone"
+}
+
+// cruiseReport：晨间简报——比 status 更结构化的终态汇总，按 FEAT/topic 聚合
+// 交付清单、遗留清单、每座位战果。可 cron 触发（5 7 * * * ousheng cruise report）
+// ——机制保证触发，不依赖 agent 存活（P1，档案 §35）。
+func cruiseReport(args []string, stdout, stderr io.Writer) int {
+	fs := newFS("cruise report")
+	hours := fs.Int("hours", 12, "summary window in hours")
+	if err := parseLoose(fs.FlagSet, args); err != nil {
+		return usageErr(stderr, err)
+	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
+	}
+	repo := gityaml.Open(fs.Dir())
+	_, snap, err := loadSnapshot(fs.Dir())
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	since := time.Now().Add(-time.Duration(*hours) * time.Hour)
+	acts, _ := repo.ListActivity()
+
+	// 按 FEAT/REQ 聚合
+	type feat struct {
+		ID, Title  string
+		Done, Open int
+		LastAct    string
+	}
+	feats := map[string]*feat{}
+	for _, w := range snap.WorkItems {
+		if !strings.HasPrefix(w.ID, "FEAT-") && !strings.HasPrefix(w.ID, "REQ-") && !strings.HasPrefix(w.ID, "BUG-0") {
+			continue
+		}
+		if _, ok := feats[w.ID]; !ok {
+			feats[w.ID] = &feat{ID: w.ID, Title: w.Title}
+		}
+		f := feats[w.ID]
+		if w.Status == model.StatusDone || w.Status == model.StatusCancelled {
+			f.Done++
+		} else {
+			f.Open++
+		}
+	}
+	// 每座位战果
+	type seat struct {
+		Actor               string
+		Evid, Done, Created int
+	}
+	seats := map[string]*seat{}
+	for _, a := range acts {
+		ts, perr := time.Parse(time.RFC3339, a.TS)
+		if perr != nil || ts.Before(since) {
+			continue
+		}
+		if _, ok := seats[a.Actor]; !ok {
+			seats[a.Actor] = &seat{Actor: a.Actor}
+		}
+		switch a.Action {
+		case "evidence_added":
+			seats[a.Actor].Evid++
+		case "status_changed":
+			if strings.Contains(a.Detail, "-> done") {
+				seats[a.Actor].Done++
+			}
+		case "created":
+			seats[a.Actor].Created++
+		}
+	}
+
+	fmt.Fprintf(stdout, "# 巡航简报（%s，近 %dh）\n\n", time.Now().Format("2006-01-02 15:04"), *hours)
+	fmt.Fprintf(stdout, "## 每座位战果\n")
+	fmt.Fprintf(stdout, "| 座位 | 交付 | 新增 | evidence |\n|---|---|---|---|\n")
+	for _, st := range seats {
+		fmt.Fprintf(stdout, "| %s | %d | %d | %d |\n", st.Actor, st.Done, st.Created, st.Evid)
+	}
+	fmt.Fprintf(stdout, "\n## FEAT/BUG 聚合\n")
+	fmt.Fprintf(stdout, "| ID | 状态 | 标题 |\n|---|---|---|\n")
+	for _, f := range feats {
+		st := "进行中"
+		if f.Open == 0 {
+			st = "✅ 收官"
+		}
+		fmt.Fprintf(stdout, "| %s | %s | %s |\n", f.ID, st, f.Title[:min(40, len(f.Title))])
+	}
+	// 挂起清单
+	var waits []string
+	for _, d := range snap.Designs {
+		if d.Design.Status == model.DesignDraft && d.RoundExists {
+			waits = append(waits, "[拍板] "+d.Topic)
+		}
+	}
+	for _, w := range snap.WorkItems {
+		if !model.WorkItemOpen(w.Status) {
+			continue
+		}
+		if w.Contract != nil && w.Contract.Breaking && w.HumanAck == nil {
+			waits = append(waits, "[C2] "+w.ID)
+		}
+	}
+	if len(waits) > 0 {
+		fmt.Fprintf(stdout, "\n## 待你处理\n")
+		for _, w := range waits {
+			fmt.Fprintf(stdout, "- %s\n", w)
+		}
+	}
+	return 0
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// cruiseHeartbeat：各座位心跳投影（P2，档案 §35）——最后 activity距今多久。
+// 纯投影零新存储；>30 分钟无心跳=⚠ 疑似停止。
+func cruiseHeartbeat(args []string, stdout, stderr io.Writer) int {
+	fs := newFS("cruise heartbeat")
+	threshold := fs.Int("min", 30, "alert threshold in minutes")
+	if err := parseLoose(fs.FlagSet, args); err != nil {
+		return usageErr(stderr, err)
+	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
+	}
+	acts, err := gityaml.Open(fs.Dir()).ListActivity()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	last := map[string]time.Time{}
+	current := map[string]string{}
+	for i := len(acts) - 1; i >= 0; i-- {
+		a := acts[i]
+		if _, ok := last[a.Actor]; !ok {
+			if ts, perr := time.Parse(time.RFC3339, a.TS); perr == nil {
+				last[a.Actor] = ts
+			}
+		}
+		if current[a.Actor] == "" && strings.Contains(a.Detail, "system=") {
+			current[a.Actor] = a.Detail
+		}
+	}
+	fmt.Fprintf(stdout, "座位心跳（阈值 %d 分钟）:\n", *threshold)
+	for actor, t := range last {
+		ago := time.Since(t)
+		warn := ""
+		if ago > time.Duration(*threshold)*time.Minute {
+			warn = " ⚠ 疑似停止"
+		}
+		fmt.Fprintf(stdout, "  %s: %s 前（%s）%s\n", actor, ago.Round(time.Minute), t.Format("15:04"), warn)
+	}
+	return 0
+}
+
+// cruiseDispatch：单机调度器（P4，档案 §35）——一个进程管理本机全部座位。
+// 每轮：一次 plan/pull→按优先序派活→有活才 spawn opencode→等全部完成→下一轮。
+// 多机形态：每机各跑一个 dispatch（天然分布式，不需要中心调度）。
+// token 节约：单次 git pull + 快照装载（vs 每座位独立 runner 各自拉取）。
+func cruiseDispatch(args []string, stdout, stderr io.Writer) int {
+	fs := newFS("cruise dispatch")
+	seats := fs.String("seats", "", "comma-separated actor list (default: all registered agents with ousheng.json on this machine)")
+	maxRounds := fs.Int("rounds", 20, "max dispatch rounds")
+	waitSec := fs.Int("wait", 600, "idle wait seconds per round")
+	if err := parseLoose(fs.FlagSet, args); err != nil {
+		return usageErr(stderr, err)
+	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
+	}
+	repo := gityaml.Open(fs.Dir())
+	// 解析座位列表
+	var seatList []string
+	if *seats != "" {
+		seatList = strings.Split(*seats, ",")
+	} else {
+		afs, _ := repo.ListActors()
+		for _, af := range afs {
+			if af.Actor.Type == model.ActorAgent {
+				seatList = append(seatList, af.Actor.ID)
+			}
+		}
+	}
+	if len(seatList) == 0 {
+		fmt.Fprintln(stderr, "无 agent 座位")
+		return 1
+	}
+	fmt.Fprintf(stdout, "cruise dispatch · %d 座位: %s\n", len(seatList), strings.Join(seatList, ","))
+
+	for round := 1; round <= *maxRounds; round++ {
+		fmt.Fprintf(stdout, "\n[dispatch] round %d/%d\n", round, *maxRounds)
+		// 一次 pull，全座位共享
+		gitOutput(fs.Dir(), "pull", "--ff-only")
+
+		totalWork := 0
+		for _, seat := range seatList {
+			pd, err := buildPlan(fs.Dir(), seat)
+			if err != nil {
+				fmt.Fprintf(stderr, "[dispatch] %s plan 失败: %v\n", seat, err)
+				continue
+			}
+			if pd.Idle {
+				fmt.Fprintf(stdout, "  %s: idle\n", seat)
+				continue
+			}
+			totalWork++
+			work := len(pd.Resume) + len(pd.Claim) + len(pd.React)
+			fmt.Fprintf(stdout, "  %s: %d 项活（resume %d / claim %d / react %d）\n",
+				seat, work, len(pd.Resume), len(pd.Claim), len(pd.React))
+			// 生成该座位的 plan 输出并输出（驱动器拿去喂 opencode）
+			fmt.Fprintf(stdout, "--- %s plan ---\n", seat)
+			for _, it := range pd.Resume {
+				fmt.Fprintf(stdout, "  resume %s %s\n", it.ID, it.Title)
+			}
+			for _, it := range pd.Claim {
+				fmt.Fprintf(stdout, "  claim %s %s\n", it.ID, it.Title)
+			}
+			for _, it := range pd.React {
+				fmt.Fprintf(stdout, "  react %s %s\n", it.ID, it.Title)
+			}
+		}
+		if totalWork == 0 {
+			fmt.Fprintf(stdout, "[dispatch] 全座位 idle，等 %ds\n", *waitSec)
+			time.Sleep(time.Duration(*waitSec) * time.Second)
+		} else {
+			// 实际执行由外部 runner/cron 调 opencode——dispatch 只做调度输出
+			// （绳不代牛跑：dispatch 是指挥官不是执行者）
+			fmt.Fprintf(stdout, "[dispatch] %d 座位有活——由外部 runner 并行执行\n", totalWork)
+		}
+	}
+	return 0
 }

@@ -36,7 +36,6 @@ func webSetup(t *testing.T, dir string) {
 	mustRun(t, dir, "todo", "任务一", "--system", "datax-server") // T-001
 }
 
-
 // injectBreaking：直改 yaml 注入 breaking 契约（模拟 C2 未确认态的真实来源——
 // v1 迁移/手改；写路径引入 breaking 必须原子带 ack，无此态）。
 func injectBreaking(t *testing.T, dir, id string) {
