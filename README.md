@@ -17,7 +17,7 @@
 
 无服务器，无注册服务，`git push/pull` 就是协作。
 
-[三分钟视频](#三分钟视频一次穿越看懂) · [快速上手](docs/quick-start.md) · [多机多窗口使用指南](docs/多机多窗口使用指南.md) · [共识层设计 v0.4](docs/OuSheng_共识层设计方案_v0.4.md) · [设计基石](docs/多人AI协作机制_方案基石.md) · [路线图](#路线图)
+[三分钟视频](#三分钟视频一次穿越看懂) · [快速上手](docs/quick-start.md) · [多机多窗口使用指南](docs/多机多窗口使用指南.md) · [巡航模式](#夜里没人巡航模式) · [共识层设计 v0.4](docs/OuSheng_共识层设计方案_v0.4.md) · [设计基石](docs/多人AI协作机制_方案基石.md) · [路线图](#路线图)
 
 </div>
 
@@ -44,9 +44,9 @@ OuSheng 的做法是把协作变成一个 git 仓。需求、契约、证据、�
 - **四个时机**：开工自动注入上下文（`context me` 只给指针，正文自取——注入面最小化即提示注入免疫面最小化）
 - **共识层**：`designs/` 方案轮次讨论 + architecture 系统全貌，拍板/supersede/撤回全生命周期
 - **文档认领层**：`doc map/check/census` 三命令回答"这篇文档归谁、还作不作数"——孤儿曝光、陈旧曝光、膨胀三信号
-- **上下文交接**：座位级交接快照 `handover`（≤4KB 覆盖式单页）——长任务 session 换页不膨胀，re-clone 即得
+- **上下文交接**：座位级交接快照 `handover`（≤4KB 覆盖式单页）——长任务 session 换页不膨胀，会话代际指针续跑（`opencode run -s` 接续省上下文重构），re-clone 即得
 - **凭据登记**：位置入册 + 本地值文件，**值永不入 git** 三重机械锁；`doctor` 报缺哪个，agent 自己取，不再问人
-- **巡航模式**：无人值守自主优化（晚间/节假日）——宪章授权 + `cruise plan/status` + 外层驱动器三闸（时窗/轮顶/idle）；human 门夜里只挂起不豁免，晨间简报一屏收
+- **巡航模式**：无人值守自主优化（晚间/节假日）——宪章授权，两形态分工（A 值班哨兵 session 内自循环 / B 外层 runner 三闸：时窗/轮顶/idle 指数退避）；五件套 `plan/status/report/heartbeat/dispatch`，会话代际续跑、在场度分叉、模型路由（值守/编码分档）；human 门夜里只挂起不豁免，晨间简报一屏收
 - **舰队部署**：`adapter install` 一键五件套 + `doctor` 自检（机器/座位/工作区三层），升级即重跑
 
 ## 30 秒跑起来：把话丢给 opencode
@@ -126,7 +126,7 @@ flowchart LR
 
 两页有界状态，治长任务的上下文膨胀（1-2 月的活，session 不是垃圾场）：
 
-- **交接快照 `handover`**：每个座位（系统×actor）一页 ≤4KB 导航态——收尾 `save`（覆盖式，git 历史=版本链），开工 `show` 续航。re-clone 后 pull 即得全部快照，交接不丢。
+- **交接快照 `handover`**：每个座位（系统×actor）一页 ≤4KB 导航态——收尾 `save`（覆盖式，git 历史=版本链），开工 `show` 续航；`session` 指针记本代会话，下轮 `opencode run -s` 续同代（省上下文重构），不带即换代（精简重起点）。re-clone 后 pull 即得全部快照，交接不丢。
 - **凭据登记 `credentials`**：位置入册（登记表入 git）+ 值在本地 gitignored `secrets/`。**值永不入 git**——doctor 三重机械锁：secrets 被跟踪即 FAIL、绳上文件高置信凭据形态 WARN、本机缺值 FAIL 带清单。忘密码？`doctor` 告诉你缺哪条，agent 自己读本地文件，不再问人。
 
 > 安全边界一句话：值不经过网络与 git，只在座位机本地文件（0600）；威胁模型不含本机入侵（那归机器管理员管）。
@@ -139,6 +139,37 @@ flowchart LR
 | 一 · 开工 | AI 窗口（adapter 自动注入） | 干什么？被谁阻塞？哪个方案等我表态？ |
 | 二 · 干活 | AI 窗口 | 干到哪？凭什么说做完？ |
 | 三 · 收尾 | AI 窗口加人（converge 提醒） | 全局差什么？谁卡住？谁在未拍板的方案上跑？ |
+
+## 夜里没人：巡航模式
+
+白天人拍板，夜里绳自己转。宪章（一张 design 卡）定义授权范围、投票规则与红线，AI 按它无人值守推进——三种驱动形态按活分工：
+
+| 形态 | 适合 | 机制 |
+|---|---|---|
+| A · 值班哨兵 | 观测/巡检/跨系统上报 | session 内自循环（干活→sleep→sync→记 evidence），上下文近上限即 `handover save` 自终结，不死撑 |
+| B · 外层 runner | 实现类重活 | `cruise-loop.sh` 每轮 `cruise plan` → 干净 session → 收尾 save+sync；三闸硬顶（时窗/轮顶/idle 指数退避） |
+| dispatch | 单机多座位 | 一次 pull → 全座位活况 → 有活输出派单，等外部 runner 消费 |
+
+五件套都是纯 CLI（零 LLM），探测与断言不靠模型自觉：
+
+```
+$ ousheng cruise plan --actor mlake --wait 600    # 下一活，无活阻塞等（活到即醒）
+cruise plan · actor=mlake（优先序：恢复>领活>反应>新提）
+PM away（自 22:56）——away：遇 human 门挂起转下一活；问题攒批（单内 evidence Q:，晨间批量）；不空等不空转
+attach: ses_a1（续同代省上下文重构：opencode run -s ses_a1 …；换代=handover save 不带 --session）
+1·resume 恢复 (1)
+  T-122  修 Flink REST 重连
+…
+
+$ ousheng cruise status                           # 晨间简报：宪章态/空转嫌疑/挂起三类
+$ ousheng cruise report                           # 结构化晨报（cron 5 7 * * * 机制保证触发）
+$ ousheng cruise heartbeat                        # 各座位心跳，超阈值 ⚠ 疑似停止
+$ ousheng cruise dispatch                         # 单机调度器（指挥官，不代跑）
+```
+
+四条铁律，夜里也不破：**无活即停**（为跑而造活是病）；**human 门不豁免**（C2/拍板夜里只挂起，挂起是巡航的正确终局）；**自提单只许 task/bug/test/notice**（feature/requirement 是 human 门）；**问题攒批**（单内 evidence `Q:` 条目，晨间 web 驾驶舱批量回）。模型路由按活分档计费（`OC_MODEL_WAIT` 值守轻活 / `OC_MODEL_CODE` 编码强活），夜间冷启动成本可控。
+
+完整授权语义与实操见[巡航模式设计方案](docs/OuSheng_巡航模式设计方案.md)与[双模式操作手册](docs/双模式操作手册.md)。
 
 ## 一个项目的一天（真实输出）
 
@@ -231,6 +262,7 @@ IN_PROGRESS
 | 实证 | 内容 |
 |---|---|
 | 多机 dogfood | 4 套剧本：四机全流程、混沌两辑（24 个突发：冒用身份、机器损毁、依赖环、假证据、批量雪崩）、共识层轮次 |
+| 巡航实弹 | 首次通宵无人值守实栈：18:30–06:30 四域 383 条 activity 全夜无死区，PM 00:00 后纯离线；实弹复盘驱动 2🔴+7🟡 评审修复全落地 |
 | 索引一致性 | memory 与 sqlite 的查询结果深度相等（S5 等价测试硬约束）；SQLite 只是可重建的派生索引 |
 | 依赖白名单 | `yaml.v3`、纯 Go `sqlite`、MCP SDK；不用 JSON Schema 库，不用 go-git |
 | 写入安全 | Git + YAML 是唯一事实源；CAS revision 防并发写丢更新；手改文件会被 strict decode 拒收，git 审计兜底 |
@@ -257,7 +289,8 @@ ousheng view kanban
 | 方向 | 状态 |
 |---|---|
 | 环境与版本维度（dev/uat/gray/canary/show/pro 数据化） | 判据：第一个非 dev 环境真实建立 |
-| web 面板增强（PM 观测面） | 已上线基础版，按 PM 实用反馈迭代 |
+| web 面板增强（PM 观测面 + 巡航驾驶舱） | 已上线基础版（/cruise 驾驶舱），按 PM 实用反馈迭代 |
+| 模型路由实证化（值守/收敛档按实栈收敛率选型） | 判据：多夜路由对比数据积累 |
 | MCP 工具面扩展（非 opencode harness） | 判据：其他 harness 真实接入 |
 | credentials CLI 写面 / env 字段 | 判据：第二项目上绳或手改出错实证 |
 | Go module 全路径 + release tag（`go install @latest` 一行化） | 判据：对外发布节奏启动 |
@@ -272,6 +305,7 @@ Issue / PR 欢迎。这个仓自己用 OuSheng 的纪律开发：改动前读 [A
 |---|---|
 | [快速上手](docs/quick-start.md) | 日常循环 / 多人 / 多仓拓扑 / 通讯模型 |
 | [多机多窗口使用指南](docs/多机多窗口使用指南.md) | 两段式上绳（join 时机零）、完整拓扑与日常协议 |
+| [巡航模式设计方案](docs/OuSheng_巡航模式设计方案.md) · [双模式操作手册](docs/双模式操作手册.md) | 无人值守的授权语义 / 哨兵与 runner 实操 |
 | [共识层设计方案 v0.4](docs/OuSheng_共识层设计方案_v0.4.md) | 方案讨论 / 轮次 / 拍板 / architecture 全局面貌 |
 | [工程模型](docs/engineering-model.md) · [上下文协议](docs/context-protocol.md) · [存储约定](docs/state-store.md) | v0.3 规格 |
 | [设计基石](docs/多人AI协作机制_方案基石.md) · [完整设计方案](docs/OuSheng_工程本体化改造方案_v0.3.md) | 为什么这样设计 |
@@ -280,7 +314,7 @@ Issue / PR 欢迎。这个仓自己用 OuSheng 的纪律开发：改动前读 [A
 
 <div align="center">
 
-**一根绳，一块板。接口不再靠缘分，共识不再靠记性。**
+**一根绳，一块板。接口不再靠缘分，共识不再靠记性，夜里没人绳自己转。**
 
 [视频](https://www.bilibili.com/video/BV1Gjxn6VEwE/) · [网站](https://senlinpubu.top/) · [GitHub](https://github.com/georgewangchn/OuSheng) · MIT License
 
