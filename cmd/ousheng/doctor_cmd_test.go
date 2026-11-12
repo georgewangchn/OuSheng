@@ -23,8 +23,7 @@ func mkDoctorWorkspace(t *testing.T, actorID string) string {
 }
 
 // doctor 健康座位：全 PASS 零退出（延后清单 2026-09-20 判据实锤转正，档案 §12）。
-func TestDoctorHealthySeat(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+func TestDoctorHealthySeat(t *testing.T) {	t.Setenv("HOME", t.TempDir())
 	ws := mkDoctorWorkspace(t, "data")
 	repo := t.TempDir()
 	mustRun(t, repo, "adapter", "install", "--workspace", ws)
@@ -40,6 +39,29 @@ func TestDoctorHealthySeat(t *testing.T) {
 	}
 	if strings.Contains(so, "[FAIL") {
 		t.Fatalf("健康座位不应有 FAIL:\n%s", so)
+	}
+}
+
+// §37 收紧对偶判据：板仓无 me × 多 agent 座位 = 合法防御形态（BUG-136——me 是
+// 单槽位污染源），doctor 降 WARN 不 FAIL；写纪律 = 显式 --actor。
+func TestDoctorMultiSeatNoMeWarns(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ws := mkDoctorWorkspace(t, "data")
+	// 第二 agent 座位（多座位共享板仓形态）
+	if err := os.WriteFile(filepath.Join(ws, ".ousheng", "actors", "ui.yaml"),
+		[]byte("schema_version: 1\nactor:\n    id: ui\n    type: agent\n    display_name: ui\n    responsible_human: pm\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(ws, ".ousheng", "me"))
+	repo := t.TempDir()
+	mustRun(t, repo, "adapter", "install", "--workspace", ws)
+
+	so, _, code := runIn(t, repo, "doctor")
+	if code != 0 {
+		t.Fatalf("多座位无 me 应 WARN 不 FAIL（合法防御形态）:\n%s", so)
+	}
+	if !strings.Contains(so, "多座位共享") || !strings.Contains(so, "显式 --actor") {
+		t.Fatalf("应提示多座位防御形态与 --actor 纪律:\n%s", so)
 	}
 }
 

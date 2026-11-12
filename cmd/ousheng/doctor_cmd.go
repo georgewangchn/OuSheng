@@ -24,8 +24,25 @@ import (
 	"strings"
 
 	"ousheng/adapters/opencode"
+	"ousheng/internal/model"
 	"ousheng/internal/state/gityaml"
 )
+
+// agentSeats 数板仓注册的 agent 型座位数（§37：me 缺失判据分形——多座位=合法
+// 防御形态 WARN，单座位=缺省身份刚需 FAIL）。
+func agentSeats(ws string) int {
+	afs, err := gityaml.Open(ws).ListActors()
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, af := range afs {
+		if af.Actor.Type == model.ActorAgent {
+			n++
+		}
+	}
+	return n
+}
 
 func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	fs := &flagSetWithDir{FlagSet: newFlagSet("doctor")}
@@ -163,7 +180,15 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 					check("PASS", "me="+me+" 已注册")
 				}
 			} else {
-				check("FAIL", "工作区未设默认身份 → ousheng me <id>")
+				// §37 收紧（2026-11-12）：多座位共享板仓的 me 是单槽位污染源
+				// （BUG-136）——me 缺失在多 agent 座位机器 = 合法防御形态，降 WARN
+				// （纪律=写命令显式 --actor）；单 agent/纯 human 板仓仍 FAIL（缺省
+				// 身份是刚需）。
+				if agentSeats(ws) > 1 {
+					check("WARN", "板仓无 me 且多座位共享（合法防御形态，BUG-136）——写命令一律显式 --actor")
+				} else {
+					check("FAIL", "工作区未设默认身份 → ousheng me <id>")
+				}
 			}
 			repos := loadRepoMap(ws)
 			for sys, path := range repos {
