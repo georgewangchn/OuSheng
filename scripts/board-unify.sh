@@ -1,71 +1,68 @@
 #!/usr/bin/env bash
-# board-unify.sh —— 板归一迁移脚本（2026-11-12，档案 §38，pm 拍板「一个看板」）
-# 事故驱动一次性工具（§5 纪律）：A 机板与本地板 11-05 17:24 分叉（13cc1ef2），
-# 七天独立发号已撞 ID（T-099/100/101 双侧不同内容）。归一 = 以一侧为基准，
-# 另一侧撞号卡重编号后快照重放，env 随迁打标。
+# board-unify.sh —— 板归一迁移 v3（2026-11-12，档案 §38，pm 拍板：一个看板、单序列发号）
+# 号段分区提议已撤回（pm 2026-11-12）：单板单发号器结构性地永不撞号；
+# 离线双写由 sync diverged 检测兜底（档案 §16 已锁）。号段自动化判据 =
+# 真实离线双写事故实证，记档再议。
 #
-# 用法: ./board-unify.sh <基准板目录> <合入板目录> <合入侧env标>
-#   基准板 = 保留原 ID 与全部历史的一侧（A 机板：2810 commits 主体）
-#   合入板 = 撞号卡重编号 + 现状快照重放的一侧（本地板：68 commits）
-#   env 标 = 合入卡打的 env 值（如 local；基准侧后续批量打 aliyun）
+# 分诊（v2 教训：撞号 245 ≠ 真撞号 245——分叉前共同遗产同 ID 同内容）：
+#   遗产（同ID同内容）→ 不动
+#   真撞号（同ID双版本）→ 基准版（aliyun）保留原 ID；合入版（local）重编号
+#     入新段（基准侧全局最大序号 +1 递增）+ env: local 打标
+#   仅基准 → 不动（原 ID 原段）
+#   仅合入 → 原样入板 + env: local 打标
 #
-# 干跑: DRY=1 ./board-unify.sh ... （只出盘点报告不写）
+# 用法: board-unify.sh <基准板=aliyun侧> <合入板=local侧>
+# DRY=1 只出分诊报告不写。
 set -euo pipefail
-BASE=$1; MERGE=$2; ENVTAG=$3
-[ -d "$BASE/.ousheng" ] && [ -d "$MERGE/.ousheng" ] || { echo "usage: board-unify.sh <base> <merge> <env-tag>"; exit 2; }
-OUS=${OUSHENG_BIN:-ousheng}
+BASE=$1; MERGE=$2
+[ -d "$BASE/.ousheng" ] && [ -d "$MERGE/.ousheng" ] || { echo "usage: board-unify.sh <base=aliyun> <merge=local>"; exit 2; }
 DRY=${DRY:-0}
+B="$BASE/.ousheng"; M="$MERGE/.ousheng"
 
-ids() { ls "$1/.ousheng/work" 2>/dev/null | sed 's/\.yaml$//' | sort; }
+ids() { ls "$1/work" 2>/dev/null | sed 's/\.yaml$//' | sort; }
+addenv() { local f=$1 e=$2; if ! grep -q '^env:' "$f"; then awk -v e="$e" '/^id:/{print; print "env: " e; next} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"; fi; }
 
-# ① 盘点：撞号 = 双侧同名 ID（内容必然不同——独立发号）
-comm -12 <(ids "$BASE") <(ids "$MERGE") > /tmp/board-unify.collision
-BASE_ONLY=$(comm -23 <(ids "$BASE") <(ids "$MERGE") | wc -l | tr -d ' ')
-MERGE_ONLY=$(comm -13 <(ids "$BASE") <(ids "$MERGE") | wc -l | tr -d ' ')
-echo "== 盘点：撞号 $(wc -l < /tmp/board-unify.collision | tr -d ' ') 张 | 仅基准 $BASE_ONLY | 仅合入 $MERGE_ONLY"
-cat /tmp/board-unify.collision | sed 's/^/  撞号: /'
-[ "$DRY" = 1 ] && { echo "DRY=1 止于盘点"; exit 0; }
+# ① 分诊
+HERIT=""; CLASH=""; BASEONLY=""; MERGEONLY=""
+for id in $(comm -12 <(ids "$B") <(ids "$M")); do
+  if diff -q "$B/work/$id.yaml" "$M/work/$id.yaml" >/dev/null 2>&1; then HERIT="$HERIT $id"; else CLASH="$CLASH $id"; fi
+done
+BASEONLY=$(comm -23 <(ids "$B") <(ids "$M"))
+MERGEONLY=$(comm -13 <(ids "$B") <(ids "$M"))
+NH=$(echo $HERIT | wc -w | tr -d ' '); NC=$(echo $CLASH | wc -w | tr -d ' ')
+NB=$(echo "$BASEONLY" | wc -w | tr -d ' '); NM=$(echo "$MERGEONLY" | wc -w | tr -d ' ')
+echo "== 分诊：遗产 $NH（不动）| 真撞号 $NC（合入侧重编号）| 仅基准 $NB（不动）| 仅合入 $NM（原样入）"
+echo "真撞号: $CLASH"
+echo "仅合入: $(echo $MERGEONLY | tr '\n' ' ')"
+[ "$DRY" = 1 ] && { echo "DRY=1 止于分诊"; exit 0; }
 
-# ② 合入侧：非撞号卡原 ID 快照重放（yaml 现状 + env 打标 + 迁移说明）
-#    撞号卡重编号（原ID→新ID 段，映射表留档）；related/depends 引用同步改写
-MAXN=$(ids "$BASE" | grep -oE '[0-9]+$' | sort -n | tail -1 | awk '{print $1+1000}')
-next_id() { # 前缀保留，序号从 MAXN 递增（T-099 → T-2xxx 段，永不撞基准侧活跃段）
-  echo "$1" | awk -v n="$MAXN" -F- '{n++; printf "%s-%04d\n", $1, n}' > /tmp/board-unify.nxt
-  MAXN=$((MAXN+1)); cat /tmp/board-unify.nxt
-}
-mkdir -p "$MERGE/.ousheng/migration"
-: > "$MERGE/.ousheng/migration/id-map.tsv"
-while read -r mid; do
-  [ -z "$mid" ] && continue
-  NEW=$(next_id "$mid")
-  echo -e "$mid\t$NEW" >> "$MERGE/.ousheng/migration/id-map.tsv"
-  echo "  重编号: $mid → $NEW"
-done < /tmp/board-unify.collision
+mkdir -p "$B/migration"
+: > "$B/migration/id-map.tsv"
 
-echo "== 重放合入侧卡片到基准板（env=$ENVTAG）"
-for f in "$MERGE/.ousheng/work"/*.yaml; do
-  [ -e "$f" ] || continue
-  ID=$(basename "$f" .yaml)
-  NEWID=$(awk -F'\t' -v id="$ID" '$1==id{print $2}' "$MERGE/.ousheng/migration/id-map.tsv")
-  TARGET=${NEWID:-$ID}
-  cp "$f" "/tmp/board-unify.card.yaml"
-  # 引用改写（related_to/depends_on/evidence locator 中的旧 ID）
-  while IFS=$'\t' read -r old new; do
-    sed -i '' -e "s/$old/$new/g" /tmp/board-unify.card.yaml 2>/dev/null || sed -i "s/$old/$new/g" /tmp/board-unify.card.yaml
-  done < "$MERGE/.ousheng/migration/id-map.tsv"
-  # env 打标（frontmatter env 字段；已显式 env 者保留）
-  if ! grep -q '^env:' /tmp/board-unify.card.yaml; then
-    sed -i '' -e 's/^system:/env: '"$ENVTAG"'\nsystem:/' /tmp/board-unify.card.yaml 2>/dev/null || sed -i 's/^system:/env: '"$ENVTAG"'\nsystem:/' /tmp/board-unify.card.yaml
-  fi
-  cp "/tmp/board-unify.card.yaml" "$BASE/.ousheng/work/$TARGET.yaml"
-  echo "  重放: $ID → $TARGET (env=$ENVTAG)"
+# ② 新段基点 = 基准侧全局最大序号 +1
+MAXN=$(ids "$B" | grep -oE '[0-9]+$' | sort -n | tail -1)
+NEWID() { MAXN=$((MAXN+1)); echo "$1" | awk -v n="$MAXN" -F- '{printf "%s-%03d\n", $1, n}'; }
+
+# ③ 真撞号：合入版重编号入板（引用改写限本卡内部——入板卡引用同批重编号 ID 才改）
+# 先建全量 map（MAXN 行内递增——命令替换子壳会丢计数，首跑实锤 23 张全映射 166）
+for id in $CLASH; do
+  MAXN=$((MAXN+1))
+  echo -e "$id\t$(echo "$id" | awk -v n="$MAXN" -F- '{printf "%s-%03d\n", $1, n}')" >> "$B/migration/id-map.tsv"
+done
+for id in $CLASH; do
+  NEW=$(awk -F'\t' -v i="$id" '$1==i{print $2}' "$B/migration/id-map.tsv")
+  cp "$M/work/$id.yaml" "$B/work/$NEW.yaml"
+  while IFS=$'\t' read -r old new; do sed -i "s/\b$old\b/$new/g" "$B/work/$NEW.yaml"; done < "$B/migration/id-map.tsv"
+  addenv "$B/work/$NEW.yaml" local
+  echo "  真撞号入板: $id → $NEW (env=local；基准版保留原 ID)"
 done
 
-# ③ 注册表合并（actors/systems/roles：同名同义取并集，冲突人工清单）
-echo "== 注册表并集（冲突留人工）"
-for reg in actors systems.yaml roles.yaml assignments.yaml; do
-  if [ -f "$MERGE/.ousheng/$reg" ] && [ ! -f "$BASE/.ousheng/$reg" ]; then
-    cp "$MERGE/.ousheng/$reg" "$BASE/.ousheng/$reg"; echo "  整体迁入: $reg"
-  fi
+# ④ 仅合入：原样入板
+for id in $MERGEONLY; do
+  cp "$M/work/$id.yaml" "$B/work/$id.yaml"
+  addenv "$B/work/$id.yaml" local
+  echo "  仅合入入板: $id (env=local)"
 done
-echo "== 完成。后续（人工）：①cd $BASE && converge 零 BLOCKER 验证 ②git add -A && git commit -m 'board: unify merge ($ENVTAG side)' ③force push 换干：git push -f <gitee> main（先在 gitee 侧把旧 main 打 board/local-archive 分支）④合入板仓降级归档（不再写）"
+
+# ⑤ 注册表以基准为准（已验证：actors 8/8 同名、systems 相同、assignments 基准为超集——零合并）
+echo "== 完成。后续：①cd $BASE && ousheng converge --dir . 零 BLOCKER ②git add -A && git commit -m 'board: unify + local 侧重编号入板（档案 §38）' ③force push 换干 gitee main（旧 main 已保 board/local-archive）④发号=单序列 max+1（无段规则，pm 2026-11-12 撤号段提议）"
