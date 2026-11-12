@@ -84,7 +84,11 @@ while :; do
   fi
   echo "[cruise] round $run → $OC ${SESS:+(续代 $SESS)}"
 
-  ( cd "$REPO" && $OC run $OCARGS $OC_ARGS --format json --prompt "巡航执行（严格按 AGENTS.md 巡航协议节）：处理以下清单，一次一轮，触 human 门即挂起转下一项；收尾 ousheng handover save --system $SYSTEM --actor $ACTOR 后 ousheng sync。
+  # L0 轮头（2026-11-12 档案 §37）：round 号 + 活单 ID 进 prompt 首行——
+  # session 自动 title 由此可区分（A 机复盘：233 轮标题全同不可辨）。
+  IDS=$(echo "$PLAN" | grep -oE '(BUG|FEAT|TASK|T|REQ|N|TEST)-[0-9]+' | sort -u | head -6 | tr '\n' ' ')
+  ( cd "$REPO" && $OC run $OCARGS $OC_ARGS --format json --prompt "巡航 round $run | 活单: ${IDS:-无} | 座位 $ACTOR/$SYSTEM
+巡航执行（严格按 AGENTS.md 巡航协议节）：处理以下清单，一次一轮，触 human 门即挂起转下一项；收尾 ousheng handover save --system $SYSTEM --actor $ACTOR（首行=一句话人话摘要，pm 可读）后 ousheng sync。
 
 $PLAN" ) > "$ROUNDOUT" 2>>"$LOOPERR" || echo "[cruise] opencode 非零退出，继续下一轮" >&2
 

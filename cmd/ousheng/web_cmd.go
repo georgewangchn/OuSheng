@@ -754,6 +754,29 @@ func (s *webServer) handleCruise(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_, statusOut, _ := s.exec("cruise", "status")
+	// 座位交接快照（§37 F3）：各座位 handover 正文——pm 晨间「这座位最后说了
+	// 什么人话」一屏可见（读面 best-effort：缺目录/坏文件跳过，不响亮失败）。
+	type handoverRow struct {
+		System, Actor, SavedAt, Body string
+	}
+	var handovers []handoverRow
+	if hs, err := repo.ListHandover(); err == nil {
+		for _, h := range hs {
+			_, body, err := repo.GetHandover(h.System, h.Actor)
+			if err != nil || strings.TrimSpace(body) == "" {
+				continue
+			}
+			ts := h.SavedAt
+			if t, err := time.Parse(time.RFC3339, h.SavedAt); err == nil {
+				ts = t.Format("01-02 15:04")
+			}
+			handovers = append(handovers, handoverRow{
+				System: h.System, Actor: h.Actor,
+				SavedAt: ts,
+				Body:    strings.TrimSpace(body),
+			})
+		}
+	}
 	// 驾驶舱操作面（P4）：挂起三类 + 快速建单——写路径全部复用既有 POST
 	// handler（decide/ack/create + guard），本页只做聚合呈现，无新写语义。
 	type pendingOp struct {
@@ -771,14 +794,15 @@ func (s *webServer) handleCruise(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	data := struct {
-		Me       string
-		Project  string
-		Status   string
-		Seats    []seatPlan
-		SyncTime string
-		Pending  []pendingOp
-		Systems  []string
-	}{Me: s.me, Status: strings.TrimSpace(statusOut), Seats: seats, SyncTime: time.Now().Format("15:04:05"), Pending: pend}
+		Me        string
+		Project   string
+		Status    string
+		Seats     []seatPlan
+		Handovers []handoverRow
+		SyncTime  string
+		Pending   []pendingOp
+		Systems   []string
+	}{Me: s.me, Status: strings.TrimSpace(statusOut), Seats: seats, Handovers: handovers, SyncTime: time.Now().Format("15:04:05"), Pending: pend}
 	if systems, err := repo.ListSystems(); err == nil {
 		for _, sy := range systems {
 			data.Systems = append(data.Systems, sy.ID)
@@ -1236,6 +1260,8 @@ var webCruiseTmpl = template.Must(template.New("cruise").Parse(`<!doctype html>
 </form>
 <h2>各座位下一活</h2>
 {{range .Seats}}<h3>{{.Actor}}</h3><pre>{{.Out}}</pre>{{else}}<p class="muted">无 agent 座位</p>{{end}}
+<h2>座位交接快照</h2>
+{{range .Handovers}}<h3>{{.System}}/{{.Actor}} <span class="muted">{{.SavedAt}}</span></h3><pre>{{.Body}}</pre>{{else}}<p class="muted">（各座位收尾 handover save 后在此呈现）</p>{{end}}
 <p><a href="/">← 看板</a></p>
 </body></html>`))
 
