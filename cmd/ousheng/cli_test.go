@@ -13,6 +13,8 @@ import (
 
 func runCLI(t *testing.T, dir string, args ...string) string {
 	t.Helper()
+	// 同 runIn：从板仓目录发令（colocated，BUG-136 收紧后的合法缺省形态）。
+	t.Chdir(dir)
 	full := append(append([]string{}, args...), "--dir", dir)
 	var stdout, stderr bytes.Buffer
 	code := run(full, &stdout, &stderr)
@@ -451,9 +453,11 @@ func TestCLIConvergeExposesOversizedItem(t *testing.T) {
 	}
 }
 
-// 多座位身份归属锁（2026-09-21，档案 §19）：一台机多个 opencode 窗口时，
-// 写路径默认身份必须取 **cwd 座位配置**，而不是机器级 me——否则非 me 的座位
-// 窗口每笔裸写都会错归（226 ui+test 双座位场景）。无座位目录回退 me。
+// 多座位身份归属锁（2026-09-21，档案 §19；2026-11-12 §37 收紧）：一台机多个
+// opencode 窗口时，写路径默认身份必须取 **cwd 座位配置**，而不是机器级 me——
+// 否则非 me 的座位窗口每笔裸写都会错归（226 ui+test 双座位场景）。me 兜底仅
+// 同目录（cd 板仓）生效；外部 CWD + --dir 板仓 → fail-loud（BUG-136）。
+// 注：本测试经 runCLIRaw 显式 --dir（不走会 chdir 的 runCLI），三形态直接断言。
 func TestCLIActorPrefersSeatConfigOverMe(t *testing.T) {
 	dir := testfix.Setup(t)
 	if err := os.WriteFile(filepath.Join(dir, ".ousheng", "me"), []byte("backend-agent\n"), 0o644); err != nil {
@@ -468,8 +472,11 @@ func TestCLIActorPrefersSeatConfigOverMe(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(seat)
-	runCLI(t, dir, "bug", "report", "--id", "BUG-500", "--title", "座位归属",
-		"--system", "datax-backend", "--detected-by", "test-agent")
+	so, se, code := runCLIRaw([]string{"bug", "report", "--id", "BUG-500", "--title", "座位归属",
+		"--system", "datax-backend", "--detected-by", "test-agent", "--dir", dir})
+	if code != 0 {
+		t.Fatalf("座位形态必须成功:\n%s", se)
+	}
 	if matches, _ := filepath.Glob(filepath.Join(dir, ".ousheng", "activity", "*", "test-agent.jsonl")); len(matches) == 0 {
 		t.Fatal("写必须归属 cwd 座位身份 test-agent")
 	}
@@ -477,12 +484,29 @@ func TestCLIActorPrefersSeatConfigOverMe(t *testing.T) {
 		t.Fatal("不得错归到机器级 me（backend-agent）")
 	}
 
-	// 无座位目录（普通终端）→ 回退机器级 me
+	// 无座位目录 + --dir 指向板仓 → 拒（BUG-136 收紧，档案 §37：板仓 me 单槽位
+	// ×多座位共享 = 静默错配，me 兜底仅同目录生效——fail-loud，不得错归 me）
 	plain := t.TempDir()
 	t.Chdir(plain)
-	runCLI(t, dir, "bug", "report", "--id", "BUG-501", "--title", "me 回退",
-		"--system", "datax-backend", "--detected-by", "backend-agent")
+	so, se, code = runCLIRaw([]string{"bug", "report", "--id", "BUG-501", "--title", "外部 CWD 拒",
+		"--system", "datax-backend", "--detected-by", "backend-agent", "--dir", dir})
+	if code == 0 {
+		t.Fatalf("外部 CWD + --dir 板仓 + 无座位配置必须拒（不得静默取板仓 me）:\n%s", so)
+	}
+	if !strings.Contains(se, "--actor") {
+		t.Fatalf("报错须指引 --actor: %s", se)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(dir, ".ousheng", "activity", "*", "backend-agent.jsonl")); len(matches) > 0 {
+		t.Fatal("被拒的写不得落任何 activity（静默错配=事故）")
+	}
+	// 同目录（cd 板仓，PM 单机形态）→ me 兜底合法
+	t.Chdir(dir)
+	so, se, code = runCLIRaw([]string{"bug", "report", "--id", "BUG-502", "--title", "同目录 me 兜底",
+		"--system", "datax-backend", "--detected-by", "backend-agent", "--dir", dir})
+	if code != 0 {
+		t.Fatalf("同目录形态必须成功（me 兜底）:\n%s", se)
+	}
 	if matches, _ := filepath.Glob(filepath.Join(dir, ".ousheng", "activity", "*", "backend-agent.jsonl")); len(matches) == 0 {
-		t.Fatal("无座位时应回退 me（backend-agent）")
+		t.Fatal("同目录 CWD 应回退 me（backend-agent）")
 	}
 }

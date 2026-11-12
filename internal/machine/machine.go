@@ -41,9 +41,14 @@ func SeatActor(seatDir string) string {
 	return strings.TrimSpace(cfg.Actor)
 }
 
-// ResolveActor：显式 > 座位配置（AI 窗口身份）> 工作区 me > 拒绝。
+// ResolveActor：显式 > 座位配置（AI 窗口身份）> 工作区 me（**仅同目录**）> 拒绝。
 // 座位优先于 me：me 可能是 human（PM 机终端身份），而调用方多为 AI 窗口，
 // 其身份在座位配置里——顺序保证 AI 的写不会被归到人名下。
+//
+// me 兜底仅 CWD==workspace 时生效（2026-11-12，BUG-136 实栈事故，档案 §37）：
+// 板仓 me 是单槽位机器本地文件，多座位共享板仓时任一座位 `ousheng me` 覆写
+// 即污染全机——CWD 无座位配置且 --dir 指向别处时静默取板仓 me = 身份错配，
+// 必须 fail-loud（不确定即拒绝）。PM 单机 cd 板仓的同目录形态不受影响。
 func ResolveActor(explicit, seatDir, workspace string) (string, error) {
 	if a := strings.TrimSpace(explicit); a != "" {
 		return a, nil
@@ -51,10 +56,24 @@ func ResolveActor(explicit, seatDir, workspace string) (string, error) {
 	if a := SeatActor(seatDir); a != "" {
 		return a, nil
 	}
-	if a := Me(workspace); a != "" {
-		return a, nil
+	if sameDir(seatDir, workspace) {
+		if a := Me(workspace); a != "" {
+			return a, nil
+		}
 	}
-	return "", fmt.Errorf("无法确定 acting actor：调用时传 actor，或本机跑 ousheng me <id>，或 ousheng adapter install --actor <身份> 配置座位")
+	return "", fmt.Errorf("无法确定 acting actor：传 --actor，或在本机座位仓跑（.opencode/ousheng.json），或 cd 进工作区用 me（--dir 指向外部工作区时板仓 me 不兜底——多座位共享板仓的静默错配已收紧，BUG-136）")
+}
+
+// sameDir 判两路径同目录（EvalSymlinks 归一，失败回退 Clean——/tmp 与
+// /private/tmp 类符号链接差异不构成身份判定依据）。
+func sameDir(a, b string) bool {
+	norm := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Clean(r)
+		}
+		return filepath.Clean(p)
+	}
+	return norm(a) == norm(b)
 }
 
 // --- repos.yaml（本机 system→代码仓映射，gitignored）---

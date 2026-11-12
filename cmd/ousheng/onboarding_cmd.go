@@ -36,8 +36,9 @@ func defaultActor(dir string) string {
 }
 
 // actingActor：写路径默认身份 = cwd 座位配置（.opencode/ousheng.json）> 工作区 me
-// （空串 = 未解析，由下游守卫拒）。一台机多座位时各窗口按自己目录的座位身份归属
-// （2026-09-21 多座位裁决，档案 §19）；与 MCP 同一实现（machine.ResolveActor）。
+// （**仅 cwd==workspace 同目录时**——BUG-136 收紧，档案 §37；空串 = 未解析，由
+// 下游守卫拒）。一台机多座位时各窗口按自己目录的座位身份归属（2026-09-21
+// 多座位裁决，档案 §19）；与 MCP 同一实现（machine.ResolveActor）。
 func actingActor(workspace string) string {
 	cwd, _ := os.Getwd()
 	a, _ := machine.ResolveActor("", cwd, workspace)
@@ -329,6 +330,7 @@ func cmdTodo(args []string, stdout, stderr io.Writer) int {
 	priority := fs.String("priority", "", "P0..P3")
 	due := fs.String("due", "", "due date YYYY-MM-DD")
 	description := fs.String("description", "", "需求正文/验收标准")
+	actorFlag := fs.String("actor", "", "acting actor（写命令纪律：显式归属；缺省走座位/同目录 me 解析）")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
@@ -340,7 +342,7 @@ func cmdTodo(args []string, stdout, stderr io.Writer) int {
 	dir := fs.Dir()
 	repo := gityaml.Open(dir)
 
-	actor, err := resolveActor("", dir)
+	actor, err := resolveActor(*actorFlag, dir)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

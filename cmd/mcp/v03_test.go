@@ -158,9 +158,8 @@ func TestMCPWorkLifecycle(t *testing.T) {
 	}
 }
 
-// 2026-09-21 审计事故锁（档案 §14）：MCP 写工具曾把空 actor 直接透传 service，
-// activity 静默落 unknown 桶（CLI 有守卫、MCP 没有 = 两套语义）。身份解析链：
-// 显式 > 座位配置 .opencode/ousheng.json（AI 窗口身份）> 工作区 me > 拒绝。
+// 2026-09-21 审计事故锁（档案 §14）；2026-11-12 BUG-136 收紧（档案 §37）：
+// 身份解析链 = 显式 > 座位配置 .opencode/ousheng.json > 工作区 me（**仅同目录**）> 拒绝。
 func TestMCPRejectsUnresolvedActor(t *testing.T) {
 	dir := testfix.Setup(t) // fixture 无 me；cwd 无座位配置
 	if _, _, err := createWorkItem(context.Background(), nil, CreateWorkInput{
@@ -175,6 +174,8 @@ func TestMCPResolvesActorFromWorkspaceMe(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".ousheng", "me"), []byte("backend-agent\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// 同目录（MCP 服务 cwd=工作区，PM 机形态）→ me 兜底合法（BUG-136 收紧后）
+	t.Chdir(dir)
 	if _, _, err := createWorkItem(context.Background(), nil, CreateWorkInput{
 		Path: dir, ID: "FEAT-301", Type: "feature", Title: "me 解析", System: "datax-backend",
 	}); err != nil {
@@ -182,6 +183,14 @@ func TestMCPResolvesActorFromWorkspaceMe(t *testing.T) {
 	}
 	if !activityExists(t, dir, "backend-agent") {
 		t.Fatal("activity 应归属 me=backend-agent")
+	}
+	// 外部 cwd + 板仓 me → 拒（BUG-136 静默错配形态，fail-loud）
+	ext := t.TempDir()
+	t.Chdir(ext)
+	if _, _, err := createWorkItem(context.Background(), nil, CreateWorkInput{
+		Path: dir, ID: "FEAT-303", Type: "feature", Title: "external-cwd", System: "datax-backend",
+	}); err == nil || !strings.Contains(err.Error(), "--actor") {
+		t.Fatalf("外部 cwd + 板仓 me 必须拒并指引 --actor，got err=%v", err)
 	}
 }
 

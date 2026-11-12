@@ -926,7 +926,9 @@ func (s *webServer) handleCreate(w http.ResponseWriter, r *http.Request) {
 	var errb string
 	switch kind {
 	case "task":
-		args := []string{"todo", title, "--system", system, "--description", desc}
+		// §24：web 面身份恒=本机 me——显式传 --actor，不经 actingActor 的
+		// 进程 cwd 解析链（cwd 无关化，BUG-136 收紧配套）。
+		args := []string{"todo", title, "--system", system, "--description", desc, "--actor", s.me}
 		if pri != "" {
 			args = append(args, "--priority", pri)
 		}

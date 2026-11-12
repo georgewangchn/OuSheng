@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -62,6 +63,19 @@ func CopyWorkspace(dir string) error {
 func findFixtures() (string, error) {
 	if p := os.Getenv("OUSHENG_FIXTURES"); p != "" {
 		return p, nil
+	}
+	// 源码锚定（2026-11-12）：测试 helper 会 chdir 进板仓（BUG-136 收紧后的
+	// colocated 形态），从进程 cwd 向上找 fixtures 会落空——按本文件源码位置
+	// 定位仓库根，chdir 无关。
+	if _, file, _, ok := runtime.Caller(0); ok {
+		dir := filepath.Dir(file)
+		for i := 0; i < 8; i++ {
+			cand := filepath.Join(dir, "fixtures", "lakehouse")
+			if st, err := os.Stat(cand); err == nil && st.IsDir() {
+				return cand, nil
+			}
+			dir = filepath.Dir(dir)
+		}
 	}
 	dir, err := os.Getwd()
 	if err != nil {

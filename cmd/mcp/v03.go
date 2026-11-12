@@ -17,8 +17,9 @@ import (
 )
 
 // resolveActor：显式 > 座位配置（cwd 的 .opencode/ousheng.json，AI 窗口身份）>
-// 工作区 me > 拒绝。2026-09-21 审计事故（档案 §14）：MCP 写工具曾把空 actor 直接
-// 透传 service，activity 静默落 unknown 桶——CLI 有守卫、MCP 没有 = 两套语义。
+// 工作区 me（仅 cwd==workspace 同目录，BUG-136 收紧）> 拒绝。2026-09-21 审计事故
+// （档案 §14）：MCP 写工具曾把空 actor 直接透传 service，activity 静默落 unknown
+// 桶——CLI 有守卫、MCP 没有 = 两套语义。
 func resolveActor(explicit, workspace string) (string, error) {
 	cwd, _ := os.Getwd()
 	return machine.ResolveActor(explicit, cwd, workspace)

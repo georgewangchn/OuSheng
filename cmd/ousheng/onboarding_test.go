@@ -16,6 +16,10 @@ import (
 
 func runIn(t *testing.T, dir string, args ...string) (string, string, int) {
 	t.Helper()
+	// 2026-11-12（BUG-136 收紧，档案 §37）：me 兜底仅同目录——测试统一从板仓
+	// 目录发令（colocated 合法形态）。身份语义本身由 TestCLIActorPrefersSeat
+	// ConfigOverMe / TestResolveActorMeFallbackOnlyColocated 单独把守。
+	t.Chdir(dir)
 	full := append(append([]string{}, args...), "--dir", dir)
 	var so, se bytes.Buffer
 	code := run(full, &so, &se)
