@@ -156,13 +156,18 @@ func TestCruiseLoopSyntax(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cruise-loop.sh 语法错误：%v\n%s", err, out)
 	}
-	// 关键护栏在位：代码仓参数硬门 + 三闸。
+	// 关键护栏在位：代码仓参数硬门 + 三闸 + opencode 参数面契约
+	// （首夜自旋事故：--prompt flag 不存在 = usage dump 秒退 = 20 轮烧完）。
 	s := string(CruiseLoopSh)
 	for _, want := range []string{"code-repo", "轮顶", "时窗", "idle", "cruise plan",
-		"--wait", "attach", "-s $SESS", "handover attach", "plan 失败(", "$SYSTEM"} {
+		"--wait", "attach", "-s $SESS", "handover attach", "plan 失败(", "$SYSTEM",
+		"--title", "--format json"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("cruise-loop.sh 缺护栏 %q", want)
 		}
+	}
+	if strings.Contains(s, `--prompt "`) || strings.Contains(s, "--prompt \\") {
+		t.Fatal("cruise-loop.sh 不得用 --prompt 实参（opencode v2.2.5 无此 flag——首夜自旋事故根因；消息走位置参数）")
 	}
 }
 
