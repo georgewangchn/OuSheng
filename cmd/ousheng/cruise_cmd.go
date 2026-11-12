@@ -507,6 +507,70 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 	}
 	sort.Strings(seatOrder)
 
+	// 座位轮摘要（2026-11-12 档案 §37 F2）：activity 按座位聚簇成轮（间隔 >15min
+	// 分轮），纯记账轮 = 该轮动作全为 evidence_added——零 delta 维持轮的直接曝光
+	// （A 机复盘：233 轮强模型、过半纯记账，token 烧钱轮次第一次在绳上有投影）。
+	const roundGap = 15 * time.Minute
+	seatActs := map[string][]model.Activity{}
+	for _, a := range acts {
+		if humanSeat[a.Actor] {
+			continue
+		}
+		ts, perr := time.Parse(time.RFC3339, a.TS)
+		if perr != nil || ts.Before(since) {
+			continue
+		}
+		seatActs[a.Actor] = append(seatActs[a.Actor], a)
+	}
+	rounds := map[string]int{}
+	pureRounds := map[string]int{}
+	touched := map[string][]string{}
+	for actor, list := range seatActs {
+		sort.Slice(list, func(i, j int) bool { return list[i].TS < list[j].TS })
+		n, pure := 0, 0
+		var items map[string]bool
+		var evid, changes int
+		var last time.Time
+		seen := map[string]bool{}
+		start := func() {
+			items, evid, changes = map[string]bool{}, 0, 0
+		}
+		flush := func() {
+			if items == nil {
+				return
+			}
+			n++
+			if evid > 0 && changes == 0 {
+				pure++
+			}
+			for it := range items {
+				if !seen[it] {
+					seen[it] = true
+					touched[actor] = append(touched[actor], it)
+				}
+			}
+		}
+		for _, a := range list {
+			ts, _ := time.Parse(time.RFC3339, a.TS)
+			if items == nil || ts.Sub(last) > roundGap {
+				flush()
+				start()
+			}
+			last = ts
+			if a.WorkItem != "" {
+				items[a.WorkItem] = true
+			}
+			if a.Action == "evidence_added" {
+				evid++
+			} else {
+				changes++
+			}
+		}
+		flush()
+		rounds[actor], pureRounds[actor] = n, pure
+		sort.Strings(touched[actor])
+	}
+
 	// 挂起清单
 	var waits []string
 	for _, d := range snap.Designs {
@@ -525,10 +589,13 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 
 	if *asJSON {
 		type seatJSON struct {
-			Actor   string `json:"actor"`
-			Done    int    `json:"delivered"`
-			Created int    `json:"created"`
-			Evid    int    `json:"evidence"`
+			Actor      string   `json:"actor"`
+			Done       int      `json:"delivered"`
+			Created    int      `json:"created"`
+			Evid       int      `json:"evidence"`
+			Rounds     int      `json:"rounds,omitempty"`
+			PureRounds int      `json:"pure_rounds,omitempty"`
+			Touched    []string `json:"items_touched,omitempty"`
 		}
 		type itemJSON struct {
 			ID     string `json:"id"`
@@ -538,7 +605,8 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 		sj := make([]seatJSON, 0, len(seatOrder))
 		for _, a := range seatOrder {
 			s := seats[a]
-			sj = append(sj, seatJSON{Actor: a, Done: s.Done, Created: s.Created, Evid: s.Evid})
+			sj = append(sj, seatJSON{Actor: a, Done: s.Done, Created: s.Created, Evid: s.Evid,
+				Rounds: rounds[a], PureRounds: pureRounds[a], Touched: touched[a]})
 		}
 		ij := make([]itemJSON, 0, len(items))
 		for _, it := range items {
@@ -559,6 +627,21 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 		for _, a := range seatOrder {
 			s := seats[a]
 			fmt.Fprintf(stdout, "| %s | %d | %d | %d |\n", s.Actor, s.Done, s.Created, s.Evid)
+		}
+	}
+	// 座位轮摘要（§37 F2）：纯记账轮占比高 = 维持空转信号（驱动器退避判据的
+	// 曝光面——判据触发见档案 §37 遗留）。
+	fmt.Fprintf(stdout, "\n## 座位轮摘要（纯记账轮 = 只落 evidence 的零 delta 维持轮）\n")
+	if len(seatOrder) == 0 {
+		fmt.Fprintf(stdout, "（无）\n")
+	} else {
+		fmt.Fprintf(stdout, "| 座位 | 轮数 | 纯记账轮 | 触单 |\n|---|---|---|---|\n")
+		for _, a := range seatOrder {
+			tp := strings.Join(touched[a], " ")
+			if tp == "" {
+				tp = "—"
+			}
+			fmt.Fprintf(stdout, "| %s | %d | %d | %s |\n", a, rounds[a], pureRounds[a], truncRunes(tp, 40))
 		}
 	}
 	fmt.Fprintf(stdout, "\n## 需求/缺陷清单（FEAT/REQ/BUG）\n")

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -342,6 +343,56 @@ func TestCruiseReport(t *testing.T) {
 			t.Fatalf("report json missing %q:\n%s", want, js)
 		}
 	}
+}
+
+// TestCruiseReportRoundDigest（§37 F2）：座位轮摘要——activity 聚簇成轮，纯记账轮
+// （全 evidence_added 的零 delta 维持轮）必须曝光；JSON 面同步。
+func TestCruiseReportRoundDigest(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir) // T-001 doing@data
+	// 造一轮 2h 前的「纯记账轮」：只 evidence_added（隔 >15min → 独立轮）
+	old := time.Now().Add(-2 * time.Hour).Format(time.RFC3339)
+	mon := time.Now().Add(-2 * time.Hour).Format("2006-01")
+	p := filepath.Join(dir, ".ousheng", "activity", mon, "data.jsonl")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i, item := range []string{"T-001", "T-002"} {
+		line := fmt.Sprintf(`{"ts":%q,"actor":"data","action":"evidence_added","work_item":%q,"detail":"维持 #%d"}`+"\n", old, item, i)
+		if err := appendFile(p, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 当前轮：真活（状态变迁 + evidence）
+	mustRun(t, dir, "work", "update", "T-001", "--status", "testing", "--actor", "data")
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x", "--note", "n", "--actor", "data")
+
+	out := mustRun(t, dir, "cruise", "report", "--hours", "24")
+	for _, want := range []string{"座位轮摘要", "纯记账轮", "T-002"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("report missing %q:\n%s", want, out)
+		}
+	}
+	// data 两轮，其中一轮纯记账
+	if !strings.Contains(out, "| data | 2 | 1 |") {
+		t.Fatalf("data 应为 2 轮/1 纯记账轮:\n%s", out)
+	}
+	js := mustRun(t, dir, "cruise", "report", "--hours", "24", "--json")
+	for _, want := range []string{`"rounds": 2`, `"pure_rounds": 1`} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("report json missing %q:\n%s", want, js)
+		}
+	}
+}
+
+func appendFile(p, s string) error {
+	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(s)
+	return err
 }
 
 // TestCruiseHeartbeat（P2）：心跳投影+告警线。
