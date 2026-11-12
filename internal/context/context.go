@@ -56,6 +56,14 @@ type MyContext struct {
 	Systems          []string    `json:"systems,omitempty"`
 	TargetVersion    string      `json:"target_version,omitempty"`
 	ActiveWork       []WorkBrief `json:"active_work,omitempty"`
+
+	// 座位自声明（§41，2026-11-12 pm 实栈推演：绳的第一性职能=方向——新 session
+	// 冷启动三问「我在哪台机/板仓在哪/系统契约卡在哪」此前无答，巡航执行直接
+	// 受阻）。指针原则（T10）：卡片只指针不正文。
+	Machine     string   `json:"machine,omitempty"`      // registry 声明（§40）
+	Board       string   `json:"board,omitempty"`        // 板仓绝对路径（cmd 层填）
+	SystemCards []string `json:"system_cards,omitempty"` // "data · architecture/data.md · 契约 <repo>/INFO-CARD.md"（存在才列）
+	// Board 由 cmd 层填（CLI 知道 --dir；Service 不持有路径概念）。
 	// AwaitingTest 是我作为 tester 负责的系统里、status=testing、尚未被 tester
 	// 认领的活（派生指针，注入面填充）。事实投影非派活指令：testing 承担交接/
 	// 自测双语义，绳不区分（A2），由 tester 自行 work show 判断。解 testing 态
@@ -164,6 +172,32 @@ func (s *Service) GetMyContext(actorID string) (*MyContext, error) {
 	}
 	ctx.Roles = sortedKeys(roleSet)
 	ctx.Systems = sortedKeys(scope)
+
+	// 座位声明（§41）：machine 来自 registry；系统卡=architecture 交集 + 契约指针，
+	// 存在才列（缺卡降级为空——诚实降级，同 handover 指针判例）。
+	ctx.Machine = a.Machine
+	archSet := map[string]bool{}
+	for _, f := range s.Architecture {
+		archSet[strings.TrimSuffix(f, ".md")] = true
+	}
+	if systems, err := s.Idx.Systems(); err == nil {
+		for _, sys := range systems {
+			if !scope[sys.ID] {
+				continue
+			}
+			card := sys.ID
+			if archSet[sys.ID] {
+				card += " · architecture/" + sys.ID + ".md"
+			}
+			if sys.ContractDoc != "" {
+				card += " · 契约 <repo>/" + sys.ContractDoc
+			}
+			if card != sys.ID {
+				ctx.SystemCards = append(ctx.SystemCards, card)
+			}
+		}
+		sort.Strings(ctx.SystemCards)
+	}
 
 	// 我的队列：open（未 done/cancelled）且 assignee=我。
 	// session 启动第一时机必须能看到 backlog/ready 待办，否则"我现在该干什么"失明（§26）。
@@ -382,16 +416,21 @@ type SystemView struct {
 	System      string        `json:"system"`
 	Name        string        `json:"name,omitempty"`
 	Parent      string        `json:"parent,omitempty"`
-	Responsible []ActorInRole `json:"responsible,omitempty"` // accountable humans
-	Executors   []ActorInRole `json:"executors,omitempty"`   // 执行者（多为 agent）
-	ActiveWork  []WorkBrief   `json:"active_work,omitempty"`
-	OpenBugs    int           `json:"open_bugs"`
-	Blockers    []string      `json:"blockers,omitempty"` // 系统内未解除阻塞（去重）
+	// §41 系统信息卡双源指针 + envs 登记（查询面；T10 指针非正文）。
+	Architecture string   `json:"architecture,omitempty"`
+	ContractDoc  string   `json:"contract_doc,omitempty"`
+	Envs         []string `json:"envs,omitempty"`
+	Responsible  []ActorInRole `json:"responsible,omitempty"` // accountable humans
+	Executors    []ActorInRole `json:"executors,omitempty"`   // 执行者（多为 agent）
+	ActiveWork   []WorkBrief   `json:"active_work,omitempty"`
+	OpenBugs     int           `json:"open_bugs"`
+	Blockers     []string      `json:"blockers,omitempty"` // 系统内未解除阻塞（去重）
 }
 
 type ActorInRole struct {
-	Actor string `json:"actor"`
-	Role  string `json:"role"`
+	Actor   string `json:"actor"`
+	Role    string `json:"role"`
+	Machine string `json:"machine,omitempty"` // §40 registry 声明——执行位寻址
 }
 
 func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
@@ -402,7 +441,14 @@ func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown system %q (try: ousheng system list)", systemID)
 	}
-	v := &SystemView{System: sys.ID, Name: sys.Name, Parent: sys.Parent}
+	v := &SystemView{System: sys.ID, Name: sys.Name, Parent: sys.Parent,
+		ContractDoc: sys.ContractDoc, Envs: sys.Envs}
+	for _, f := range s.Architecture {
+		if strings.TrimSuffix(f, ".md") == sys.ID {
+			v.Architecture = "architecture/" + sys.ID + ".md" // 与 context me 系统卡指针同形（§41 一致性）
+			break
+		}
+	}
 
 	sysAssigns, err := s.Idx.AssignmentsBySystem(systemID)
 	if err != nil {
@@ -413,6 +459,9 @@ func (s *Service) GetSystemContext(systemID string) (*SystemView, error) {
 			continue
 		}
 		pair := ActorInRole{Actor: as.Actor, Role: as.Role}
+		if af, ok2, _ := s.Idx.Actor(as.Actor); ok2 {
+			pair.Machine = af.Actor.Machine // §41 执行位寻址
+		}
 		if as.Responsibility == model.ResponsibilityAccountable {
 			v.Responsible = append(v.Responsible, pair)
 		} else {

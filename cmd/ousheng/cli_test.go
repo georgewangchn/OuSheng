@@ -32,7 +32,7 @@ func runCLIRaw(args []string) (string, string, int) {
 
 func TestCLIVersion(t *testing.T) {
 	out, _, code := runCLIRaw([]string{"version"})
-	if code != 0 || !strings.Contains(out, "ousheng 0.3.3") {
+	if code != 0 || !strings.Contains(out, "ousheng 0.3.4") {
 		t.Fatalf("version wrong: %q %d", out, code)
 	}
 }

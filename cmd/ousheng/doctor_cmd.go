@@ -106,10 +106,23 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		if _, err := os.Stat(filepath.Join(ws, ".ousheng", "project.yaml")); err != nil {
 			check("FAIL", fmt.Sprintf("工作区 %s 无效（缺 .ousheng/project.yaml）→ ousheng adapter install --workspace <工作区>", ws))
 		} else if hasSeatCfg && actor != "" {
-			if _, err := gityaml.Open(ws).GetActor(actor); err != nil {
+			if af, err := gityaml.Open(ws).GetActor(actor); err != nil {
 				check("FAIL", fmt.Sprintf("ousheng.json actor=%s 未注册 → ousheng adapter install --actor <身份>（或 team add）", actor))
 			} else {
 				check("PASS", fmt.Sprintf("座位身份 actor=%s（workspace=%s）已注册", actor, ws))
+				// §41 座位漂移检测：registry.machine 已登记且 ≠ 本机 hostname →
+				// 座位搬家未更新或旧机座位残留（搬机 runbook：新机 join + adapter
+				// install + 手改 registry machine；旧机清 .opencode/ousheng.json）。
+				if m := af.Actor.Machine; m != "" {
+					hn, _ := os.Hostname()
+					base := m
+					if i := strings.Index(m, "("); i > 0 {
+						base = m[:i]
+					}
+					if base != hn && !strings.Contains(m, hn) {
+						check("WARN", fmt.Sprintf("座位 %s 的 machine=%s ≠ 本机 %s——搬家未更新 registry 或旧机座位残留", actor, m, hn))
+					}
+				}
 			}
 		}
 		switch globalPermissionStatus(ws) {

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"ousheng/internal/context"
@@ -48,6 +49,9 @@ func cmdContext(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
+		}
+		if wd, aerr := filepath.Abs(fs.Dir()); aerr == nil {
+			mc.Board = wd // §41 座位声明：冷启动即知板仓绝对路径
 		}
 		if *asJSON {
 			printJSON(stdout, mc)
@@ -183,6 +187,16 @@ func renderSystemView(w io.Writer, v *context.SystemView) {
 		fmt.Fprintf(w, " (%s)", v.Name)
 	}
 	fmt.Fprintln(w)
+	// §41 系统信息卡双源指针（T10：指针非正文）
+	if v.Architecture != "" {
+		printKV(w, "架构卡", v.Architecture)
+	}
+	if v.ContractDoc != "" {
+		printKV(w, "契约卡", "<repo>/"+v.ContractDoc)
+	}
+	if len(v.Envs) > 0 {
+		printKV(w, "envs", strings.Join(v.Envs, ","))
+	}
 	if v.Parent != "" {
 		printKV(w, "parent", v.Parent)
 	}
@@ -190,7 +204,11 @@ func renderSystemView(w io.Writer, v *context.SystemView) {
 		fmt.Fprintf(w, "  responsible: %s / %s\n", r.Actor, r.Role)
 	}
 	for _, e := range v.Executors {
-		fmt.Fprintf(w, "  executor:    %s / %s\n", e.Actor, e.Role)
+		fmt.Fprintf(w, "  executor:    %s / %s", e.Actor, e.Role)
+		if e.Machine != "" {
+			fmt.Fprintf(w, "  @%s", e.Machine)
+		}
+		fmt.Fprintln(w)
 	}
 	if len(v.ActiveWork) > 0 {
 		fmt.Fprintln(w, "active_work:")
