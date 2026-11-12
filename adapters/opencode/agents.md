@@ -21,6 +21,8 @@
 
 命令速查（全部命令支持 `--dir <workspace>`；身份缺省 = 本目录座位身份，无座位则本机 me；发 bug 优先 MCP 工具 `ousheng_report_bug`，CLI 为等价路径）：
 
+- **pm/跨机冷启动先看全局**：`ousheng team list`（座位×常驻机器×系统全景——执行位寻址：跨机派活/杀进程前先查座位在哪台机）+ `ousheng cruise status`（各域活动摘要）；板仓位置见本目录 `.opencode/ousheng.json` 的 `workspace` 字段。
+
 - 发 bug：`ousheng bug report --id BUG-xxx --title "标题" --system <系统> --detected-by <我>`（全量描述与实测走 `--file bug.yaml`）
 - 建任务：`ousheng todo "标题" --system <系统>`
 - 看板 / 详情：`ousheng work list`、`ousheng work show <id>`

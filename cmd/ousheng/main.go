@@ -21,7 +21,7 @@ import (
 	"ousheng/internal/state/gityaml"
 )
 
-const cliVersion = "0.3.2"
+const cliVersion = "0.3.3"
 
 // 构建元数据：车队部署时用 -ldflags 注入（-X main.buildCommit=... -X main.buildDate=...），
 // 验收「这台机器跑的是哪个提交」；不带 ldflags 的本地 go build 显示 dev。
@@ -126,8 +126,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "me":
 		return cmdMe(args[1:], stdout, stderr)
 	case "team":
-		if len(args) < 2 || args[1] != "add" {
-			fmt.Fprintln(stderr, "usage: ousheng team add <id> [...]")
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "usage: ousheng team <add|list> [...]")
+			return 2
+		}
+		if args[1] == "list" {
+			return cmdTeamList(args[2:], stdout, stderr)
+		}
+		if args[1] != "add" {
+			fmt.Fprintln(stderr, "usage: ousheng team <add|list> [...]")
 			return 2
 		}
 		return cmdTeamAdd(args[2:], stdout, stderr)

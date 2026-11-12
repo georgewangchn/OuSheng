@@ -176,6 +176,11 @@ func ValidateActor(a Actor) error {
 	if a.Type == ActorAgent && a.ResponsibleHuman == "" {
 		return fmt.Errorf("agent actor %s requires responsible_human", a.ID)
 	}
+	// machine 声明性登记（§40）：非空即须可读短标识（拒控制字符/空格外的
+	// 垃圾——登记面纪律同 envs：宁空勿错）。
+	if a.Machine != "" && strings.ContainsAny(a.Machine, " \t\r\n\"'") {
+		return fmt.Errorf("invalid machine %q (want 紧凑短标识，如 aliyun-a / rdc-04(10.100.1.32))", a.Machine)
+	}
 	return nil
 }
 

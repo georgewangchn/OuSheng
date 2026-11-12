@@ -16,6 +16,12 @@ type Actor struct {
 	Type             ActorType `yaml:"type"`
 	DisplayName      string    `yaml:"display_name,omitempty"`
 	ResponsibleHuman string    `yaml:"responsible_human,omitempty"`
+
+	// Machine 是该座位常驻机器的登记面（档案 §40，2026-11-12 pm session 冷启动
+	// 实栈发现：七座位六台机的拓扑绳上无处查——跨机协作的执行位寻址靠它：
+	// pm 派活/杀进程前 `team list` 即知座位在哪。声明性不验证（机器名跨机
+	// 不可验证），空=未登记（多机游走/已下线）。与 §38 envs 同构：登记≠分发。
+	Machine string `yaml:"machine,omitempty"`
 }
 
 // Manifest 是 Agent Context Manifest（v0.3 §25）：

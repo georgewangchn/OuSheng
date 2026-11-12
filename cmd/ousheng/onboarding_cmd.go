@@ -197,10 +197,58 @@ func cmdSystemAdd(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// --- ousheng team add ---
+// --- ousheng team add / list ---
 
-// cmdTeamAdd：`ousheng team add <id> [--name N] [--type human|agent] [--responsible-human H]
-// [--role R --system S]`。加协作者（第二个人或 AI 窗口 agent），不动本机默认身份。
+// cmdTeamList：`ousheng team list`——座位全景（档案 §40）：ID | 型 | 常驻机器
+// | 系统 | 责任 human。pm 冷启动的执行位寻址入口（跨机派活/杀进程先看这个）。
+func cmdTeamList(args []string, stdout, stderr io.Writer) int {
+	fs := newFS("team list")
+	if err := parseLoose(fs.FlagSet, args); err != nil {
+		return usageErr(stderr, err)
+	}
+	if code := rejectExtra(fs, stderr); code != 0 {
+		return code
+	}
+	repo := gityaml.Open(fs.Dir())
+	afs, err := repo.ListActors()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	sysByActor := map[string][]string{}
+	if as, err := repo.ListAssignments(); err == nil {
+		for _, a := range as {
+			found := false
+			for _, s := range sysByActor[a.Actor] {
+				if s == a.System {
+					found = true
+				}
+			}
+			if !found {
+				sysByActor[a.Actor] = append(sysByActor[a.Actor], a.System)
+			}
+		}
+	}
+	fmt.Fprintln(stdout, "ID               TYPE    MACHINE                        SYSTEMS            RESPONSIBLE-HUMAN")
+	for _, af := range afs {
+		m := af.Actor.Machine
+		if m == "" {
+			m = "—"
+		}
+		sys := strings.Join(sysByActor[af.Actor.ID], ",")
+		if sys == "" {
+			sys = "—"
+		}
+		rh := af.Actor.ResponsibleHuman
+		if rh == "" {
+			rh = "—"
+		}
+		fmt.Fprintf(stdout, "%-16s %-7s %-30s %-18s %s\n", af.Actor.ID, af.Actor.Type, m, sys, rh)
+	}
+	return 0
+}
+
+// cmdTeamAdd：`ousheng team add <id> [...]
 func cmdTeamAdd(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("team add")
 	name := fs.String("name", "", "display name (default: id)")
@@ -208,6 +256,7 @@ func cmdTeamAdd(args []string, stdout, stderr io.Writer) int {
 	respHuman := fs.String("responsible-human", "", "agent 的负责 human（默认 me）")
 	role := fs.String("role", "", "role id（与 --system 连用，建 executor assignment）")
 	system := fs.String("system", "", "system id（与 --role 连用）")
+	machine := fs.String("machine", "", "座位常驻机器登记（§40：aliyun-a / rdc-04(10.100.1.32) 紧凑短标识）")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
@@ -236,14 +285,21 @@ func cmdTeamAdd(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "  agent 座位正确顺序：先 team add %s --type agent 再 ousheng me %s；当前残留 human 型注册\n", id, id)
 			}
 		}
+		if *machine != "" && af.Actor.Machine != *machine {
+			fmt.Fprintf(stderr, "  注意：已存在座位的 machine 不随本命令更新——手改 .ousheng/actors/%s.yaml 后提交\n", id)
+		}
 		fmt.Fprintf(stdout, "actor %s exists\n", id)
 		return 0
+	}
+	if *machine != "" && strings.ContainsAny(*machine, " \t\r\n\"'") {
+		fmt.Fprintf(stderr, "invalid machine %q (want 紧凑短标识，如 aliyun-a / rdc-04(10.100.1.32))\n", *machine)
+		return 2
 	}
 	display := *name
 	if display == "" {
 		display = id
 	}
-	a := model.Actor{ID: id, Type: model.ActorType(*typ), DisplayName: display}
+	a := model.Actor{ID: id, Type: model.ActorType(*typ), DisplayName: display, Machine: *machine}
 	if *typ == "agent" {
 		rh := *respHuman
 		if rh == "" {
