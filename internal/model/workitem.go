@@ -66,8 +66,8 @@ type WorkItem struct {
 	// Env 是部署目标环境（H3，档案 §38）：数据维度，默认空 = dev（诚实降级，
 	// 不强制）；四路判决 = work show / context me / work list --env 接入，
 	// view kanban 出局（过滤维度不是列）。
-	Env           string       `yaml:"env,omitempty"`
-	TargetRelease string       `yaml:"target_release,omitempty"` // 休眠：无读者（反事实推演 2026-09-12 判冻结）——禁用于新功能，待 schema 大版本回收
+	Env           string `yaml:"env,omitempty"`
+	TargetRelease string `yaml:"target_release,omitempty"` // 休眠：无读者（反事实推演 2026-09-12 判冻结）——禁用于新功能，待 schema 大版本回收
 
 	// 计划三字段（100 场景推演判必须）：纯数据刻度，无自动化语义。
 	// priority：人拍板的排序档位；due_on：对外承诺日；description：需求正文/验收标准。

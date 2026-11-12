@@ -526,7 +526,21 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 	pureRounds := map[string]int{}
 	touched := map[string][]string{}
 	for actor, list := range seatActs {
-		sort.Slice(list, func(i, j int) bool { return list[i].TS < list[j].TS })
+		// 按时刻排序（非字符串——RFC3339 混合时区偏移 +08:00/Z 词序≠时序，
+		// 轮边界会被错切；坏 TS 行跳过，与 §31 读面 best-effort 对齐）。
+		type timedAct struct {
+			t time.Time
+			a model.Activity
+		}
+		parsed := make([]timedAct, 0, len(list))
+		for _, a := range list {
+			ts, perr := time.Parse(time.RFC3339, a.TS)
+			if perr != nil {
+				continue
+			}
+			parsed = append(parsed, timedAct{t: ts, a: a})
+		}
+		sort.Slice(parsed, func(i, j int) bool { return parsed[i].t.Before(parsed[j].t) })
 		n, pure := 0, 0
 		var items map[string]bool
 		var evid, changes int
@@ -550,13 +564,13 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 				}
 			}
 		}
-		for _, a := range list {
-			ts, _ := time.Parse(time.RFC3339, a.TS)
-			if items == nil || ts.Sub(last) > roundGap {
+		for _, ta := range parsed {
+			if items == nil || ta.t.Sub(last) > roundGap {
 				flush()
 				start()
 			}
-			last = ts
+			last = ta.t
+			a := ta.a
 			if a.WorkItem != "" {
 				items[a.WorkItem] = true
 			}

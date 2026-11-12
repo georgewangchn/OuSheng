@@ -23,7 +23,8 @@ func mkDoctorWorkspace(t *testing.T, actorID string) string {
 }
 
 // doctor 健康座位：全 PASS 零退出（延后清单 2026-09-20 判据实锤转正，档案 §12）。
-func TestDoctorHealthySeat(t *testing.T) {	t.Setenv("HOME", t.TempDir())
+func TestDoctorHealthySeat(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	ws := mkDoctorWorkspace(t, "data")
 	repo := t.TempDir()
 	mustRun(t, repo, "adapter", "install", "--workspace", ws)
@@ -53,6 +54,19 @@ func TestDoctorMultiSeatNoMeWarns(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Remove(filepath.Join(ws, ".ousheng", "me"))
+	// 机器级双信号：repos.yaml 双映射（doctor 会验路径真伪——用真 git 目录）
+	r1, r2 := t.TempDir(), t.TempDir()
+	for _, d := range []string{r1, r2} {
+		c := exec.Command("git", "init", "-q")
+		c.Dir = d
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v\n%s", err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".ousheng", "repos.yaml"),
+		[]byte("data: "+r1+"\nui: "+r2+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	repo := t.TempDir()
 	mustRun(t, repo, "adapter", "install", "--workspace", ws)
 

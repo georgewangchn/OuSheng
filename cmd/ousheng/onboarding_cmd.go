@@ -139,13 +139,15 @@ func cmdMe(args []string, stdout, stderr io.Writer) int {
 
 // --- ousheng system add ---
 
-// cmdSystemAdd：`ousheng system add <id> [--name N] [--parent P]`。
+// --- ousheng system add ---
+
 // multiFlag：可重复字符串 flag（--env dev --env pro 类）。
 type multiFlag []string
 
 func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
 func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
+// cmdSystemAdd：`ousheng system add <id> [--name N] [--parent P] [--env E...]`。
 func cmdSystemAdd(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("system add")
 	name := fs.String("name", "", "display name (default: id)")
@@ -175,6 +177,10 @@ func cmdSystemAdd(args []string, stdout, stderr io.Writer) int {
 	for _, s := range sys {
 		if s.ID == id {
 			fmt.Fprintf(stdout, "system %s exists\n", id)
+			// 已存在时 --env/--name 不合并（登记表手改面）——大声提示防误以为已登记。
+			if len(envs) > 0 || *name != "" || *parent != "" {
+				fmt.Fprintln(stderr, "  注意：已存在系统的 envs/name/parent 不随本命令更新——手改 systems.yaml 后提交")
+			}
 			return 0
 		}
 	}

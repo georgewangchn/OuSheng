@@ -761,6 +761,13 @@ func (s *webServer) handleCruise(w http.ResponseWriter, r *http.Request) {
 	}
 	var handovers []handoverRow
 	if hs, err := repo.ListHandover(); err == nil {
+		// 行序稳定（System,Actor——目录扫描序跨刷新不稳，Y4 同教训）
+		sort.Slice(hs, func(i, j int) bool {
+			if hs[i].System != hs[j].System {
+				return hs[i].System < hs[j].System
+			}
+			return hs[i].Actor < hs[j].Actor
+		})
 		for _, h := range hs {
 			_, body, err := repo.GetHandover(h.System, h.Actor)
 			if err != nil || strings.TrimSpace(body) == "" {

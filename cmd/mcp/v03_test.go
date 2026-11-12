@@ -161,6 +161,7 @@ func TestMCPWorkLifecycle(t *testing.T) {
 // 2026-09-21 审计事故锁（档案 §14）；2026-11-12 BUG-136 收紧（档案 §37）：
 // 身份解析链 = 显式 > 座位配置 .opencode/ousheng.json > 工作区 me（**仅同目录**）> 拒绝。
 func TestMCPRejectsUnresolvedActor(t *testing.T) {
+	t.Chdir(t.TempDir())    // 显式中立 cwd——不依赖文件内前序测试的 Chdir 残留
 	dir := testfix.Setup(t) // fixture 无 me；cwd 无座位配置
 	if _, _, err := createWorkItem(context.Background(), nil, CreateWorkInput{
 		Path: dir, ID: "FEAT-300", Type: "feature", Title: "无身份", System: "datax-backend",

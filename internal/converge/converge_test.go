@@ -921,6 +921,44 @@ func TestMigratedNeedsResolutionBlocks(t *testing.T) {
 	}
 }
 
+// env 引用校验（H3 §38）：卡面 env 必须落在其 system 登记的 envs 内——拼错
+// （pord/pro）静默通过会让 work list --env pro 永远漏单。仅对已登记 envs 的
+// system 判（空 envs = 未登记不判，诚实降级）；曝光面 warning 不硬门。
+func TestConvergeEnvNotRegistered(t *testing.T) {
+	items := []model.WorkItem{
+		{SchemaVersion: 2, ID: "E-1", Type: model.TypeRelease, Title: "env 拼错",
+			Status: model.StatusDoing, Revision: 1, Assignee: "a1", System: "s", Env: "pord", TargetVersion: "v1", Description: "d"},
+		{SchemaVersion: 2, ID: "E-2", Type: model.TypeRelease, Title: "env 合法",
+			Status: model.StatusDoing, Revision: 1, Assignee: "a1", System: "s", Env: "pro", TargetVersion: "v1", Description: "d"},
+		{SchemaVersion: 2, ID: "E-3", Type: model.TypeTask, Title: "系统未登记 envs 不判",
+			Status: model.StatusDoing, Revision: 1, Assignee: "a1", System: "s2", Env: "任意", Description: "d"},
+	}
+	snap := index.Snapshot{WorkItems: items, Systems: []model.System{
+		{ID: "s", Envs: []string{"dev", "pro"}},
+		{ID: "s2"},
+	}}
+	idx := memory.New()
+	if err := idx.Rebuild(snap); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Check(idx, Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "E-1") && strings.Contains(w, "pord") && strings.Contains(w, "envs") {
+			found = true
+		}
+		if strings.Contains(w, "E-2") || strings.Contains(w, "E-3") {
+			t.Fatalf("合法/未登记 env 不得告警: %v", w)
+		}
+	}
+	if !found {
+		t.Fatalf("expected env-not-registered warning for E-1, got: %v", r.Warnings)
+	}
+}
+
 func TestBlockedWithoutDependencyWarns(t *testing.T) {
 	items := []model.WorkItem{
 		{SchemaVersion: 2, ID: "B-1", Type: model.TypeTask, Title: "blocked no dep",

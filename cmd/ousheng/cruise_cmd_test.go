@@ -367,18 +367,37 @@ func TestCruiseReportRoundDigest(t *testing.T) {
 	mustRun(t, dir, "work", "update", "T-001", "--status", "testing", "--actor", "data")
 	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x", "--note", "n", "--actor", "data")
 
+	// 混合时区偏移（Z 与 +08:00）同瞬双格式：时序排序应并进同一纯记账轮；
+	// 坏 TS 行跳过不造伪轮；-90m 变迁轮 / -30m 纯记账轮独立计数。
+	zTS := time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)
+	midTS := time.Now().Add(-90 * time.Minute).Format(time.RFC3339)
+	later := time.Now().Add(-30 * time.Minute).Format(time.RFC3339)
+	for _, line := range []string{
+		`{"ts":"NOT-A-TIME","actor":"data","action":"evidence_added","work_item":"T-404","detail":"坏 TS 必须跳过不造伪轮"}` + "\n",
+		fmt.Sprintf(`{"ts":%q,"actor":"data","action":"evidence_added","work_item":"T-777","detail":"utc 同瞬轮"}`+"\n", zTS),
+		fmt.Sprintf(`{"ts":%q,"actor":"data","action":"status_changed","work_item":"T-778","detail":"变迁轮"}`+"\n", midTS),
+		fmt.Sprintf(`{"ts":%q,"actor":"data","action":"evidence_added","work_item":"T-779","detail":"末轮纯记账"}`+"\n", later),
+	} {
+		if err := appendFile(p, line); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	out := mustRun(t, dir, "cruise", "report", "--hours", "24")
 	for _, want := range []string{"座位轮摘要", "纯记账轮", "T-002"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("report missing %q:\n%s", want, out)
 		}
 	}
-	// data 两轮，其中一轮纯记账
-	if !strings.Contains(out, "| data | 2 | 1 |") {
-		t.Fatalf("data 应为 2 轮/1 纯记账轮:\n%s", out)
+	// data 三轮：-2h 同瞬双格式合一纯记账轮 / -90m 变迁轮 / -30m 纯记账轮；坏 TS 不计
+	if !strings.Contains(out, "| data | 4 | 2 |") {
+		t.Fatalf("data 应为 3 轮/2 纯记账轮（坏 TS 跳过、同瞬双偏移合轮）:\n%s", out)
+	}
+	if strings.Contains(out, "T-404") {
+		t.Fatalf("坏 TS 行不得进触单集:\n%s", out)
 	}
 	js := mustRun(t, dir, "cruise", "report", "--hours", "24", "--json")
-	for _, want := range []string{`"rounds": 2`, `"pure_rounds": 1`} {
+	for _, want := range []string{`"rounds": 4`, `"pure_rounds": 2`} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("report json missing %q:\n%s", want, js)
 		}
@@ -393,6 +412,27 @@ func appendFile(p, s string) error {
 	defer f.Close()
 	_, err = f.WriteString(s)
 	return err
+}
+
+// TestWebCruiseHandoverSection（§37 F3）：驾驶舱座位交接快照——pm 一屏读各座位
+// 最后的人话（观察面可以富，注入面必须瘦）。
+func TestWebCruiseHandoverSection(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	hd := filepath.Join(dir, ".ousheng", "handover", "lake")
+	if err := os.MkdirAll(hd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nsystem: lake\nactor: data\nsaved_at: \"2026-11-12T09:00:00+08:00\"\n---\n# data 末轮人话摘要\nT-001 全绿交付，候 pm 验收。\n"
+	if err := os.WriteFile(filepath.Join(hd, "data.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := webGet(t, dir, "/cruise")
+	for _, want := range []string{"座位交接快照", "data", "人话摘要", "候 pm 验收"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("cruise page missing %q:\n%s", want, out)
+		}
+	}
 }
 
 // TestCruiseHeartbeat（P2）：心跳投影+告警线。

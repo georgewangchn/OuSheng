@@ -180,11 +180,11 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 					check("PASS", "me="+me+" 已注册")
 				}
 			} else {
-				// §37 收紧（2026-11-12）：多座位共享板仓的 me 是单槽位污染源
-				// （BUG-136）——me 缺失在多 agent 座位机器 = 合法防御形态，降 WARN
-				// （纪律=写命令显式 --actor）；单 agent/纯 human 板仓仍 FAIL（缺省
-				// 身份是刚需）。
-				if agentSeats(ws) > 1 {
+				// §37 收紧（2026-11-12）：多座位机的 me 缺失 = 合法防御形态，降
+				// WARN；单座位机仍 FAIL（缺省身份刚需）。多座位判定用**机器级双
+				// 信号**（板级 agent 注册 >1 且本机 repos.yaml 映射 >1）——板级
+				// 单信号会把多机协作板（agent 分布多台机）在单座位机上误报 WARN。
+				if agentSeats(ws) > 1 && len(loadRepoMap(ws)) > 1 {
 					check("WARN", "板仓无 me 且多座位共享（合法防御形态，BUG-136）——写命令一律显式 --actor")
 				} else {
 					check("FAIL", "工作区未设默认身份 → ousheng me <id>")

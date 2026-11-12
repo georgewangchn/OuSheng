@@ -79,10 +79,31 @@ func Check(idx index.Index, kn Knowledge) (Result, error) {
 		}
 	}
 
+	// env 引用登记表（H3 §38）：卡面 env ∈ system.envs——拼错曝光（分层强制：
+	// 曝光不硬门；未登记 envs 的 system 不判，诚实降级）。
+	envsBySystem := map[string]map[string]bool{}
+	if systems, err := idx.Systems(); err == nil {
+		for _, s := range systems {
+			if len(s.Envs) == 0 {
+				continue
+			}
+			m := map[string]bool{}
+			for _, e := range s.Envs {
+				m[e] = true
+			}
+			envsBySystem[s.ID] = m
+		}
+	}
+
 	for _, w := range all {
 		open := model.WorkItemOpen(w.Status)
 		if open {
 			hasOpen = true
+		}
+		if w.Env != "" {
+			if allowed := envsBySystem[w.System]; allowed != nil && !allowed[w.Env] {
+				warnings = append(warnings, fmt.Sprintf("%s: env %q not in system %s envs（拼错或漏登记——work list --env 会漏单）", w.ID, w.Env, w.System))
+			}
 		}
 
 		// 显式 blocked

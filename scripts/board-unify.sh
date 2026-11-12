@@ -52,6 +52,9 @@ done
 for id in $CLASH; do
   NEW=$(awk -F'\t' -v i="$id" '$1==i{print $2}' "$B/migration/id-map.tsv")
   cp "$M/work/$id.yaml" "$B/work/$NEW.yaml"
+  # 引用改写去词边界（\b 是 GNU-only）：无子串歧义论证——存量 ID 均 3 位零填充
+  # （T-005 形态），重编号段从 1000 起（T-1000+），旧 ID 不可能是任何其他 ID 的
+  # 前缀子串；若未来启用 4 位零填充段（T-0005 形态）需重审此处加边界。
   while IFS=$'\t' read -r old new; do sed -i.bak "s/$old/$new/g" "$B/work/$NEW.yaml" && rm -f "$B/work/$NEW.yaml.bak"; done < "$B/migration/id-map.tsv"
   addenv "$B/work/$NEW.yaml" local
   echo "  真撞号入板: $id → $NEW (env=local；基准版保留原 ID)"
