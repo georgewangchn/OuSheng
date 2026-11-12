@@ -31,7 +31,7 @@ BASEONLY=$(comm -23 <(ids "$B") <(ids "$M"))
 MERGEONLY=$(comm -13 <(ids "$B") <(ids "$M"))
 NH=$(echo $HERIT | wc -w | tr -d ' '); NC=$(echo $CLASH | wc -w | tr -d ' ')
 NB=$(echo "$BASEONLY" | wc -w | tr -d ' '); NM=$(echo "$MERGEONLY" | wc -w | tr -d ' ')
-echo "== 分诊：遗产 $NH（不动）| 真撞号 $NC（合入侧重编号）| 仅基准 $NB（不动）| 仅合入 $NM（原样入）"
+echo "== 分诊：遗产 ${NH}（不动）| 真撞号 ${NC}（合入侧重编号）| 仅基准 ${NB}（不动）| 仅合入 ${NM}（原样入）"
 echo "真撞号: $CLASH"
 echo "仅合入: $(echo $MERGEONLY | tr '\n' ' ')"
 [ "$DRY" = 1 ] && { echo "DRY=1 止于分诊"; exit 0; }
@@ -52,7 +52,7 @@ done
 for id in $CLASH; do
   NEW=$(awk -F'\t' -v i="$id" '$1==i{print $2}' "$B/migration/id-map.tsv")
   cp "$M/work/$id.yaml" "$B/work/$NEW.yaml"
-  while IFS=$'\t' read -r old new; do sed -i "s/\b$old\b/$new/g" "$B/work/$NEW.yaml"; done < "$B/migration/id-map.tsv"
+  while IFS=$'\t' read -r old new; do sed -i.bak "s/$old/$new/g" "$B/work/$NEW.yaml" && rm -f "$B/work/$NEW.yaml.bak"; done < "$B/migration/id-map.tsv"
   addenv "$B/work/$NEW.yaml" local
   echo "  真撞号入板: $id → $NEW (env=local；基准版保留原 ID)"
 done

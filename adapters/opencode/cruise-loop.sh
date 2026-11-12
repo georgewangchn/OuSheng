@@ -14,6 +14,7 @@ WS=$1; ACTOR=$2; SYSTEM=$3; REPO=$4; MAXR=${5:-20}; WAIT=${6:-600}; WIN=${7:-22:
 [ -z "$REPO" ] && { echo "[cruise] 缺 code-repo 参数——opencode 必须在代码仓开 session" >&2; exit 2; }
 OUSHENG=${OUSHENG_BIN:-ousheng}; OC=${OC_BIN:-opencode}
 EXTRA=${CRUISE_EXTRA:-}
+OC_ARGS=${OC_ARGS:-}
 run=0; idle=0; planfail=0
 # /tmp 隔离（评审 🔴 修复）：同机多座位并行时共享 /tmp 会互读他座位的
 # round 输出——NEWSID 错配 = 把 B 的 session attach 到 A 的快照（静默）。
@@ -56,9 +57,9 @@ getplan() {
 while :; do
   run=$((run+1))
   [ $run -gt $MAXR ] && { echo "[cruise] 轮顶 $MAXR 达成，停"; break; }
-  [ -z "$(inwin)" ] && { echo "[cruise] 时窗外 $WIN，停"; break; }
+  [ -z "$(inwin)" ] && { echo "[cruise] 时窗外 ${WIN}，停"; break; }
 
-  PLAN=$(getplan) || { echo "[cruise] plan 连败 3 次，停（systemd 会拉起；手动模式人工查 $LOOPERR）"; break; }
+  PLAN=$(getplan) || { echo "[cruise] plan 连败 3 次，停（systemd 会拉起；手动模式人工查 ${LOOPERR}）"; break; }
 
   if echo "$PLAN" | grep -q "cruise: idle"; then
     idle=$((idle+1))
@@ -67,7 +68,7 @@ while :; do
       echo "[cruise] idle×5（退避到 4h 仍无活），停——cron 下个时窗再启"
       break
     fi
-    echo "[cruise] idle #$idle，退避 ${W}s 后再探"
+    echo "[cruise] idle #${idle}，退避 ${W}s 后再探"
     sleep "$W"
     continue
   fi
@@ -79,9 +80,9 @@ while :; do
   [ -n "$SESS" ] && OCARGS="-s $SESS"
   # P5 模型路由：plan 输出含 bug/task/FEAT→强模型；notice/巡检→轻模型
   if echo "$PLAN" | grep -qE "BUG-|T-[0-9]|FEAT-|TASK-"; then
-    [ -n "$OC_MODEL_CODE" ] && OCARGS="$OCARGS --model $OC_MODEL_CODE"
+    [ -n "${OC_MODEL_CODE:-}" ] && OCARGS="$OCARGS --model $OC_MODEL_CODE"
   else
-    [ -n "$OC_MODEL_WAIT" ] && OCARGS="$OCARGS --model $OC_MODEL_WAIT"
+    [ -n "${OC_MODEL_WAIT:-}" ] && OCARGS="$OCARGS --model $OC_MODEL_WAIT"
   fi
   echo "[cruise] round $run → $OC ${SESS:+(续代 $SESS)}"
 
@@ -89,7 +90,7 @@ while :; do
   # session 自动 title 由此可区分（A 机复盘：233 轮标题全同不可辨）。
   IDS=$(echo "$PLAN" | grep -oE '(BUG|FEAT|TASK|T|REQ|N|TEST)-[0-9]+' | sort -u | head -6 | tr '\n' ' ')
   ( cd "$REPO" && $OC run $OCARGS $OC_ARGS --format json --prompt "巡航 round $run | 活单: ${IDS:-无} | 座位 $ACTOR/$SYSTEM
-巡航执行（严格按 AGENTS.md 巡航协议节）：处理以下清单，一次一轮，触 human 门即挂起转下一项；收尾 ousheng handover save --system $SYSTEM --actor $ACTOR（首行=一句话人话摘要，pm 可读）后 ousheng sync。
+巡航执行（严格按 AGENTS.md 巡航协议节）：处理以下清单，一次一轮，触 human 门即挂起转下一项；收尾 ousheng handover save --system ${SYSTEM} --actor ${ACTOR}（首行=一句话人话摘要，pm 可读）后 ousheng sync。
 
 $PLAN" ) > "$ROUNDOUT" 2>>"$LOOPERR" || echo "[cruise] opencode 非零退出，继续下一轮" >&2
 
