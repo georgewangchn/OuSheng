@@ -18,8 +18,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/default/ousheng-cruise-%i
-ExecStart=/bin/bash -c 'exec scripts/cruise-loop.sh $OUSHENG_CRUISE_ARGS'
-WorkingDirectory=/data/tide
+ExecStart=/bin/bash -c 'exec "$CRUISE_REPO"/scripts/cruise-loop.sh $OUSHENG_CRUISE_ARGS'
 Restart=on-failure
 RestartSec=120
 StartLimitIntervalSec=3600

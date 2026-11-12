@@ -166,6 +166,38 @@ func TestCruiseLoopSyntax(t *testing.T) {
 	}
 }
 
+// TestCruiseLoopInwinPython：inwin 的 python 段可编译锁（2026-11-12 A 机 systemd
+// 冒烟实锤：条件表达式链式写法 SyntaxError——窗口内也永远判「时窗外停」，
+// 整夜巡航静默死亡。bash -n 盖不住 python 语法，必须独立编译断言）。
+func TestCruiseLoopInwinPython(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 不可用")
+	}
+	s := string(CruiseLoopSh)
+	i := strings.Index(s, `python3 -c "`)
+	if i < 0 {
+		t.Fatal("cruise-loop.sh 缺 inwin python 段")
+	}
+	start := i + len(`python3 -c "`)
+	end := strings.Index(s[start:], `"; }`)
+	if end < 0 {
+		t.Fatal("inwin python 段未闭合")
+	}
+	// $WIN 是 bash 注入占位——编译前换样例窗
+	py := strings.ReplaceAll(s[start:start+end], "$WIN", "22:00-07:00")
+	cmd := exec.Command("python3", "-c", "import sys; compile(sys.stdin.read(),'inwin','exec')")
+	cmd.Stdin = strings.NewReader(py)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("inwin python 不可编译（整夜巡航会静默死）：%v\n%s", err, b)
+	}
+	// 语义抽检：契约 = '1'（窗内）或空串（窗外，bash [ -z ] 判停）
+	run := exec.Command("python3", "-c", py)
+	out, _ := run.Output()
+	if got := strings.TrimSpace(string(out)); got != "1" && got != "" {
+		t.Fatalf("inwin 应输出 '1' 或空串，got %q", got)
+	}
+}
+
 // TestPluginSessionAttach：plugin 源码含代际 attach 护栏（盲区修复回归锁）。
 func TestPluginSessionAttach(t *testing.T) {
 	b, err := os.ReadFile("plugin.ts")

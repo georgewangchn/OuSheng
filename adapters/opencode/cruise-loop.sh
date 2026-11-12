@@ -38,7 +38,8 @@ inwin() { python3 -c "
 import datetime
 n=datetime.datetime.now().time()
 lo,hi=[datetime.datetime.strptime(t,'%H:%M').time() for t in '$WIN'.split('-')]
-print('1' if (lo<=n<=hi) if lo<hi else (n>=lo or n<=hi) else '')"; }
+ok = (lo<=n<=hi) if lo<hi else (n>=lo or n<=hi)
+print('1' if ok else '')"; }
 
 # 取 plan 输出（重试 3 次退避——一次网络抖动不该停掉整夜）
 getplan() {
