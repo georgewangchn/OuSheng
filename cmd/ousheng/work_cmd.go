@@ -45,6 +45,7 @@ func workList(args []string, stdout, stderr io.Writer) int {
 	status := fs.String("status", "", "filter status")
 	assignee := fs.String("assignee", "", "filter assignee")
 	version := fs.String("version", "", "filter target_version")
+	env := fs.String("env", "", "filter environment（空 env 单匹配 dev——H3 缺省语义）")
 	wtype := fs.String("type", "", "filter type")
 	open := fs.Bool("open", false, "only open (not done/cancelled)")
 	unassigned := fs.Bool("unassigned", false, "only items without assignee（PM 巡检：待认领池）")
@@ -77,6 +78,17 @@ func workList(args []string, stdout, stderr io.Writer) int {
 		}
 		if *version != "" && w.TargetVersion != *version {
 			continue
+		}
+		// H3（档案 §38）：env 过滤——卡面空 env = 缺省 dev（诚实降级的对偶：
+		// 过滤语义与缺省语义对齐，否则 --env dev 永远筛出空集）。
+		if *env != "" {
+			itemEnv := w.Env
+			if itemEnv == "" {
+				itemEnv = "dev"
+			}
+			if itemEnv != *env {
+				continue
+			}
 		}
 		if *wtype != "" && string(w.Type) != *wtype {
 			continue
@@ -138,6 +150,7 @@ func workCreate(args []string, stdout, stderr io.Writer) int {
 	title := fs.String("title", "", "title")
 	system := fs.String("system", "", "system id")
 	version := fs.String("version", "", "target version")
+	env := fs.String("env", "", "target environment（H3：空=dev 缺省；deployment/release 建议必填）")
 	assignee := fs.String("assignee", "", "assignee actor id")
 	role := fs.String("role", "", "acting role id")
 	accountable := fs.String("accountable", "", "accountable human id")
@@ -181,6 +194,7 @@ func workCreate(args []string, stdout, stderr io.Writer) int {
 			Title:            *title,
 			System:           *system,
 			TargetVersion:    *version,
+			Env:              *env,
 			Priority:         *priority,
 			DueOn:            *due,
 			Description:      *description,
@@ -214,6 +228,7 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 	priority := fs.String("priority", "", "set priority P0..P3")
 	due := fs.String("due", "", "set due date YYYY-MM-DD")
 	description := fs.String("description", "", "set description")
+	env := fs.String("env", "", "set target environment（H3；传 \"-\" 清空）")
 	expect := fs.Int("expect", -1, "expected revision (required with --file)")
 	actor := fs.String("actor", "", "acting actor")
 	ack := fs.Bool("ack", false, "human 拍板：本条提交即 human_ack（approver=acting actor，C2）")
@@ -276,13 +291,20 @@ func workUpdate(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	if *status == "" && *priority == "" && *due == "" && *description == "" {
-		fmt.Fprintln(stderr, "nothing to update: pass --status/--priority/--due/--description or --file")
+	if *status == "" && *priority == "" && *due == "" && *description == "" && *env == "" {
+		fmt.Fprintln(stderr, "nothing to update: pass --status/--priority/--due/--description/--env or --file")
 		return 2
 	}
 	updated, err := updateWithAutoExpect(svc, id, *expect, func(cur model.WorkItem) model.WorkItem {
 		if *status != "" {
 			cur.Status = model.WorkStatus(*status)
+		}
+		if *env != "" {
+			if *env == "-" {
+				cur.Env = ""
+			} else {
+				cur.Env = *env
+			}
 		}
 		if *priority != "" {
 			cur.Priority = *priority

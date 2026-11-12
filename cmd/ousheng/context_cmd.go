@@ -287,6 +287,9 @@ func cmdSystem(args []string, stdout, stderr io.Writer) int {
 			if s.Parent != "" {
 				line += "  (parent: " + s.Parent + ")"
 			}
+			if len(s.Envs) > 0 {
+				line += "  envs: " + strings.Join(s.Envs, ",")
+			}
 			fmt.Fprintln(stdout, line)
 		}
 		return 0

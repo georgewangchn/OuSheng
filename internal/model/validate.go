@@ -15,6 +15,8 @@ var (
 	// 不做大小写改写）。新建 WorkItem 推荐 UPPER-xxx 风格（BUG-017 / FEAT-CDC-001）。
 	workIDRe  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)
 	lowerIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+	// EnvRe：环境短 id（H3 档案 §38）——dev/uat/pro/show 类；拒空格/中文/大写。
+	EnvRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,15}$`)
 )
 
 var workTypes = map[WorkItemType]bool{
@@ -75,6 +77,9 @@ func ValidateWorkItem(w WorkItem, raw []byte) error {
 	}
 	if w.TargetVersion != "" && strings.TrimSpace(w.TargetVersion) == "" {
 		return fmt.Errorf("target_version must be non-empty if present")
+	}
+	if w.Env != "" && !EnvRe.MatchString(w.Env) {
+		return fmt.Errorf("invalid env %q (want ^[a-z][a-z0-9-]{0,15}$，如 dev/uat/pro/show)", w.Env)
 	}
 	if w.Priority != "" && !priorities[w.Priority] {
 		return fmt.Errorf("invalid priority %q (want P0..P3)", w.Priority)

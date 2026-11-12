@@ -140,16 +140,30 @@ func cmdMe(args []string, stdout, stderr io.Writer) int {
 // --- ousheng system add ---
 
 // cmdSystemAdd：`ousheng system add <id> [--name N] [--parent P]`。
+// multiFlag：可重复字符串 flag（--env dev --env pro 类）。
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
+
 func cmdSystemAdd(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("system add")
 	name := fs.String("name", "", "display name (default: id)")
 	parent := fs.String("parent", "", "parent system id")
+	envs := multiFlag{}
+	fs.Var(&envs, "env", "环境登记（可重复，如 --env dev --env pro；H3 档案 §38）")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: ousheng system add <id> [--name N] [--parent P]")
+		fmt.Fprintln(stderr, "usage: ousheng system add <id> [--name N] [--parent P] [--env E]")
 		return 2
+	}
+	for _, e := range envs {
+		if !model.EnvRe.MatchString(e) {
+			fmt.Fprintf(stderr, "invalid env %q (want ^[a-z][a-z0-9-]{0,15}$)\n", e)
+			return 2
+		}
 	}
 	id := fs.Arg(0)
 	repo := gityaml.Open(fs.Dir())
@@ -168,7 +182,7 @@ func cmdSystemAdd(args []string, stdout, stderr io.Writer) int {
 	if n == "" {
 		n = id
 	}
-	sys = append(sys, model.System{ID: id, Name: n, Parent: *parent})
+	sys = append(sys, model.System{ID: id, Name: n, Parent: *parent, Envs: envs})
 	if err := repo.SaveSystems(sys, "registry: system add "+id); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

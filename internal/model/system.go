@@ -17,6 +17,10 @@ type System struct {
 	// contract_doc 指向真本。认领层据此把契约正本纳为 RoleContract（bloat 判，
 	// 陈旧不判——契约版本机制另有 human_ack）。空 = 未声明，合法。
 	ContractDoc string `yaml:"contract_doc,omitempty"`
+
+	// Envs 是该系统环境存在性的登记面（H3，档案 §38：环境是数据维度不是
+	// 拓扑分叉）。仅登记，不做配置分发（死法记录：配置中心复辟）。空 = 未登记。
+	Envs []string `yaml:"envs,omitempty"`
 }
 
 type SystemsFile struct {

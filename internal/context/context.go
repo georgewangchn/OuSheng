@@ -79,6 +79,7 @@ type WorkBrief struct {
 	Title         string         `json:"title" yaml:"title"`
 	Status        string         `json:"status" yaml:"status"`
 	System        string         `json:"system,omitempty" yaml:"system,omitempty"`
+	Env           string         `json:"env,omitempty" yaml:"env,omitempty"` // 部署目标环境（H3 §38；空=dev）
 	Priority      string         `json:"priority,omitempty" yaml:"priority,omitempty"`
 	DueOn         string         `json:"due_on,omitempty" yaml:"due_on,omitempty"`
 	ProgressValue float64        `json:"progress_reported,omitempty" yaml:"progress_reported,omitempty"`
@@ -99,7 +100,7 @@ type ContractBrief struct {
 // workBrief 是 WorkBrief 唯一构造点（曾因多点复制漏字段，见四路验证规则）。
 // Design 出处也在此单点接入（v0.4：新信号只改一处）。
 func (s *Service) workBrief(w model.WorkItem) WorkBrief {
-	b := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System, Priority: w.Priority, DueOn: w.DueOn}
+	b := WorkBrief{ID: w.ID, Title: w.Title, Status: string(w.Status), System: w.System, Env: w.Env, Priority: w.Priority, DueOn: w.DueOn}
 	if w.Progress != nil {
 		b.ProgressValue = w.Progress.Value
 	}
