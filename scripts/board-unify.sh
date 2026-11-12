@@ -68,4 +68,4 @@ for reg in actors systems.yaml roles.yaml assignments.yaml; do
     cp "$MERGE/.ousheng/$reg" "$BASE/.ousheng/$reg"; echo "  整体迁入: $reg"
   fi
 done
-echo "== 完成。后续（人工）：①cd $BASE && converge 零 BLOCKER 验证 ②git add -A && git commit -m 'board: unify merge ($ENVTAG side)' ③合入板仓降级归档（不再写）"
+echo "== 完成。后续（人工）：①cd $BASE && converge 零 BLOCKER 验证 ②git add -A && git commit -m 'board: unify merge ($ENVTAG side)' ③force push 换干：git push -f <gitee> main（先在 gitee 侧把旧 main 打 board/local-archive 分支）④合入板仓降级归档（不再写）"

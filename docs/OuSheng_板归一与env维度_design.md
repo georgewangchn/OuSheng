@@ -16,8 +16,10 @@ pm 拍板：**ousheng 终局产品形态 = 一个看板**。不做两个板。�
 2. **环境由字段定**（H3，`docs/OuSheng_上下文交接与凭据环境方案.md` §H3）：
    env 是数据维度不是拓扑分叉；两板并存时 env 恒为常量 = H3 白建——
    归一是 H3 兑现的前提。
-3. **备份由仓库定**：`kanban-aliyun` 仓 = A 机板镜像备份，不是第二块板，
-   归一完成后降级为归档或删除。
+3. **归一落点 = gitee kanban main 换干**（2026-11-12 pm 撤备份仓提议后终定）：
+   不建 kanban-aliyun——归一动作本身即全量上云，单独镜像仓=冗余。A 机板
+   （2810 commits 主体）force push 换干 main；本地旧 main 打 `board/local-archive`
+   分支保历史；A 机本机 bare 降级归档。
 4. **归一顺序**：先归一、env 字段随迁打标（`env=aliyun` / `env=local`）——
    字段从第一天就有区分度。
 
@@ -35,17 +37,17 @@ pm 拍板：**ousheng 终局产品形态 = 一个看板**。不做两个板。�
 
 ## 4. 归一迁移 runbook（一次性工程，动土即执行）
 
-前提：gitee 私仓 `kanban-aliyun` 已建（pm），A 机板已推备份。
+前提：gitee kanban main 换干前安全位就绪（本地旧 main → `board/local-archive` 分支）。
 
 1. **盘点**：双侧 work ID 全集 diff → 撞号清单（已知 ≥ T-099/100/101）。
 2. **基准**：A 机侧为基准（2810 commits 主体、生产侧）。本地侧 68 commits
-   中撞号卡重编号（新 ID 段，如 T-9xx 或时间戳段），非撞号卡原 ID 合入。
+   中撞号卡重编号（新 ID 段），非撞号卡原 ID 合入。
 3. **机械迁移**：脚本重映射 ID + `env=aliyun`/`env=local` 打标 + actors/systems
    同名合并（pm/pm-dev 保双座位=机器×身份，合法）。
 4. **历史**：不做 git merge（同路径双侧改）；本地侧以新 commit 重放（卡的现状
-   快照 + 迁移说明），原历史留 `kanban` 仓 main 可考。
-5. **A 机 re-join**：origin 指回中心仓（gitee kanban-aliyun → 后或正名），
-   `ousheng sync` 验证；四座位座位配置不动（.opencode/ousheng.json 本地）。
+   快照 + 迁移说明），原历史留 `board/local-archive` 分支可考。
+5. **换干**：A 机板 force push 覆盖 gitee main；A 机 origin 改指 gitee，
+   `ousheng sync` 验证；Mac 端 clone 重置。四座位座位配置不动（本地文件）。
 6. **验证**：`converge` 零 BLOCKER + `cruise report` 双 env 可过滤 + 抽样卡
    evidence locator 仍可解析。
 
