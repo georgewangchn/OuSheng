@@ -592,6 +592,17 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 			waits = append(waits, "[拍板] "+d.Topic)
 		}
 	}
+	// Q(pm) 攒批计数（§37 复盘 #6，2026-11-13）：卡面 evidence 里 Q(pm) 条目
+	// 是 pm 的真回复通道（会话里回 OK 走错通道）——晨报显积压量。
+	qIDs := []string{}
+	for _, w := range snap.WorkItems {
+		for _, ev := range w.Evidence {
+			if strings.Contains(ev.Note, "Q(pm)") || strings.Contains(ev.Note, "Q（pm）") {
+				qIDs = append(qIDs, w.ID)
+				break
+			}
+		}
+	}
 	for _, w := range snap.WorkItems {
 		if !model.WorkItemOpen(w.Status) {
 			continue
@@ -628,6 +639,7 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 		}
 		printJSON(stdout, map[string]any{
 			"window_hours": *hours, "seats": sj, "items": ij, "waiting": waits,
+			"q_pm_backlog": len(qIDs),
 		})
 		return 0
 	}
@@ -666,6 +678,15 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 		for _, it := range items {
 			fmt.Fprintf(stdout, "| %s | %s | %s |\n", it.ID, it.Status, it.Title)
 		}
+	}
+	if len(qIDs) > 0 {
+		fmt.Fprintf(stdout, "\n## Q(pm) 攒批（卡面 Q(pm) evidence——web 驾驶舱/板上批量回，勿在会话里回 OK）\n")
+		shown := qIDs
+		if len(shown) > 8 {
+			shown = shown[:8]
+		}
+		fmt.Fprintf(stdout, "- 积压 %d 张：%s%s\n", len(qIDs), strings.Join(shown, " "),
+			map[bool]string{true: " …", false: ""}[len(qIDs) > 8])
 	}
 	if len(waits) > 0 {
 		fmt.Fprintf(stdout, "\n## 待你处理\n")

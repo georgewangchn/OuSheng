@@ -16,6 +16,10 @@ OUSHENG=${OUSHENG_BIN:-ousheng}; OC=${OC_BIN:-opencode}
 EXTRA=${CRUISE_EXTRA:-}
 OC_ARGS=${OC_ARGS:-}
 run=0; idle=0; planfail=0
+
+# 启动横幅（§37 复盘 #1，2026-11-13）：pm 重排曾绕过 systemd（nohup 形态）导致
+# 驱动形态不可辨识、attach 不可观测——横幅进 journal/nohup.out，任何启动形态可验。
+echo "[cruise] === driver 启动 | seat=$ACTOR/$SYSTEM | ws=$WS | repo=$REPO | win=$WIN | 轮顶=$MAXR 间隔=$WAIT | pid=$$ | $($OUSHENG version 2>/dev/null | head -1) ==="
 # /tmp 隔离（评审 🔴 修复）：同机多座位并行时共享 /tmp 会互读他座位的
 # round 输出——NEWSID 错配 = 把 B 的 session attach 到 A 的快照（静默）。
 # 命名 = 座位 + PID；跨轮日志按座位稳定（人工查 /tmp/cruise-loop.<actor>.err）。

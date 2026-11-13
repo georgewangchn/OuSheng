@@ -318,11 +318,22 @@ func TestCruiseReport(t *testing.T) {
 	mustRun(t, dir, "work", "create", "--id", "BUG-012", "--type", "bug",
 		"--title", strings.Repeat("汉字截断验证", 12), "--system", "lake",
 		"--detected-by", "data", "--description", "d", "--actor", "data")
+	// Q(pm) 攒批计数（§37 复盘 #6）：卡面 Q(pm) evidence 是 pm 真回复通道。
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x",
+		"--note", "【Q(pm) 攒批】①测试问题一②测试问题二", "--actor", "data")
+	out := mustRun(t, dir, "cruise", "report", "--hours", "24")
+	if !strings.Contains(out, "Q(pm) 攒批") || !strings.Contains(out, "T-001") {
+		t.Fatalf("report 应显 Q(pm) 积压:\n%s", out)
+	}
+	js := mustRun(t, dir, "cruise", "report", "--hours", "24", "--json")
+	if !strings.Contains(js, `"q_pm_backlog": 1`) {
+		t.Fatalf("report json 应含 q_pm_backlog:\n%s", js)
+	}
 	// Y2：BUG-123（3 位编号）必须进清单。
 	mustRun(t, dir, "bug", "report", "--id", "BUG-123", "--title", "三位编号", "--system", "lake", "--detected-by", "data")
 	mustRun(t, dir, "team", "add", "testbot", "--type", "agent", "--responsible-human", "pm", "--role", "tester", "--system", "lake")
 	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x", "--note", "tester 也有活动", "--actor", "testbot")
-	out := mustRun(t, dir, "cruise", "report", "--hours", "24")
+	out = mustRun(t, dir, "cruise", "report", "--hours", "24")
 	for _, want := range []string{"巡航简报", "每座位战果", "data", "待你处理", "BUG-012", "BUG-123"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("report missing %q:\n%s", want, out)
@@ -337,7 +348,7 @@ func TestCruiseReport(t *testing.T) {
 		t.Fatalf("座位行序必须按 actor 排序:\n%s", out)
 	}
 	// JSON 面（cron/web 消费）。
-	js := mustRun(t, dir, "cruise", "report", "--hours", "24", "--json")
+	js = mustRun(t, dir, "cruise", "report", "--hours", "24", "--json")
 	for _, want := range []string{`"seats"`, `"items"`, `"waiting"`} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("report json missing %q:\n%s", want, js)
