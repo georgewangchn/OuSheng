@@ -164,9 +164,14 @@ $PLAN" ) > "$ROUNDOUT" 2>>"$LOOPERR" || echo "[cruise] opencode 非零退出，�
   [ -n "$NEWSID" ] && "$OUSHENG" handover attach --dir "$WS" --system "$SYSTEM" --actor "$ACTOR" --session "$NEWSID" 2>/dev/null || true
   release_slot
 
-  # §42 修④：维持轮退避落点——轮后加睡（plan 零变化=维持空转）。
+  # §47（2026-11-14 flash 连轴实锤）：轮后基线睡眠——有活轮结束必睡 WAIT 秒。
+  # v2/v3 canonical 一直缺这段（有活时 plan --wait 不生效，轮间零间隔），glm 慢轮
+  # 靠轮自身时长掩盖；flash 快速轮暴露为连轴自旋/空转（BUG-173 座位补丁 vs
+  # adapter install 覆盖的拉锯实锤）。维持轮退避（GAP_EXTRA）时睡更长代替之。
   if [ "$GAP_EXTRA" -gt 0 ]; then
     echo "[cruise] 退避加睡 ${GAP_EXTRA}s（维持轮 #${SAME}）"
     sleep "$GAP_EXTRA"
+  else
+    sleep "$WAIT"
   fi
 done

@@ -162,7 +162,7 @@ func TestCruiseLoopSyntax(t *testing.T) {
 	for _, want := range []string{"code-repo", "轮顶", "时窗", "idle", "cruise plan",
 		"--wait", "attach", "-s $SESS", "handover attach", "plan 失败(", "$SYSTEM",
 		"--title", "--format json", "driver 启动", "acquire_slot", "release_slot",
-		"CONCURRENCY_MAX", "flock", "截止", "deadline_passed"} {
+		"CONCURRENCY_MAX", "flock", "截止", "deadline_passed", `sleep "$WAIT"`} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("cruise-loop.sh 缺护栏 %q", want)
 		}
