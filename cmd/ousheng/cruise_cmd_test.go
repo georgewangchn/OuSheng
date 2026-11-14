@@ -542,6 +542,32 @@ func TestWorkAssignEnvGate(t *testing.T) {
 	}
 }
 
+// TestCruisePlanReadyResume（§46，11-14 空转事件）：assignee=me 的 ready 卡必须
+// 进恢复节——否则「已指派未开工」在 plan 里隐身，座位空转记账（18 张有主 ready
+// 卡隐身处实锤）。
+func TestCruisePlanReadyResume(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir) // T-001 doing@data
+	mustRun(t, dir, "work", "create", "--id", "R-1", "--type", "task", "--title", "指派未开工",
+		"--system", "lake", "--description", "d", "--actor", "pm")
+	mustRun(t, dir, "work", "update", "R-1", "--status", "ready", "--actor", "pm")
+	mustRun(t, dir, "work", "assign", "R-1", "--assignee", "data", "--role", "dev", "--actor", "pm")
+
+	out := mustRun(t, dir, "cruise", "plan", "--actor", "data")
+	if !strings.Contains(out, "R-1") || !strings.Contains(out, "已指派未开工") {
+		t.Fatalf("ready@me 必须进恢复节并标注未开工:\n%s", out)
+	}
+	// 他人名下的 ready 不进我的恢复（归属不变）
+	mustRun(t, dir, "work", "create", "--id", "R-2", "--type", "task", "--title", "别人的活",
+		"--system", "lake", "--description", "d", "--actor", "pm")
+	mustRun(t, dir, "work", "update", "R-2", "--status", "ready", "--actor", "pm")
+	mustRun(t, dir, "work", "assign", "R-2", "--assignee", "pm", "--role", "dev", "--actor", "pm")
+	out2 := mustRun(t, dir, "cruise", "plan", "--actor", "data")
+	if strings.Contains(out2, "R-2") {
+		t.Fatalf("他人 ready 不得进我的恢复节:\n%s", out2)
+	}
+}
+
 // TestCruiseHeartbeat（P2）：心跳投影+告警线。
 func TestCruiseHeartbeat(t *testing.T) {
 	dir := cruiseFixture(t)

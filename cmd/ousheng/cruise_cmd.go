@@ -199,8 +199,15 @@ func buildPlan(dir, actor string) (*planData, error) {
 		if !envOK(w.Env) {
 			continue
 		}
-		if w.Status == string(model.StatusDoing) || w.Status == string(model.StatusTesting) {
+		// §46（2026-11-14 实栈实锤）：恢复节须含「我名下的 ready 未开工」——
+		// 11-14 空转事件：18 张 ready 有主卡在 plan 里完全隐身（恢复只收
+		// doing/testing、领活只收无主 ready），座位以为没事干、记账空转 9h。
+		// 此前「ready 有主=过渡瞬态」的假设被证伪：指派后未开工是常态。
+		switch w.Status {
+		case string(model.StatusDoing), string(model.StatusTesting):
 			resume = append(resume, planItem{ID: w.ID, Title: w.Title, Note: "上轮 handover 指针续跑（ousheng handover show）"})
+		case string(model.StatusReady):
+			resume = append(resume, planItem{ID: w.ID, Title: w.Title, Note: "已指派未开工——直接开工（work update " + w.ID + " --status doing）"})
 		}
 	}
 	for _, w := range mc.ActiveWork {
