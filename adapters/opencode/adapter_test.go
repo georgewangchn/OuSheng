@@ -156,12 +156,13 @@ func TestCruiseLoopSyntax(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cruise-loop.sh 语法错误：%v\n%s", err, out)
 	}
-	// 关键护栏在位：代码仓参数硬门 + 三闸 + opencode 参数面契约
+	// 关键护栏在位：代码仓参数硬门 + 三闸 + opencode 参数面契约 + v5 并回项
 	// （首夜自旋事故：--prompt flag 不存在 = usage dump 秒退 = 20 轮烧完）。
 	s := string(CruiseLoopSh)
 	for _, want := range []string{"code-repo", "轮顶", "时窗", "idle", "cruise plan",
 		"--wait", "attach", "-s $SESS", "handover attach", "plan 失败(", "$SYSTEM",
-		"--title", "--format json", "driver 启动", "acquire_slot", "release_slot", "CONCURRENCY_MAX"} {
+		"--title", "--format json", "driver 启动", "acquire_slot", "release_slot",
+		"CONCURRENCY_MAX", "flock", "截止", "deadline_passed"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("cruise-loop.sh 缺护栏 %q", want)
 		}
@@ -224,6 +225,20 @@ func TestPluginSessionAttach(t *testing.T) {
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("plugin.ts 缺代际 attach 护栏 %q", want)
+		}
+	}
+}
+
+// TestAgentsMDProtocolGuards：协议段护栏——引用核实纪律（§46 05:30 误传教训）。
+func TestAgentsMDProtocolGuards(t *testing.T) {
+	b, err := os.ReadFile("agents.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, want := range []string{"引用核实", "work show", "转述不是权威"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("agents.md 缺协议护栏 %q", want)
 		}
 	}
 }
