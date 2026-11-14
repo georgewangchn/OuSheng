@@ -329,6 +329,13 @@ func TestCruiseReport(t *testing.T) {
 	if !strings.Contains(js, `"q_pm_backlog": 1`) {
 		t.Fatalf("report json 应含 q_pm_backlog:\n%s", js)
 	}
+	// §44 自动清理：pm 代答后不再计入
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x",
+		"--note", "【pm 代答】Q(pm) 已关闭：已按建议处置", "--actor", "pm")
+	out = mustRun(t, dir, "cruise", "report", "--hours", "24")
+	if strings.Contains(out, "Q(pm) 攒批") {
+		t.Fatalf("代答后不应再出现在积压:\n%s", out)
+	}
 	// Y2：BUG-123（3 位编号）必须进清单。
 	mustRun(t, dir, "bug", "report", "--id", "BUG-123", "--title", "三位编号", "--system", "lake", "--detected-by", "data")
 	mustRun(t, dir, "team", "add", "testbot", "--type", "agent", "--responsible-human", "pm", "--role", "tester", "--system", "lake")

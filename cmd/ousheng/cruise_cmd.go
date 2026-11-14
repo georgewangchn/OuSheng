@@ -628,13 +628,24 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 	}
 	// Q(pm) 攒批计数（§37 复盘 #6，2026-11-13）：卡面 evidence 里 Q(pm) 条目
 	// 是 pm 的真回复通道（会话里回 OK 走错通道）——晨报显积压量。
+	// §44 自动清理规则（2026-11-14）：①卡已 done/cancelled → Q 随卡失效不计；
+	// ②已落「pm 代答」标记的卡不计——积压数只反映真正等 pm 决策的量。
 	qIDs := []string{}
 	for _, w := range snap.WorkItems {
+		if !model.WorkItemOpen(w.Status) {
+			continue
+		}
+		hasQ, answered := false, false
 		for _, ev := range w.Evidence {
 			if strings.Contains(ev.Note, "Q(pm)") || strings.Contains(ev.Note, "Q（pm）") {
-				qIDs = append(qIDs, w.ID)
-				break
+				hasQ = true
 			}
+			if strings.Contains(ev.Note, "【pm 代答】") || strings.Contains(ev.Note, "Q(pm) 已关闭") {
+				answered = true
+			}
+		}
+		if hasQ && !answered {
+			qIDs = append(qIDs, w.ID)
 		}
 	}
 	for _, w := range snap.WorkItems {
