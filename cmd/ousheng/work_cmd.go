@@ -342,6 +342,29 @@ func workAssign(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	svc := workService(fs.Dir())
+	// §42 写面环境门：座位环境域（assignee 后缀 -local）×卡 env 不匹配拒领——
+	// plan 门（读面）+本门（写面）双门，缺一即绕（11-14 事故 T-190/192 形态）。
+	// 门逼 env 正确性：真要跨域先改卡 env（pm 权），不是死锁。
+	card, cerr := gityaml.Open(fs.Dir()).GetWorkItem(fs.Arg(0))
+	if cerr != nil {
+		fmt.Fprintln(stderr, cerr)
+		return 1
+	}
+	cardEnv := card.Env
+	if cardEnv == "" {
+		cardEnv = "dev"
+	}
+	seatEnv := strings.TrimSpace(os.Getenv("OUSHENG_ENV"))
+	if seatEnv == "" {
+		seatEnv = "dev"
+		if strings.HasSuffix(*assignee, "-local") {
+			seatEnv = "local"
+		}
+	}
+	if cardEnv != seatEnv {
+		fmt.Fprintf(stderr, "环境不匹配：卡 %s 属 %s 域，座位 %s 属 %s 域——跨环境领活被拒（§42 写面门）。真要跨域：pm 先 work update %s --env <对的环境>\n", fs.Arg(0), cardEnv, *assignee, seatEnv, fs.Arg(0))
+		return 2
+	}
 	updated, err := updateWithAutoExpect(svc, fs.Arg(0), *expect, func(cur model.WorkItem) model.WorkItem {
 		cur.Assignee = *assignee
 		if *role != "" {

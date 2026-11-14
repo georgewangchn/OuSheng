@@ -505,6 +505,36 @@ func TestCruisePlanEnvGate(t *testing.T) {
 	}
 }
 
+// TestWorkAssignEnvGate（§42 修①写面）：assign 拒跨环境领活——plan 门挡计划节，
+// 写面门挡手动领活（读面+写面双门，缺一即绕）。
+func TestWorkAssignEnvGate(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	mustRun(t, dir, "work", "create", "--id", "E-010", "--type", "task", "--title", "local活",
+		"--system", "lake", "--env", "local", "--description", "d", "--actor", "pm")
+	mustRun(t, dir, "work", "update", "E-010", "--status", "ready", "--actor", "pm")
+	// dev 座位领 local 卡 → 拒
+	so, se, code := runIn(t, dir, "work", "assign", "E-010", "--assignee", "data", "--role", "dev", "--actor", "data")
+	if code == 0 {
+		t.Fatalf("dev 座位领 local 卡必须拒（写面环境门）:\n%s", so)
+	}
+	if !strings.Contains(se, "环境") {
+		t.Fatalf("报错须指明环境不匹配: %s", se)
+	}
+	// local 座位领 local 卡 → 通
+	mustRun(t, dir, "team", "add", "data-local", "--type", "agent", "--responsible-human", "pm", "--role", "dev", "--system", "lake")
+	mustRun(t, dir, "work", "assign", "E-010", "--assignee", "data-local", "--role", "dev", "--actor", "data-local")
+	// 门逼 env 正确性：pm 先把另一张卡 env 归位 → dev 即可领（非死锁）
+	mustRun(t, dir, "work", "create", "--id", "E-011", "--type", "task", "--title", "改域卡",
+		"--system", "lake", "--env", "local", "--description", "d", "--actor", "pm")
+	mustRun(t, dir, "work", "update", "E-011", "--status", "ready", "--actor", "pm")
+	mustRun(t, dir, "work", "update", "E-011", "--env", "-", "--actor", "pm")
+	so2, _, code2 := runIn(t, dir, "work", "assign", "E-011", "--assignee", "data", "--role", "dev", "--actor", "data")
+	if code2 != 0 {
+		t.Fatalf("env 归位后 dev 应可领:\n%s", so2)
+	}
+}
+
 // TestCruiseHeartbeat（P2）：心跳投影+告警线。
 func TestCruiseHeartbeat(t *testing.T) {
 	dir := cruiseFixture(t)

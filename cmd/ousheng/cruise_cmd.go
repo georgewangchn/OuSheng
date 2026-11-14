@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -76,9 +77,11 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 	// §42 三修②：分叉门——板仓与远端两源分叉时拒派活。11-14 事故机制：pm 侧
 	// 积压 40 提交期间座位按旧态继续领活 → merge「取终态」拍平 5 卡（done 拍回
 	// ready）。门在派活入口：分叉即断，积压不可能滚大。
-	if ahead, behind, dv := boardDiverged(fs.Dir()); dv {
+	if ahead, behind, dv, derr := boardDiverged(fs.Dir()); dv {
 		fmt.Fprintf(stderr, "板仓与远端分叉（本地超前 %d / 落后 %d）——先 ousheng sync 收口（diverged 人拍板逐卡决，禁批量 merge 拍平，§16/§42）再巡航\n", ahead, behind)
 		return 1
+	} else if derr != nil {
+		fmt.Fprintf(stderr, "[warn] 分叉门降级：%v\n", derr)
 	}
 	a := *actor
 	if a == "" {
@@ -174,9 +177,15 @@ func buildPlan(dir, actor string) (*planData, error) {
 	idx := svcCtx.Idx
 	var resume, claim, react []planItem
 
-	seatEnv := "dev"
-	if strings.HasSuffix(actor, "-local") {
-		seatEnv = "local"
+	// §42 修①：环境门——座位环境域来源优先级：OUSHENG_ENV 机器环境变量（权威，
+	// 每机固定）> actor 后缀 -local（兼容约定）。卡 env（空=dev 缺省）不匹配的
+	// 卡不进本座位任何计划节（resume/claim/awaiting_test/react 全覆盖）。
+	seatEnv := strings.TrimSpace(os.Getenv("OUSHENG_ENV"))
+	if seatEnv == "" {
+		seatEnv = "dev"
+		if strings.HasSuffix(actor, "-local") {
+			seatEnv = "local"
+		}
 	}
 	envOK := func(env string) bool {
 		e := env
@@ -212,7 +221,7 @@ func buildPlan(dir, actor string) (*planData, error) {
 	}
 	if all, err := idx.All(); err == nil {
 		for _, w := range all {
-			if !model.WorkItemOpen(w.Status) {
+			if !model.WorkItemOpen(w.Status) || !envOK(w.Env) {
 				continue
 			}
 			for _, dep := range w.DependsOn {

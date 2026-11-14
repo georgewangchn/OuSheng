@@ -959,6 +959,37 @@ func TestConvergeEnvNotRegistered(t *testing.T) {
 	}
 }
 
+// TestConvergeDeploymentVersionAudit（§42 补，版本轴门）：deployment evidence
+// 必须提 target_version——v20261113-1/4/5 混引事故的机器层兜底。
+func TestConvergeDeploymentVersionAudit(t *testing.T) {
+	items := []model.WorkItem{
+		{SchemaVersion: 2, ID: "D-1", Type: model.TypeDeployment, Title: "部署未标版本",
+			Status: model.StatusDone, Revision: 1, Assignee: "a1", System: "s",
+			TargetVersion: "v20261113-5",
+			Evidence: []model.Evidence{{Type: "deployment", Source: "a1", Locator: "k8s apply", Note: "滚动完成"}}},
+		{SchemaVersion: 2, ID: "D-2", Type: model.TypeDeployment, Title: "部署标了版本",
+			Status: model.StatusDone, Revision: 1, Assignee: "a1", System: "s",
+			TargetVersion: "v20261113-5",
+			Evidence: []model.Evidence{{Type: "deployment", Source: "a1", Locator: "image=v20261113-5", Note: "滚动完成"}}},
+	}
+	r, err := Check(idxFrom(t, items), Knowledge{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "D-1") && strings.Contains(w, "target_version") {
+			found = true
+		}
+		if strings.Contains(w, "D-2") {
+			t.Fatalf("标了版本的证据不得告警: %v", w)
+		}
+	}
+	if !found {
+		t.Fatalf("expected deployment version warning for D-1, got: %v", r.Warnings)
+	}
+}
+
 func TestBlockedWithoutDependencyWarns(t *testing.T) {
 	items := []model.WorkItem{
 		{SchemaVersion: 2, ID: "B-1", Type: model.TypeTask, Title: "blocked no dep",

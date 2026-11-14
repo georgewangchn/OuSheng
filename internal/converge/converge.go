@@ -105,6 +105,22 @@ func Check(idx index.Index, kn Knowledge) (Result, error) {
 				warnings = append(warnings, fmt.Sprintf("%s: env %q not in system %s envs（拼错或漏登记——work list --env 会漏单）", w.ID, w.Env, w.System))
 			}
 		}
+		// 部署证据版本轴门（§42 补，2026-11-14）：deployment/release 类型的
+		// evidence 必须可归属到版本（note/locator 含 target_version 或 env 字样），
+		// 且卡有 target_version 时证据须提及其值——v20261113-1/4/5 混引事故的
+		// 机器层兜底（env var 声明 + 此处交叉校验，缺一即「无法审计这次部署到哪」）。
+		if w.Type == model.TypeDeployment || w.Type == model.TypeRelease {
+			for _, ev := range w.Evidence {
+				if ev.Type != "deployment" && ev.Type != "release" {
+					continue
+				}
+				body := ev.Locator + " " + ev.Note
+				if w.TargetVersion != "" && !strings.Contains(body, w.TargetVersion) {
+					warnings = append(warnings, fmt.Sprintf("%s: deployment evidence 未提 target_version %q（部署版本不可审计）", w.ID, w.TargetVersion))
+					break
+				}
+			}
+		}
 
 		// 显式 blocked
 		if w.Status == model.StatusBlocked {

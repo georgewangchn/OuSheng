@@ -15,7 +15,7 @@ WS=$1; ACTOR=$2; SYSTEM=$3; REPO=$4; MAXR=${5:-20}; WAIT=${6:-600}; WIN=${7:-22:
 OUSHENG=${OUSHENG_BIN:-ousheng}; OC=${OC_BIN:-opencode}
 EXTRA=${CRUISE_EXTRA:-}
 OC_ARGS=${OC_ARGS:-}
-run=0; idle=0; planfail=0
+run=0; idle=0; planfail=0; SAME=0; GAP_EXTRA=0
 
 # §42 三修③：并发上限（BUG-132 定案机制化）——跨座位 mkdir 原子信号量。
 # CONCURRENCY_MAX（默认 2）：同机同时跑 opencode 轮的座位数上限；轮前取槽轮后释放，
@@ -86,6 +86,24 @@ while :; do
 
   PLAN=$(getplan) || { echo "[cruise] plan 连败 3 次，停（systemd 会拉起；手动模式人工查 ${LOOPERR}）"; break; }
 
+  # §42 修④：维持轮退避（§37 遗留判据激活——lhcp 纯记账轮 48% 触线三夜）。
+  # plan 文本与上轮逐字相同 = 没新活没新反应 = 维持空转——GAP 指数拉长（封顶 2h），
+  # 有变化即复位。治「每 10 分钟全量轮做同一件零 delta 事」。
+  PH="/tmp/cruise-planhash.$TAG"
+  PH_NOW=$(printf '%s' "$PLAN" | cksum | cut -d' ' -f1)
+  PH_OLD=$(cat "$PH" 2>/dev/null || echo "")
+  if [ -n "$PH_OLD" ] && [ "$PH_NOW" = "$PH_OLD" ]; then
+    SAME=$((SAME+1))
+    if [ "$SAME" -ge 2 ]; then
+      GAP_EXTRA=$((GAP * (1 << (SAME-2))))
+      [ "$GAP_EXTRA" -gt 7200 ] && GAP_EXTRA=7200
+      echo "[cruise] 维持轮退避 #${SAME}：plan 与前轮同 → 本轮后加睡 ${GAP_EXTRA}s"
+    fi
+  else
+    SAME=0; GAP_EXTRA=0
+  fi
+  printf '%s' "$PH_NOW" > "$PH"
+
   if echo "$PLAN" | grep -q "cruise: idle"; then
     idle=$((idle+1))
     W=$(idle_wait)
@@ -128,4 +146,10 @@ $PLAN" ) > "$ROUNDOUT" 2>>"$LOOPERR" || echo "[cruise] opencode 非零退出，�
   NEWSID=$(grep -oE '"sessionID":"[^"]+"' "$ROUNDOUT" | head -1 | cut -d'"' -f4)
   [ -n "$NEWSID" ] && "$OUSHENG" handover attach --dir "$WS" --system "$SYSTEM" --actor "$ACTOR" --session "$NEWSID" 2>/dev/null || true
   release_slot
+
+  # §42 修④：维持轮退避落点——轮后加睡（plan 零变化=维持空转）。
+  if [ "$GAP_EXTRA" -gt 0 ]; then
+    echo "[cruise] 退避加睡 ${GAP_EXTRA}s（维持轮 #${SAME}）"
+    sleep "$GAP_EXTRA"
+  fi
 done

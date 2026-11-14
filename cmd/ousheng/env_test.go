@@ -28,13 +28,15 @@ func TestSystemsEnvsRegistry(t *testing.T) {
 
 func TestWorkEnvFields(t *testing.T) {
 	dir := setupEnvBoard(t)
-	// 创建带 env 的活（deployment 型最典型）
+	// 创建带 env 的活（deployment 型最典型）——§42 写面门：先建 dev 域卡走领活，
+	// 领定后 env 随部署目标改（门逼 env 正确性，非阻断部署语义）。
 	mustRun(t, dir, "work", "create", "--id", "REL-001", "--type", "release",
-		"--title", "v4 滚动", "--system", "lake", "--version", "v4", "--env", "pro",
+		"--title", "v4 滚动", "--system", "lake", "--version", "v4",
 		"--description", "三节点滚动", "--actor", "data")
 	mustRun(t, dir, "work", "assign", "REL-001", "--assignee", "data", "--role", "dev", "--actor", "data")
 	mustRun(t, dir, "work", "update", "REL-001", "--status", "ready", "--actor", "data")
 	mustRun(t, dir, "work", "update", "REL-001", "--status", "doing", "--actor", "data")
+	mustRun(t, dir, "work", "update", "REL-001", "--env", "pro", "--actor", "data")
 
 	// ① work show：env 全量呈现
 	out := mustRun(t, dir, "work", "show", "REL-001")

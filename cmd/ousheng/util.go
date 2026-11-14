@@ -167,18 +167,24 @@ func gitAdapterEvidence(dir, commit string) (*model.Evidence, error) {
 // = 已知边界（本地文件系统是信任根），git 提交作者字段事后审计兜底。
 // boardDiverged：板仓与上游是否两源分叉（§42 三修②，11-14 事故机制）。
 // fetch 后比对 ahead/behind——双侧均有提交 = 分叉（单侧 behind 属常态由轮首 sync 拉齐）。
-// 无 remote / fetch 失败 = 单机形态，不分叉。
-func boardDiverged(dir string) (ahead, behind int, diverged bool) {
+// 无 remote = 单机形态不分叉。fetch 失败（网络抖动）→ error 非空：调用方 fail-open
+// 但必须大声——静默放行等于门失效（反事实：断网期积压继续滚）。
+func boardDiverged(dir string) (ahead, behind int, diverged bool, err error) {
 	fetch := exec.Command("git", "fetch", "-q", "origin")
 	fetch.Dir = dir
-	if fetch.Run() != nil {
-		return 0, 0, false
+	if out, ferr := fetch.CombinedOutput(); ferr != nil {
+		s := string(out) + ferr.Error()
+		if strings.Contains(s, "does not appear to be a git repository") ||
+			strings.Contains(s, "No such remote") || strings.Contains(s, "no remote") {
+			return 0, 0, false, nil // 无 remote：单机形态
+		}
+		return 0, 0, false, fmt.Errorf("fetch 失败（分叉门降级放行，积压风险）：%v", ferr)
 	}
 	branch := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	branch.Dir = dir
 	bOut, err := branch.Output()
 	if err != nil {
-		return 0, 0, false
+		return 0, 0, false, nil
 	}
 	up := strings.TrimSpace("origin/" + strings.TrimSpace(string(bOut)))
 	cnt := func(ranges ...string) int {
@@ -194,7 +200,7 @@ func boardDiverged(dir string) (ahead, behind int, diverged bool) {
 	}
 	ahead = cnt(up + "..HEAD")
 	behind = cnt("HEAD.." + up)
-	return ahead, behind, ahead > 0 && behind > 0
+	return ahead, behind, ahead > 0 && behind > 0, nil
 }
 
 func assertHumanIdentityLocal(dir, actor string) error {
