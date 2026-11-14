@@ -87,7 +87,7 @@ while :; do
   PLAN=$(getplan) || { echo "[cruise] plan 连败 3 次，停（systemd 会拉起；手动模式人工查 ${LOOPERR}）"; break; }
 
   # §42 修④：维持轮退避（§37 遗留判据激活——lhcp 纯记账轮 48% 触线三夜）。
-  # plan 文本与上轮逐字相同 = 没新活没新反应 = 维持空转——GAP 指数拉长（封顶 2h），
+  # plan 文本与上轮逐字相同 = 没新活没新反应 = 维持空转——间隔（WAIT）指数拉长（封顶 2h），
   # 有变化即复位。治「每 10 分钟全量轮做同一件零 delta 事」。
   PH="/tmp/cruise-planhash.$TAG"
   PH_NOW=$(printf '%s' "$PLAN" | cksum | cut -d' ' -f1)
@@ -95,7 +95,7 @@ while :; do
   if [ -n "$PH_OLD" ] && [ "$PH_NOW" = "$PH_OLD" ]; then
     SAME=$((SAME+1))
     if [ "$SAME" -ge 2 ]; then
-      GAP_EXTRA=$((GAP * (1 << (SAME-2))))
+      GAP_EXTRA=$((WAIT * (1 << (SAME-2))))
       [ "$GAP_EXTRA" -gt 7200 ] && GAP_EXTRA=7200
       echo "[cruise] 维持轮退避 #${SAME}：plan 与前轮同 → 本轮后加睡 ${GAP_EXTRA}s"
     fi

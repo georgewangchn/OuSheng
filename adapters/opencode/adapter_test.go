@@ -169,6 +169,13 @@ func TestCruiseLoopSyntax(t *testing.T) {
 	if strings.Contains(s, `--prompt "`) || strings.Contains(s, "--prompt \\") {
 		t.Fatal("cruise-loop.sh 不得用 --prompt 实参（opencode v2.2.5 无此 flag——首夜自旋事故根因；消息走位置参数）")
 	}
+	// 未定义变量护栏（2026-11-14 监控实锤：退避用了 GAP 而参数名是 WAIT——
+	// set -u 崩驱动、systemd 反复拉起；bash -n 抓不到 unbound）。
+	for _, bad := range []string{`$GAP `, `$GAP)`, `GAP *`, `$GAP"`} {
+		if strings.Contains(s, bad) {
+			t.Fatalf("cruise-loop.sh 引用未定义变量 GAP（参数名是 WAIT）：%q", bad)
+		}
+	}
 }
 
 // TestCruiseLoopInwinPython：inwin 的 python 段可编译锁（2026-11-12 A 机 systemd
