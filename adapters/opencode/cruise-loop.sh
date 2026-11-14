@@ -17,9 +17,30 @@ EXTRA=${CRUISE_EXTRA:-}
 OC_ARGS=${OC_ARGS:-}
 run=0; idle=0; planfail=0
 
+# §42 三修③：并发上限（BUG-132 定案机制化）——跨座位 mkdir 原子信号量。
+# CONCURRENCY_MAX（默认 2）：同机同时跑 opencode 轮的座位数上限；轮前取槽轮后释放，
+# 座位间可交错。槽含 owner pid：宿主死透则偷槽（防 -9 残留死锁）。
+MAXCON=${CONCURRENCY_MAX:-2}
+SEAT_SLOT=""
+acquire_slot() {
+  local i pid
+  while :; do
+    for i in $(seq 1 "$MAXCON"); do
+      if mkdir "/tmp/cruise-sem.$i" 2>/dev/null; then SEAT_SLOT=$i; echo $$ > "/tmp/cruise-sem.$i/pid"; return 0; fi
+      pid=$(cat "/tmp/cruise-sem.$i/pid" 2>/dev/null)
+      if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+        rm -rf "/tmp/cruise-sem.$i" 2>/dev/null  # 宿主已死——偷槽
+      fi
+    done
+    sleep 15
+  done
+}
+release_slot() { [ -n "$SEAT_SLOT" ] && rm -rf "/tmp/cruise-sem.$SEAT_SLOT" 2>/dev/null; SEAT_SLOT=""; }
+trap release_slot EXIT
+
 # 启动横幅（§37 复盘 #1，2026-11-13）：pm 重排曾绕过 systemd（nohup 形态）导致
 # 驱动形态不可辨识、attach 不可观测——横幅进 journal/nohup.out，任何启动形态可验。
-echo "[cruise] === driver 启动 | seat=$ACTOR/$SYSTEM | ws=$WS | repo=$REPO | win=$WIN | 轮顶=$MAXR 间隔=$WAIT | pid=$$ | $($OUSHENG version 2>/dev/null | head -1) ==="
+echo "[cruise] === driver 启动 | seat=$ACTOR/$SYSTEM | ws=$WS | repo=$REPO | win=$WIN | 轮顶=$MAXR 间隔=$WAIT | 并发上限=$MAXCON | pid=$$ | $($OUSHENG version 2>/dev/null | head -1) ==="
 # /tmp 隔离（评审 🔴 修复）：同机多座位并行时共享 /tmp 会互读他座位的
 # round 输出——NEWSID 错配 = 把 B 的 session attach 到 A 的快照（静默）。
 # 命名 = 座位 + PID；跨轮日志按座位稳定（人工查 /tmp/cruise-loop.<actor>.err）。
@@ -90,6 +111,9 @@ while :; do
   fi
   echo "[cruise] round $run → $OC ${SESS:+(续代 $SESS)}"
 
+  # 并发槽（§42 三修③）：opencode 轮是资源大头——取槽才跑，跑完即释。
+  acquire_slot
+
   # L0 轮头（2026-11-12 档案 §37）：round 号 + 活单 ID 进 --title 与 prompt 首行
   # ——session 列表直接可辨（A 机复盘：233 轮标题全同不可辨）。
   # 参数面契约（opencode v2.2.5 实测 2026-11-12 首夜自旋事故）：消息是位置参数，
@@ -103,4 +127,5 @@ $PLAN" ) > "$ROUNDOUT" 2>>"$LOOPERR" || echo "[cruise] opencode 非零退出，�
   # 驱动器补记本代 session id（正文是 agent 的事，指针是驱动器的事）
   NEWSID=$(grep -oE '"sessionID":"[^"]+"' "$ROUNDOUT" | head -1 | cut -d'"' -f4)
   [ -n "$NEWSID" ] && "$OUSHENG" handover attach --dir "$WS" --system "$SYSTEM" --actor "$ACTOR" --session "$NEWSID" 2>/dev/null || true
+  release_slot
 done

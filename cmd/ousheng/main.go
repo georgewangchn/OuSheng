@@ -21,7 +21,7 @@ import (
 	"ousheng/internal/state/gityaml"
 )
 
-const cliVersion = "0.3.4"
+const cliVersion = "0.3.5"
 
 // 构建元数据：车队部署时用 -ldflags 注入（-X main.buildCommit=... -X main.buildDate=...），
 // 验收「这台机器跑的是哪个提交」；不带 ldflags 的本地 go build 显示 dev。

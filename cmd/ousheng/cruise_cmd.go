@@ -73,6 +73,13 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 	if code := rejectExtra(fs, stderr); code != 0 {
 		return code
 	}
+	// §42 三修②：分叉门——板仓与远端两源分叉时拒派活。11-14 事故机制：pm 侧
+	// 积压 40 提交期间座位按旧态继续领活 → merge「取终态」拍平 5 卡（done 拍回
+	// ready）。门在派活入口：分叉即断，积压不可能滚大。
+	if ahead, behind, dv := boardDiverged(fs.Dir()); dv {
+		fmt.Fprintf(stderr, "板仓与远端分叉（本地超前 %d / 落后 %d）——先 ousheng sync 收口（diverged 人拍板逐卡决，禁批量 merge 拍平，§16/§42）再巡航\n", ahead, behind)
+		return 1
+	}
 	a := *actor
 	if a == "" {
 		a = defaultActor(fs.Dir())
@@ -167,7 +174,22 @@ func buildPlan(dir, actor string) (*planData, error) {
 	idx := svcCtx.Idx
 	var resume, claim, react []planItem
 
+	seatEnv := "dev"
+	if strings.HasSuffix(actor, "-local") {
+		seatEnv = "local"
+	}
+	envOK := func(env string) bool {
+		e := env
+		if e == "" {
+			e = "dev"
+		}
+		return e == seatEnv
+	}
+
 	for _, w := range mc.ActiveWork {
+		if !envOK(w.Env) {
+			continue
+		}
 		if w.Status == string(model.StatusDoing) || w.Status == string(model.StatusTesting) {
 			resume = append(resume, planItem{ID: w.ID, Title: w.Title, Note: "上轮 handover 指针续跑（ousheng handover show）"})
 		}
@@ -183,6 +205,9 @@ func buildPlan(dir, actor string) (*planData, error) {
 		react = append(react, planItem{ID: w.ID, Title: w.Title, Note: note})
 	}
 	for _, w := range mc.AwaitingTest {
+		if !envOK(w.Env) {
+			continue
+		}
 		react = append(react, planItem{ID: w.ID, Title: w.Title, Note: "待测池（testing 态，dev 未移交）——work show 判断后接手"})
 	}
 	if all, err := idx.All(); err == nil {
@@ -233,7 +258,7 @@ func buildPlan(dir, actor string) (*planData, error) {
 	}
 	if all, err := idx.All(); err == nil {
 		for _, w := range all {
-			if w.Status != model.StatusReady || w.Assignee != "" || !mySystems[w.System] {
+			if w.Status != model.StatusReady || w.Assignee != "" || !mySystems[w.System] || !envOK(w.Env) {
 				continue
 			}
 			claim = append(claim, planItem{ID: w.ID, Title: w.Title, Note: "work assign 自领（CAS）"})

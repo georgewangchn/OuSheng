@@ -446,6 +446,65 @@ func TestWebCruiseHandoverSection(t *testing.T) {
 	}
 }
 
+// TestCruisePlanDivergedGate（§42 三修②）：板仓与远端分叉（两源并发写入）时
+// plan 必须拒绝派活——11-14 事故机制：pm 侧积压 40 提交期间座位继续按旧态领活，
+// 终致 merge「取终态」拍平 5 卡（done 拍回 ready）。门在派活入口，积压即断。
+func TestCruisePlanDivergedGate(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	bare := filepath.Join(t.TempDir(), "central.git")
+	gitRun(t, dir, "init", "--bare", bare)
+	gitRun(t, dir, "remote", "add", "origin", bare)
+	gitRun(t, dir, "push", "-q", "-u", "origin", "main")
+	clone := filepath.Join(t.TempDir(), "c2")
+	gitRun(t, t.TempDir(), "clone", "-q", bare, clone)
+	// 双侧各写 → clone 分叉
+	mustRun(t, dir, "todo", "A侧单", "--system", "lake", "--actor", "pm")
+	gitRun(t, dir, "push", "-q")
+	gitRun(t, clone, "commit", "-q", "--allow-empty", "-m", "clone侧提交")
+	so, se, code := runIn(t, clone, "cruise", "plan", "--actor", "data")
+	if code == 0 {
+		t.Fatalf("分叉板仓 plan 必须拒派活:\n%s%s", so, se)
+	}
+	if !strings.Contains(se, "分叉") || !strings.Contains(se, "sync") {
+		t.Fatalf("报错须指引 sync 收口: %s", se)
+	}
+	// 收口后恢复派活
+	gitRun(t, clone, "reset", "-q", "--hard", "origin/main")
+	so2, _, code2 := runIn(t, clone, "cruise", "plan", "--actor", "data")
+	if code2 != 0 || !strings.Contains(so2, "cruise plan") {
+		t.Fatalf("收口后 plan 应恢复:\n%s", so2)
+	}
+}
+
+// TestCruisePlanEnvGate（§42 三修①）：座位环境域 × 卡 env 门——dev 座位不见
+// local 卡、local 座位不见 dev 卡（11-14 事故：T-190/192 dev 座位领 local 活）。
+func TestCruisePlanEnvGate(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	mustRun(t, dir, "team", "add", "data-local", "--type", "agent", "--responsible-human", "pm", "--role", "dev", "--system", "lake")
+	// 两张 ready 无主卡：一 dev（env 空）一 local
+	mustRun(t, dir, "work", "create", "--id", "E-001", "--type", "task", "--title", "dev活", "--system", "lake", "--description", "d", "--actor", "pm")
+	mustRun(t, dir, "work", "update", "E-001", "--status", "ready", "--actor", "pm")
+	mustRun(t, dir, "work", "create", "--id", "E-002", "--type", "task", "--title", "local活", "--system", "lake", "--env", "local", "--description", "d", "--actor", "pm")
+	mustRun(t, dir, "work", "update", "E-002", "--status", "ready", "--actor", "pm")
+
+	outDev := mustRun(t, dir, "cruise", "plan", "--actor", "data")
+	if !strings.Contains(outDev, "E-001") {
+		t.Fatalf("dev 座位应见 dev 卡:\n%s", outDev)
+	}
+	if strings.Contains(outDev, "E-002") {
+		t.Fatalf("dev 座位不得见 local 卡（环境门）:\n%s", outDev)
+	}
+	outLocal := mustRun(t, dir, "cruise", "plan", "--actor", "data-local")
+	if !strings.Contains(outLocal, "E-002") {
+		t.Fatalf("local 座位应见 local 卡:\n%s", outLocal)
+	}
+	if strings.Contains(outLocal, "E-001") {
+		t.Fatalf("local 座位不得见 dev 卡（环境门）:\n%s", outLocal)
+	}
+}
+
 // TestCruiseHeartbeat（P2）：心跳投影+告警线。
 func TestCruiseHeartbeat(t *testing.T) {
 	dir := cruiseFixture(t)

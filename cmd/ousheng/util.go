@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	gitadapter "ousheng/adapters/git"
@@ -164,6 +165,38 @@ func gitAdapterEvidence(dir, commit string) (*model.Evidence, error) {
 // me 缺失同样拒（铁律复查收紧，§14 血统：不确定即拒绝——未声明身份的机器不得
 // 挥舞 human 拍板权；新机裸 clone 中央仓即此形态）。本地 shell 级可篡改 me 文件
 // = 已知边界（本地文件系统是信任根），git 提交作者字段事后审计兜底。
+// boardDiverged：板仓与上游是否两源分叉（§42 三修②，11-14 事故机制）。
+// fetch 后比对 ahead/behind——双侧均有提交 = 分叉（单侧 behind 属常态由轮首 sync 拉齐）。
+// 无 remote / fetch 失败 = 单机形态，不分叉。
+func boardDiverged(dir string) (ahead, behind int, diverged bool) {
+	fetch := exec.Command("git", "fetch", "-q", "origin")
+	fetch.Dir = dir
+	if fetch.Run() != nil {
+		return 0, 0, false
+	}
+	branch := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	branch.Dir = dir
+	bOut, err := branch.Output()
+	if err != nil {
+		return 0, 0, false
+	}
+	up := strings.TrimSpace("origin/" + strings.TrimSpace(string(bOut)))
+	cnt := func(ranges ...string) int {
+		args := append([]string{"rev-list", "--count"}, ranges...)
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		out, err := c.Output()
+		if err != nil {
+			return 0
+		}
+		n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+		return n
+	}
+	ahead = cnt(up + "..HEAD")
+	behind = cnt("HEAD.." + up)
+	return ahead, behind, ahead > 0 && behind > 0
+}
+
 func assertHumanIdentityLocal(dir, actor string) error {
 	me := readWorkspaceActor(dir)
 	if me == "" {
