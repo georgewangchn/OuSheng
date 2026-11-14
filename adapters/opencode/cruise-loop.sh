@@ -12,7 +12,7 @@
 #   人到点自停）。canonical 原有退避/信号量/轮头/横幅/attach 全部保留。
 # 挂载: 手动 / systemd（见 scripts/ousheng-cruise@.service 模板）；启动=人（档案 §45）。
 set -uo pipefail
-WS=$1; ACTOR=$2; SYSTEM=$3; REPO=$4; MAXR=${5:-20}; WAIT=${6:-600}; WIN=${7:-22:00-07:00}; DEADLINE=${8:-}
+WS=$1; ACTOR=$2; SYSTEM=$3; REPO=$4; MAXR=${5:-20}; WAIT=${6:-600}; WIN=${7:-22:00-07:00}; DEADLINE="${8:-}${9:+ ${9}}"
 [ -z "$REPO" ] && { echo "[cruise] 缺 code-repo 参数——opencode 必须在代码仓开 session" >&2; exit 2; }
 OUSHENG=${OUSHENG_BIN:-ousheng}; OC=${OC_BIN:-opencode}
 EXTRA=${CRUISE_EXTRA:-}
@@ -22,11 +22,12 @@ OC_MODEL_WAIT=${OC_MODEL_WAIT:-${OC_FLASH_MODEL:-}}
 run=0; idle=0; planfail=0; SAME=0; GAP_EXTRA=0
 
 # --- BUG-179 根治（§46 并回）：座位级 flock 单实例 ---
-# 同座位同 repo 只许 1 实例；锁由 flock 父持有，fd 不传给子（父死锁不死）。
-# flock 不可用（无 util-linux）则降级跳过——单机单座形态仍安全。
-if command -v flock >/dev/null 2>&1; then
+# 同座位同 repo 只许 1 实例。标准防重入：外层 flock 拿锁（fd 保持）exec 自身，
+# 子进程见 FLOCKED=1 跳过锁段——外层持锁直到子进程退出，第二实例 flock -n 即拒。
+# 勿用 -o（--close 会在 exec 前释放锁，导致重入死循环/失败，2026-11-14 实锤）。
+if [ "${FLOCKED:-0}" != "1" ] && command -v flock >/dev/null 2>&1; then
   SEAT_LOCK="/tmp/opencode/cruise-seat-$ACTOR.lock"
-  exec flock -n -o "$SEAT_LOCK" "$0" "$@"
+  FLOCKED=1 exec flock -n "$SEAT_LOCK" "$0" "$@"
 fi
 
 # §42 三修③：并发上限（BUG-132 定案机制化）——跨座位 mkdir 原子信号量。
