@@ -174,6 +174,24 @@ $PLAN" ) > "$ROUNDOUT" 2>>"$LOOPERR" || echo "[cruise] opencode 非零退出，�
   # 驱动器补记本代 session id（正文是 agent 的事，指针是驱动器的事）
   NEWSID=$(grep -oE '"sessionID":"[^"]+"' "$ROUNDOUT" | head -1 | cut -d'"' -f4)
   [ -n "$NEWSID" ] && "$OUSHENG" handover attach --dir "$WS" --system "$SYSTEM" --actor "$ACTOR" --session "$NEWSID" 2>/dev/null || true
+
+  # §49（2026-11-15 全队 8.5h 零产出实锤）：上下文水位门。续代省重构但 ctx 单调涨，
+  # data 座实测 11K→817K、单轮输出 657→97 token（越续越废）；换代回 87K 输出 644。
+  # 读本轮末 cache.read（= 会话上下文总长），超 OUSHENG_CTX_MAX 则清指针强制换代
+  # （handover 快照已落盘承载状态，下轮 plan 无 attach → 新代）。默认 150K（退化点
+  # 370K-583K 之前留裕度）；0=关；读不到则 fail-open 只告警不换（provider 无 cache.read）。
+  CTX_MAX=${OUSHENG_CTX_MAX:-150000}
+  CTX=$(grep -oE '"cache":\{"read":[0-9]+' "$ROUNDOUT" 2>/dev/null | tail -1 | grep -oE '[0-9]+')
+  if [ -n "$CTX" ] && [ "$CTX" -gt 0 ] 2>/dev/null; then
+    if [ "$CTX_MAX" -gt 0 ] 2>/dev/null && [ "$CTX" -gt "$CTX_MAX" ] 2>/dev/null; then
+      echo "[cruise] ctx ${CTX} > ${CTX_MAX} → 换代（handover 已落盘，下轮新代）"
+      "$OUSHENG" handover attach --dir "$WS" --system "$SYSTEM" --actor "$ACTOR" --session "" 2>/dev/null || true
+    else
+      echo "[cruise] ctx ${CTX}（≤ ${CTX_MAX}，续代）"
+    fi
+  else
+    echo "[cruise] ctx 未读到（provider 无 cache.read？fail-open 续代）"
+  fi
   release_slot
 
   # §47（2026-11-14 flash 连轴实锤）：轮后基线睡眠——有活轮结束必睡 WAIT 秒。
