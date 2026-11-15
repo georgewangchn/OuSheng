@@ -162,7 +162,7 @@ func TestCruiseLoopSyntax(t *testing.T) {
 	for _, want := range []string{"code-repo", "轮顶", "时窗", "idle", "cruise plan",
 		"--wait", "attach", "-s $SESS", "handover attach", "plan 失败(", "$SYSTEM",
 		"--title", "--format json", "driver 启动", "acquire_slot", "release_slot",
-		"CONCURRENCY_MAX", "flock", "截止", "deadline_passed", `sleep "$WAIT"`} {
+		"CONCURRENCY_MAX", "flock", "截止", "deadline_passed", `sleep "$WAIT"`, "板仓分叉", "ERROR"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("cruise-loop.sh 缺护栏 %q", want)
 		}
@@ -236,7 +236,7 @@ func TestAgentsMDProtocolGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(b)
-	for _, want := range []string{"引用核实", "work show", "转述不是权威"} {
+	for _, want := range []string{"引用核实", "work show", "转述不是权威", "pm 写板纪律", "单写源"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("agents.md 缺协议护栏 %q", want)
 		}

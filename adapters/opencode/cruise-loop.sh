@@ -87,11 +87,23 @@ d=datetime.datetime.strptime('$DEADLINE','%Y-%m-%d %H:%M')
 print('1' if datetime.datetime.now()>d else '')"
 }
 
-# 取 plan 输出（重试 3 次退避——一次网络抖动不该停掉整夜）
+# 取 plan 输出（重试 3 次退避——一次网络抖动不该停掉整夜）。
+# §48（2026-11-15 全队停摆实锤）：分叉态=安全失败但**必须可见且可等待收口**——
+# 不得静默退出（systemd exit 0 不重拉 → 全队躺平无人知）。分叉时进等待模式：
+# ERROR 告警 + 每 300s 重试，收口后自动恢复；窗/截止到才真停。
 getplan() {
   local tries=0 out
   while [ $tries -lt 3 ]; do
     out=$("$OUSHENG" cruise plan --dir "$WS" --actor "$ACTOR" --wait "$WAIT" $EXTRA 2>"$PLANERR") && { echo "$out"; return 0; }
+    if grep -q "分叉" "$PLANERR" 2>/dev/null; then
+      echo "[cruise] ERROR 板仓分叉——等待收口（每 300s 重试；收口=人 pull --rebase 逐卡决后自动恢复；本行是告警不是退出）" >&2
+      while :; do
+        sleep 300
+        [ -z "$(inwin)" ] && { echo "[cruise] 时窗外 ${WIN}，停" >&2; return 1; }
+        [ "$(deadline_passed)" = "1" ] && { echo "[cruise] 截止 ${DEADLINE} 已过，停" >&2; return 1; }
+        out=$("$OUSHENG" cruise plan --dir "$WS" --actor "$ACTOR" --wait "$WAIT" $EXTRA 2>"$PLANERR") && { echo "[cruise] 分叉已收口——恢复派活" >&2; echo "$out"; return 0; }
+      done
+    fi
     tries=$((tries+1)); echo "[cruise] plan 失败($tries/3)：$(tail -1 "$PLANERR")" >&2
     [ -s "$PLANERR" ] && cat "$PLANERR" >> "$LOOPERR"
     sleep 60

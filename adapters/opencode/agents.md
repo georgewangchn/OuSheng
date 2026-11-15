@@ -22,6 +22,7 @@
 命令速查（全部命令支持 `--dir <workspace>`；身份缺省 = 本目录座位身份，无座位则本机 me；发 bug 优先 MCP 工具 `ousheng_report_bug`，CLI 为等价路径）：
 
 - **pm/跨机冷启动先看全局**：`ousheng team list`（座位×常驻机器×系统全景——执行位寻址：跨机派活/杀进程前先查座位在哪台机）+ `ousheng cruise status`（各域活动摘要）；板仓位置见本目录 `.opencode/ousheng.json` 的 `workspace` 字段。
+- **pm 写板纪律（§48，2026-11-15 全队停摆教训）**：**pm 从非座位机写板前，先确认座位侧板仓已收口**——`git -C <座位机板仓> fetch && git -C <座位机板仓> rev-list --left-right --count HEAD...origin/main`（应 0/0，或先在座位机 pull 收口）；否则 PM 推送 + 座位本地提交交错 = 双写源分叉 = 分叉门挡派活 + sync 禁自动 rebase = 全队停摆等人工。**首选统一经座位机（如 A 机板仓）操作**——单写源永远不分叉。
 - **notice 合并纪律（§37 复盘）**：notice = 已发生变更的广播，不是流水账——**一夜 ≤1 张汇总**（微事件并入汇总卡 evidence；一变更一 notice 的形态 2026-11-12 夜被实证为造活）。
 - **搬机 runbook（§41）**：座位换机 = ①新机 `ousheng join`（clone 板仓）②新机代码仓 `adapter install --actor <座位>` ③板仓手改 `.ousheng/actors/<id>.yaml` 的 `machine` 为新机标识并提交 ④旧机清 `.opencode/ousheng.json`（防残留身份）。doctor 对「registry.machine ≠ 本机」自动 WARN 兜底（新机改完前/旧机未清时曝光）。
 
