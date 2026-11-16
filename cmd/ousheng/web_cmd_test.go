@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -608,5 +609,50 @@ func TestWebDetailGuidance(t *testing.T) {
 	d = webGet(t, dir, "/work/T-001")
 	if !strings.Contains(d, "补报") || !strings.Contains(d, "Q:") {
 		t.Fatalf("done-进度未满/Q: detail 缺指引:\n%s", d)
+	}
+}
+
+// TestWebSyncRetry（§52 判据实锤：A 机「同步异常」与手动 sync 相反——opencode
+// 会话 plugin idle sync 与页面 sync 瞬态交错 → 单次尝试假警报）。锁两面：
+// ①静止态真分叉：退避重试后 banner 依旧（不吞真信号，仍走人工收口）；
+// ②收口后 banner 消失。
+func TestWebSyncRetry(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git 不可用")
+	}
+	_ = exec.Command // （占位保持 import 编译——真实调用见下方 run()）
+	dir := t.TempDir()
+	webSetup(t, dir)
+	og := filepath.Join(dir, "_og")
+	if out, err := exec.Command("git", "init", "-q", "--bare", og).CombinedOutput(); err != nil {
+		t.Fatalf("bare init: %v %s", err, out)
+	}
+	run := func(dir string, args ...string) {
+		c := append([]string{"-C", dir}, args...)
+		if out, err := exec.Command("git", c...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	run(dir, "remote", "add", "origin", og)
+	run(dir, "push", "-q", "-u", "origin", "main")
+	ws2 := filepath.Join(dir, "_ws2")
+	run(dir, "clone", "-q", og, ws2)
+	mustRun(t, ws2, "todo", "远端卡", "--system", "datax-server", "--actor", "george", "--dir", ws2)
+	run(ws2, "push", "-q", "origin", "main")
+	mustRun(t, dir, "todo", "本地卡", "--system", "datax-server", "--actor", "george", "--dir", dir)
+	run(dir, "fetch", "-q", "origin")
+	page := webGet(t, dir, "/")
+	if !strings.Contains(page, "同步异常") || !strings.Contains(page, "分叉") {
+		t.Fatalf("静止态真分叉：重试后 banner 必须依旧（不吞真信号）")
+	}
+	// 人拍板收口（真实 runbook = 逐卡决；fixture 数据一次性 → 机械捷径 reset，
+	// 仅证明「收口后 banner 消失」，不代表取终态手法）
+	run(dir, "pull", "-q", "--rebase", "origin", "main")
+	run(dir, "rebase", "--abort")
+	run(dir, "reset", "-q", "--hard", "origin/main")
+	run(dir, "push", "-q", "origin", "main")
+	page = webGet(t, dir, "/")
+	if strings.Contains(page, "同步异常") {
+		t.Fatalf("收口后 banner 必须消失")
 	}
 }

@@ -213,16 +213,30 @@ func (s *webServer) exec(args ...string) (int, string, string) {
 }
 
 // sync：页面加载前拉齐 + 写后收口推送（§24 R3：观测新鲜度 = 中央 HEAD，
-// 失败显式 WARN 非静默）。
+// 失败显式 WARN 非静默）。2026-11-16 实栈（A 机 pm 反馈「同步异常」与手动
+// sync 结果相反）：opencode 会话 plugin idle 自动 sync 与页面加载 sync 瞬态
+// 交错（写锁/中间态）→ 单次尝试=假警报温床。读面退避重试 ≤3 次（间隔 1.5s）：
+// 瞬态交错被吸收，静止态真分叉重试后依旧报——不吞真信号（分叉仍走人工收口）。
 func (s *webServer) sync() string {
-	_, out, _ := s.exec("sync")
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.TrimSpace(lines[i]) != "" {
-			return lines[i]
+	var out string
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(1500 * time.Millisecond)
+		}
+		_, raw, _ := s.exec("sync")
+		lines := strings.Split(strings.TrimRight(raw, "\n"), "\n")
+		out = ""
+		for i := len(lines) - 1; i >= 0; i-- {
+			if strings.TrimSpace(lines[i]) != "" {
+				out = lines[i]
+				break
+			}
+		}
+		if strings.Contains(out, "sync收口: ok") {
+			break
 		}
 	}
-	return ""
+	return out
 }
 
 func (s *webServer) water() string {
