@@ -537,7 +537,8 @@ func TestWebSuggestDormantDesign(t *testing.T) {
 	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--source", "manual", "--locator", "done-001", "--result", "passed", "--actor", "george")
 	mustRun(t, dir, "work", "update", "T-001", "--status", "done", "--expect", "4", "--actor", "george")
 	page := webGet(t, dir, "/")
-	for _, want := range []string{"已生效方案无新动态", "plan-x", "执行单全已完结"} {
+	// §52 后降噪形态：dormant 是备忘级，折叠进 <details> 计数行 + 展开内容仍在页内。
+	for _, want := range []string{"方案无新动态 1", "plan-x", "执行单全已完结", "<details"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("dormant design signal missing %q", want)
 		}
