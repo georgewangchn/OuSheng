@@ -168,6 +168,18 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 			check("PASS", "AGENTS.md 协议段 = 当前版本")
 		}
 
+		// §50-C 驱动器漂移检查：装过 --cruise（scripts/cruise-loop.sh 存在）即逐字节
+		// 比对 canonical。可选资产语义不变（未装不查）；装了分叉 = FAIL——历史上三次
+		// 手搓 fork 丢 attach/隔离/三闸（§37/§47），「机械锁修了 ≠ 在跑的脚本修了」，
+		// 部署校验的最后一公里在此收口（同插件逐字节先例）。
+		if raw, err := os.ReadFile(filepath.Join(dir, "scripts", "cruise-loop.sh")); err == nil {
+			if string(raw) != string(opencode.CruiseLoopSh) {
+				check("FAIL", "巡航驱动器与 canonical 分叉（手改/fork 漂移——§37/§47 事故形态）→ ousheng adapter install --cruise 重跑取回（驱动器=协议资产，改动走产品仓）")
+			} else {
+				check("PASS", "巡航驱动器 = canonical（逐字节一致）")
+			}
+		}
+
 		// 座位资产不得入库（2026-09-21 裁决，档案 §13）：二进制内嵌分发为单一来源，
 		// 入库副本必漂移；gitignore 不回溯已跟踪文件，故单列检查。
 		if out, err := gitOut(dir, "ls-files", "--", ".opencode/opencode.json", ".opencode/ousheng.json",

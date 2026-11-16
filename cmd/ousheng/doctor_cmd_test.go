@@ -237,3 +237,30 @@ func TestDoctorSystemHint(t *testing.T) {
 		t.Fatalf("补 system 后 WARN 应消失:\n%s", so)
 	}
 }
+
+// TestDoctorCruiseDriverDrift（§50-C）：装过 --cruise 即逐字节比对 canonical——
+// 分叉 FAIL（手改/fork 漂移，§37/§47 事故形态）+ 重装取回复原。未装不查
+// （可选资产语义，TestDoctorHealthySeat 已盖）。
+func TestDoctorCruiseDriverDrift(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ws := mkDoctorWorkspace(t, "data")
+	repo := t.TempDir()
+	mustRun(t, repo, "adapter", "install", "--workspace", ws, "--cruise")
+
+	so, _, code := runIn(t, repo, "doctor")
+	if code != 0 || !strings.Contains(so, "巡航驱动器 = canonical") {
+		t.Fatalf("canonical driver must PASS:\ncode=%d\n%s", code, so)
+	}
+	drv := filepath.Join(repo, "scripts", "cruise-loop.sh")
+	if err := os.WriteFile(drv, []byte("#!/bin/sh\n# hand-forked\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	so, _, code = runIn(t, repo, "doctor")
+	if code == 0 || !strings.Contains(so, "巡航驱动器与 canonical 分叉") || !strings.Contains(so, "adapter install --cruise") {
+		t.Fatalf("drifted driver must FAIL with guidance:\ncode=%d\n%s", code, so)
+	}
+	mustRun(t, repo, "adapter", "install", "--workspace", ws, "--cruise")
+	if so, _, code = runIn(t, repo, "doctor"); code != 0 || !strings.Contains(so, "巡航驱动器 = canonical") {
+		t.Fatalf("reinstall must restore:\ncode=%d\n%s", code, so)
+	}
+}
