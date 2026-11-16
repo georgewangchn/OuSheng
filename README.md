@@ -179,7 +179,7 @@ $ ousheng cruise dispatch    # 单机调度器（指挥官，不代跑）
 
 四条铁律，夜里也不破：**无活即停**（为跑而造活是病）· **human 门不豁免**（C2/拍板夜里只挂起——挂起是巡航的正确终局）· **自提单只许 task/bug/test/notice**（feature/requirement 是 human 门）· **问题攒批**（晨间驾驶舱批量回）。模型路由按活分档计费：`OC_MODEL_WAIT` 值守轻活 / `OC_MODEL_CODE` 编码强活。
 
-> 深入：[巡航模式设计方案](docs/OuSheng_巡航模式设计方案.md) · [双模式操作手册](docs/双模式操作手册.md)
+> 深入：[巡航模式设计方案](docs/OuSheng_巡航模式设计方案.md) · [全网操作手册](docs/OuSheng_全网操作手册.md)
 
 <a id="day"></a>
 ## 📅 一个项目的一天（真实输出）
@@ -307,9 +307,10 @@ Issue / PR 欢迎。这个仓自己用 OuSheng 的纪律开发：改动前读 [A
 
 | | |
 |---|---|
+| **[全网操作手册](docs/OuSheng_全网操作手册.md)** | **日常运营唯一入口：晨检/驾驶舱/点火/升级/故障 runbook** |
 | [快速上手](docs/quick-start.md) | 日常循环 / 多人 / 多仓拓扑 / 通讯模型 |
 | [多机多窗口使用指南](docs/多机多窗口使用指南.md) | 两段式上绳（join 时机零）、完整拓扑与日常协议 |
-| [巡航模式设计方案](docs/OuSheng_巡航模式设计方案.md) · [双模式操作手册](docs/双模式操作手册.md) | 无人值守的授权语义 / 哨兵与 runner 实操 |
+| [巡航模式设计方案](docs/OuSheng_巡航模式设计方案.md) | 无人值守的授权语义 / 绳牛裁决 / 驱动器治理闸 |
 | [共识层设计方案 v0.4](docs/OuSheng_共识层设计方案_v0.4.md) | 方案讨论 / 轮次 / 拍板 / architecture 全局面貌 |
 | [工程模型](docs/engineering-model.md) · [上下文协议](docs/context-protocol.md) · [存储约定](docs/state-store.md) | v0.3 规格 |
 | [设计基石](docs/多人AI协作机制_方案基石.md) · [完整设计方案](docs/OuSheng_工程本体化改造方案_v0.3.md) | 为什么这样设计 |

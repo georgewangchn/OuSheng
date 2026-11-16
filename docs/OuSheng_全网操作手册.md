@@ -1,0 +1,153 @@
+# OuSheng 全网操作手册（唯一权威运营入口）
+
+> **本手册是全网（PM 机 + 云端 + 内网各机）日常运营的唯一标准**。其余文档是设计依据与
+> 档案；操作层面的冲突，以本手册 + 《设计裁决与推演记录》最新裁决为准。
+> 拍板版：2026-11-16（含档案 §50 面唯一化/点火唯一入口、§51 绳牛裁决）。
+
+---
+
+## 0. 三条铁律（先背这三条，其余都是展开）
+
+1. **单写源**：板（kanban 工作区）的写操作只从**一个物理入口**进——座位机板仓（驾驶舱
+   web 跑在它上面）。个人机 clone 一律只读。两处同时写 = 分叉 = 全队停摆（§48 实锤）。
+2. **启动 = 人，点火唯一入口**：巡航由人点火（`cruise ignite` / 驾驶舱按钮），无定时自启
+   （§45）。**pm 不当执行位手动巡航**（PM 是方向盘不是轮子，§50-A 死法）。
+3. **绳牛分工**（§51）：PM 给**方向性一句话**（发什么、要什么），不替模型排活——顺序、
+   批量、节奏是模型的事。绳只提供：看板事实、门（写路径硬拒）、治理闸（时窗/预算/水位）。
+
+## 1. 每日节律
+
+### 晨检（到岗 5 分钟，固定顺序）
+
+```
+1. ousheng cruise status --hours 12      # 交付/新增/空转嫌疑/挂起清单 一屏
+2. 清挂起：驾驶舱「挂起待你处理」批量 decide / ack / 回 Q:   # 不清=白天再挂,滚雪球
+3. presence 复声明：在场 present；离开前 away                # 挂夜=全队空等烧 token
+4. ousheng cruise report --hours 12     # 纯记账轮占比(>50%警示) + 板面交付×代码提交对照
+   （板交 N 单而代码仓 0 提交 = 记账通胀 → 抽 3 单 work show 验证据）
+5. 需要白天继续跑的座位 → 点火
+```
+
+### 白天（有人模式）
+
+- **发单**：驾驶舱「快速发单」（task/bug；feature/requirement 先起 design——动土门）。
+- **开工**：座位点火，或在该座位 opencode 会话说一句方向（如「领活开工，推进直至完成」）。
+- **拍板/答疑**：驾驶舱批量处理挂起；agent 的问题攒在单内 `Q:` 条目，不在会话里逐条答。
+
+### 夜间（离场三步）
+
+```
+1. ousheng pm away                        # 必做——present 挂夜 = agent 空等
+2. 驾驶舱发当晚要做的单
+3. 每座位点「点火」                        # 驱动器给模型一句话方向,自己干到完/挂起
+```
+
+## 2. 驾驶舱（PM 唯一写面）
+
+```bash
+# 座位机（板仓所在机）起服：回环免 token；对外绑定必须 token（fail-closed）
+ousheng web --addr 0.0.0.0:7878 --token <你设的令牌>
+```
+
+- 手机/电脑浏览器开 `http://<机>:7878/login` 输令牌 → cookie 会话。
+- 功能：看板 / 单详情（状态·派活·ack）/ 快速发单 / 巡航页（整体状态·各座位下一活·
+  **点火/停火按钮**·presence 一键·座位交接快照）/ design 拍板。
+- **opencode web 会话 = 对话例外通道**：只用来和某座位 agent 聊，不做板写与拍板
+  （会话里执行身份是 agent，拍板类必被拒——那不是「环境问题」，是门在正确工作）。
+- 安全边界：非回环必 token；token 即拍板权，泄露即换；公网暴露必须安全组/内网白名单。
+
+## 3. 点火 / 停火（唯一入口）
+
+```bash
+ousheng cruise ignite --seat <座位>          # 点火（驾驶舱按钮同义）
+ousheng cruise ignite --seat <座位> --stop   # 停火
+```
+
+四道前置门（任一不过即拒，全是保护）：座位属于本机 → 座位仓已映射 → 驱动器与 canonical
+逐字节一致（手搓 fork 拒点）→ systemd 单元+参数文件齐备。幂等：座位 flock 防双开。
+点火输出会提醒过期的 present 声明。日志：`journalctl -u ousheng-cruise@<座位> -f`。
+
+**巡航语义（§51 绳牛裁决）**：驱动器每轮给模型一句话方向——「sync 并推进，直至完成/
+无活/触 human 门挂起」——顺序批量节奏模型自定；一轮 = 一个 session 自然结束。治理闸
+自动兜底：时窗/轮顶/idle、ctx 水位（默认 150K 换代）、token 预算（默认关）、并发上限 2。
+
+## 4. 升级流程（全网标准，每机一次）
+
+```bash
+# ① 产品仓构建目标机架构二进制（本机 mac 交叉编译示例）
+GOOS=linux GOARCH=amd64 go build -o /tmp/ousheng-linux ./cmd/ousheng
+# ② 原子替换（禁 cp——毒化运行中二进制，137 假死事故，§43）
+scp /tmp/ousheng-linux <机>:/tmp/ousheng.new
+ssh <机> 'mv /tmp/ousheng.new /usr/local/bin/ousheng && chmod +x /usr/local/bin/ousheng'
+# ③ 每座位仓重跑 adapter（驱动器/协议段/插件随二进制归一；--cruise 装过才带）
+ousheng adapter install --cruise --workspace <板仓> --actor <座位> --dir <座位仓>
+# ④ systemd 模板若更新过：cp <座位仓>/scripts/ousheng-cruise@.service /etc/systemd/system/ && systemctl daemon-reload
+# ⑤ 自检 + 收口
+ousheng doctor --dir <座位仓>          # 全 PASS（驱动器=canonical/协议段=当前版本）
+cd <板仓> && ousheng sync              # 0/0 收口
+```
+
+## 5. 新机上绳 / 搬机 / 下绳
+
+| 场景 | 步骤 |
+|---|---|
+| 新机 join | `ousheng join`（clone 板仓自助上绳）→ 座位仓 `adapter install` → `doctor` 全绿 |
+| 座位搬机 | 新机 join → 新机 `adapter install --actor <座位>` → 板仓手改 `actors/<座位>.yaml` 的 `machine` 为新机 → 旧机清 `.opencode/ousheng.json`（防残留身份） |
+| 撤座位 | 确认名下无 open 卡 → 删 `actors/<座位>.yaml` + assignments 条目 → commit/push → `converge` 验证（handover 旧快照留档不删） |
+| 防身份残留 | 一机一仓一 actor；残留 ousheng.json = 撞名温床（rdc-06 /data/test 教训） |
+
+## 6. 故障 runbook（对症状查）
+
+| 症状 | 处置 |
+|---|---|
+| **板仓分叉**（plan 拒派活「分叉」） | 人到座位机：`git fetch && rev-list --left-right --count HEAD...origin/main` → 非单侧 → **逐卡人拍板**收口，**禁批量 merge「取终态」**（§42 拍平 5 卡事故）；驱动器会每 300s 自愈重试 |
+| **全队停摆/无人知** | 看 `journalctl -u ousheng-cruise@*` 与驾驶舱整体状态；分叉等待是告警不是死机 |
+| **token 异常暴涨** | 三查：presence 是否挂 present 过夜 / CODE 槽是否退化成 flash（`/etc/default/ousheng-cruise-*`）/ ctx 水位是否失效（journal 搜 `ctx`、`换代`）。可设 `OUSHENG_TOKEN_BUDGET` 硬预算 |
+| **137 假死/全线 Error** | 谁在写运行中二进制？升级必须 `mv` 原子替换；误杀 MCP 子进程的会话用配置热重载复活：opencode.json 里 `mcp.<名>.enabled` false→true |
+| **座位空转嫌疑**（status ⚠） | `work show <id>` 看证据链；确认僵住则停火换方向或撤单 |
+| **坏卡/冲突标记** | 读面已 best-effort（跳坏+警告不瘫）；`work show <id>` 定位修复或重建，收敛后清标记 |
+| **配额撞顶** | CODE 槽切备用模型应急；**配额恢复当日回切**（忘切=弱模型干编码，11-15 实锤） |
+
+## 7. 治理参数速查（env 旋钮，全默认安全）
+
+| 旋钮 | 默认 | 含义 |
+|---|---|---|
+| `OUSHENG_CTX_MAX` | 150000 | 会话上下文水位，超则强制换代（0=关） |
+| `OUSHENG_TOKEN_BUDGET` | 0（关） | 单窗口 token 硬预算（cache.read 累计），超闸停机 |
+| `CONCURRENCY_MAX` | 2 | 同机并发 opencode 轮上限 |
+| `OC_MODEL_CODE` / `OC_MODEL_WAIT` | 全局默认 | 编码强模型 / 值守轻模型路由 |
+| 时窗/轮顶/idle | 22:00-07:00 / 20 / ×5 | 驱动器三闸（参数在点火 env 文件） |
+
+## 8. 安全清单
+
+- web 非 loopback 必 token；Origin 门常开；凭据值永不入 git（doctor 三重锁）；拍板/ack
+  仅 human 且仅 PM 机形态；feature/requirement 动土先 design（巡航期结构性不可能）。
+
+## 9. 文档地图
+
+| 要查什么 | 去哪 |
+|---|---|
+| **日常操作** | 本手册 |
+| 裁决理由与事故档案 | `docs/设计裁决与推演记录.md`（§1–§51） |
+| 产品原理/边界 | `docs/多人AI协作机制_方案基石.md` · `engineering-model.md` |
+| 各层设计方案 | `docs/OuSheng_工程本体化改造方案_v0.3.md` · `共识层 v0.4` · `巡航模式设计方案` |
+| 协议（板/上下文） | `docs/board-protocol.md` · `context-protocol.md`（agent 侧权威） |
+| 上手/多机 | `docs/quick-start.md` · `多机多窗口使用指南.md` |
+| 历史复盘与已执行专题设计 | `docs/archive/` |
+
+---
+
+## 附录 A：本舰队实况（2026-11-16 清理后）
+
+| 机 | 地址 | ousheng | 座位（actor） | 板仓 / 座位仓 |
+|---|---|---|---|---|
+| aliyun-a | ssh aliyun-a | 最新（§51） | data / mlake / ui / lhcp + pm | 板仓 `/data/tide/kanban`；座位仓 `/data/tide/<座位>` |
+| rdc-04 | 10.100.1.32 | 最新 | （无座位；data-local 已撤） | 板仓 clone `/data/tide/kanban`（只读） |
+| rdc-05 | 10.100.1.33 | 最新 | mlake-local | 板仓 `/data/kanban`；仓 `/data/mlake` |
+| rdc-06 | 10.100.1.34 | 最新 | ui-local | 板仓 `/data/kanban`；仓 `/data/ui` |
+| pm-mac | 本机 | — | pm（CLI 只读观测） | clone 只读；写操作全走驾驶舱 |
+
+- 板 remote：gitee kanban main（单板单序列）。
+- 巡航点火参数：`/etc/default/ousheng-cruise-<座位>`（CODE 槽当前 = deepseek-flash 应急，
+  glm 配额已恢复，**建议回切**）。
+- 驾驶舱：未常驻；需要时 aliyun-a 起服（见 §2）。
