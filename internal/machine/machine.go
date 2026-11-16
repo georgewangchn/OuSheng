@@ -66,8 +66,14 @@ func ResolveActor(explicit, seatDir, workspace string) (string, error) {
 
 // sameDir 判两路径同目录（EvalSymlinks 归一，失败回退 Clean——/tmp 与
 // /private/tmp 类符号链接差异不构成身份判定依据）。
+// 先 Abs 再归一（sim50 复测实锤 2026-11-16）：EvalSymlinks(".") 原样返回 "."，
+// 相对缺省值与绝对 CWD 永不相等 → --dir 缺省形态（cd 板仓裸跑）的 me 兜底
+// 全灭——§37「同目录兜底」主路径被缺省值破坏，实栈因恒传 --dir 掩盖。
 func sameDir(a, b string) bool {
 	norm := func(p string) string {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
 		if r, err := filepath.EvalSymlinks(p); err == nil {
 			return filepath.Clean(r)
 		}

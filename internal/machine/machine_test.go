@@ -86,3 +86,29 @@ func TestRepoDirForSystem(t *testing.T) {
 		t.Fatalf("无映射应回退工作区: %q", got)
 	}
 }
+
+// TestResolveActorMeFallbackDefaultDir（sim50 复测实锤）：--dir 缺省值 "." 的
+// 裸跑形态——EvalSymlinks(".") 原样 "."，未 Abs 前与绝对 CWD 永不相等，
+// cd 板仓裸跑的 me 兜底全灭（§37 同目录主路径）。锁：缺省 "." 与显式绝对路径
+// 两种形态同效。
+func TestResolveActorMeFallbackDefaultDir(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".ousheng"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".ousheng", "me"), []byte("data\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := os.Getwd()
+	defer os.Chdir(old)
+	if err := os.Chdir(ws); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if a, err := ResolveActor("", cwd, "."); err != nil || a != "data" {
+		t.Fatalf("缺省 --dir（.）形态 me 兜底必须生效: %q %v", a, err)
+	}
+	if a, err := ResolveActor("", cwd, ws); err != nil || a != "data" {
+		t.Fatalf("显式绝对路径形态保持: %q %v", a, err)
+	}
+}
