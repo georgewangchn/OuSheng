@@ -14,11 +14,16 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. 定位：**牵�
 
 语言：所有文档正文为中文，保留中文内容不翻译。
 
+## 铁律前置审查（一切产品改动的前置门，档案 §52）
+
+**任何产品改动（fix / feat / refactor / 裁决 / 文档）动手前过一遍 `docs/铁律清单.md`，commit message 必带 `铁律对照:` 行**（「无涉」或列出条目号+为何不违）；缺行 = 不合规格的改动，复盘时 git log 一眼可见。清单是单点权威（每条含自查问句+破坏实例档案号），本文件只放本条规则。依据：§51 实证——绳牛铁律躺在基石里，巡航在代码里违了四代无人对照，代价 = 四夜 111 轮 + deepseek 大半账单。升级判据：若 commit 显影被实证为形式主义（违例仍带「无涉」过关），升级为 pre-commit 机械钩子。
+
 ## Directory map
 
 - `docs/` — design docs (Chinese)；导读见 `docs/README.md`
 - **`操作手册.md`（仓库根）— 唯一权威运营入口**（PM 日常操作全在此；其余文档是设计与档案）
-  - `设计裁决与推演记录.md` — 裁决档案（AGENTS.md 的理由层，§1–§51）
+  - `设计裁决与推演记录.md` — 裁决档案（AGENTS.md 的理由层，§1–§52）
+  - `铁律清单.md` — **一切产品改动的前置门**（单点权威：铁律×自查问句×破坏实例；commit 带 `铁律对照:` 行）
   - `多人AI协作机制_方案基石.md` — design cornerstone (principles, control-theory mapping)
   - 权威方案：`OuSheng_工程本体化改造方案_v0.3.md` / `OuSheng_共识层设计方案_v0.4.md` / `OuSheng_巡航模式设计方案.md`（含 §51 绳牛裁决修正节）
   - 协议层（被 adapter 分发引用，路径不可动）：`board-protocol.md` / `context-protocol.md` / `state-store.md` / `engineering-model.md`
