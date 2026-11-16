@@ -164,9 +164,17 @@ func TestCruiseLoopSyntax(t *testing.T) {
 		"--title", "--format json", "driver 启动", "acquire_slot", "release_slot",
 		"CONCURRENCY_MAX", "flock", "截止", "deadline_passed", `sleep "$WAIT"`, "板仓分叉", "ERROR",
 		"OUSHENG_CTX_MAX", "cache", "换代", "ctx",
-		"OUSHENG_TOKEN_BUDGET", "token 累计", "预算尽"} {
+		"OUSHENG_TOKEN_BUDGET", "token 累计", "预算尽",
+		"§51", "sync 并推进", "直至完成", "顺序、批量、节奏你定"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("cruise-loop.sh 缺护栏 %q", want)
+		}
+	}
+	// §51 绳牛裁决锁：prompt = 一句话方向，禁清单注入/工作方式指令（替牛排活 =
+	// 绳做牛活；2026-11-16 pm 实证：一句话 session 全清四夜 111 轮的活）。
+	for _, banned := range []string{"处理以下清单", "一次一轮", "活单: "} {
+		if strings.Contains(s, banned) {
+			t.Fatalf("cruise-loop.sh 违 §51 绳牛裁决（禁替牛排活）：%q", banned)
 		}
 	}
 	if strings.Contains(s, `--prompt "`) || strings.Contains(s, "--prompt \\") {
@@ -239,7 +247,7 @@ func TestAgentsMDProtocolGuards(t *testing.T) {
 	}
 	s := string(b)
 	for _, want := range []string{"引用核实", "work show", "转述不是权威", "pm 写板纪律", "单写源",
-		"cruise ignite", "pm away", "纯记账轮"} {
+		"cruise ignite", "pm away", "纯记账轮", "sync 并推进", "清单不注入"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("agents.md 缺协议护栏 %q", want)
 		}

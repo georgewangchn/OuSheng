@@ -14,8 +14,8 @@
 - **A 值班哨兵（session 内自循环，mlake T-061 实证）**：适合观测/巡检/跨系统上报类轻活。一个 session 内 `干活 → sleep ~3600 → sync → 下一轮 → evidence 记本轮（注明第 N 轮/时长）`；发现他系统问题立即上绳（bug report 指向归属系统）；**上下文近上限时 `handover save` + 自终结**，单留绳上待次日/runner 接力——哨兵不死撑，记忆上绳。
 - **会话代际（续代省重构，换代保精简）**：收尾 `handover save --system <系统> --actor <我>`（**不带** --session——sid 是基础设施地址，由 plugin/runner 自动补记，agent 不需要知道自己的 session id）；**快照首行 = 一句话人话摘要**（这轮干了啥/卡在哪，pm 直读——不写座位黑话，2026-11-12 档案 §37）；下轮 `cruise plan` 给 `attach:` 行即续同代（opencode run -s 自动接续）。**引用核实（§46，05:30 误传教训）**：引用他人 handover/evidence 里的「窗/截止/时点/上产」类事实时，先 `work show <id>` 回卡核实——快照是转述不是权威。需要 pm 答复的问题写成单内 evidence `Q:` 条目**攒批**，不逐条追问、不在会话里口头问 pm——pm 在 web 驾驶舱批量回复/拍板。
 - **在场度分叉**（`ousheng pm status` 可查）：present=问完等（分钟级回复可期）；away=**遇 human 门立即挂起转下一活，绝不空等**，问题按 Q: 攒批晨间处理。默认按 away 行事（未声明=悲观默认）。
-- **B 外层 runner（cruise-loop.sh，实现类重活）**：每轮 `cruise plan`（优先序 恢复>领活>反应>新提）→ 一轮干净 session → 收尾 save+sync；三闸（时窗/轮顶/idle）硬顶。
-铁律（两形态通用）：①等不空转——blocked 就去清单下一项，不轮询不 spin；②自提单只许 task/bug/test/notice，feature/requirement 是 human 门（动土先起 design + 拍板）；自提正文必须含第一性推演与反事实推演过程；③冲突先协商（对方单上 evidence 陈述），协商不果按宪章投票（≥2 个不同系统计法定人数，结果落 evidence），平票或触线即挂起——**挂起是巡航的正确终局，不是失败**；④C2/拍板门永不绕过，挂起等 human；⑤每轮收尾 `handover save` + `sync`；⑥无活即停（cruise: idle）——为跑而造活是病。
+- **B 外层 runner（cruise-loop.sh，实现类重活；§51 绳牛裁决 2026-11-16）**：驱动器每轮只给**一句话方向**——「sync 并推进：拉取看板，完成本域所有能推进的任务，直至完成/无活/触 human 门挂起」。**活自己拉**（`context me` / `work list`），顺序、批量、节奏自定——一轮 = 一个 session 推进到自然结束，不是一张卡。`cruise plan` 是驱动器的 spawn 闸（idle/分叉/环境机械探测）与 pm 晨检视图，**清单不注入模型**（替牛排活 = 绳做牛活，11-16 pm 一句话 session 全清四夜 111 轮的活实锤）。三闸（时窗/轮顶/idle）+ ctx 水位 + token 预算 = PM 治理闸，不是工作方式。
+铁律（两形态通用）：①blocked 不是终点——板上看别的活继续推进，全推进完再挂起，不轮询不 spin；②自提单只许 task/bug/test/notice，feature/requirement 是 human 门（动土先起 design + 拍板）；自提正文必须含第一性推演与反事实推演过程；③冲突先协商（对方单上 evidence 陈述），协商不果按宪章投票（≥2 个不同系统计法定人数，结果落 evidence），平票或触线即挂起——**挂起是巡航的正确终局，不是失败**；④C2/拍板门永不绕过，挂起等 human；⑤收尾 `handover save` + `sync`；⑥无活即停（cruise: idle）——为跑而造活是病。
 
 **上绳边界**：上绳服务于**跨主体协作**。执行中发现的**自域**缺陷（同系统、自己顺手修、不触对外接口）→ 记入当前任务的证据/进度（`evidence add <当前单>`），**不另开单**；跨系统 / 跨 agent / 需人拍板 / 触及对外契约 → **必须上绳**（`bug report` 指定归属系统，C2 门不豁免）。同步：plugin 在会话启动与空闲时自动收口（有未推/落后才动网；分叉或失败大声报错，需人处理）。
 

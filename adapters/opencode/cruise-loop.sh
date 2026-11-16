@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cruise-loop.sh —— 巡航驱动器 v3（档案 §34 P0 代际 / §42 三修 / §46 并回 v5）
+# cruise-loop.sh —— 巡航驱动器 v4（档案 §34 P0 代际 / §42 三修 / §46 并回 v5 / §51 绳牛裁决）
 # 用法: ./scripts/cruise-loop.sh <kanban工作区> <actor> <system> <代码仓> [轮顶=20] [wait秒=600] [时窗=22:00-07:00] [截止='YYYY-MM-DD HH:MM']
 # 环境旋钮: OUSHENG_BIN / OC_BIN / OC_ARGS（全局透传）
 #   OC_MODEL_WAIT  = 值守/轻活模型（如 deepseek/deepseek-flash）——默认不传=全局默认
@@ -165,13 +165,12 @@ while :; do
   # 并发槽（§42 三修③）：opencode 轮是资源大头——取槽才跑，跑完即释。
   acquire_slot
 
-  # L0 轮头（档案 §37）：round 号 + 活单 ID 进 --title 与 prompt 首行。
+  # §51 绳牛裁决（2026-11-16 pm 实证复盘：一个 session 一句话全清四夜 111 轮的活）：
+  # prompt = 一句话方向，不是清单。plan 正文只作驱动器闸（idle/分叉/环境）与 PM 晨检
+  # 视图，**不再注入模型**——顺序/批量/节奏是牛的事，绳只给方向和门（写路径硬门）。
   # 参数面契约（opencode v2.2.5 实测）：消息是位置参数，无 --prompt flag。
-  IDS=$(echo "$PLAN" | grep -oE '(BUG|FEAT|TASK|T|REQ|N|TEST)-[0-9]+' | sort -u | head -6 | tr '\n' ' ')
-  ( cd "$REPO" && $OC run $OCARGS $OC_ARGS --format json --title "巡航 r${run} ${IDS:-无} @${ACTOR}" "巡航 round $run | 活单: ${IDS:-无} | 座位 $ACTOR/$SYSTEM
-巡航执行（严格按 AGENTS.md 巡航协议节）：处理以下清单，一次一轮，触 human 门即挂起转下一项；收尾 ousheng handover save --system ${SYSTEM} --actor ${ACTOR}（首行=一句话人话摘要，pm 可读）后 ousheng sync。
-
-$PLAN" ) > "$ROUNDOUT" 2>>"$LOOPERR" || echo "[cruise] opencode 非零退出，继续下一轮" >&2
+  PROMPT_MSG="sync 并推进（座位 ${ACTOR}/${SYSTEM}）：拉取看板，完成本域所有能推进的任务——顺序、批量、节奏你定，直至完成、无活、或触 human 门挂起（门在写路径，见 AGENTS.md 巡航协议节）。收尾 ousheng handover save --system ${SYSTEM} --actor ${ACTOR}（首行=一句话人话摘要）后 ousheng sync。"
+  ( cd "$REPO" && $OC run $OCARGS $OC_ARGS --format json --title "巡航 r${run} @${ACTOR}/${SYSTEM}" "$PROMPT_MSG" ) > "$ROUNDOUT" 2>>"$LOOPERR" || echo "[cruise] opencode 非零退出，继续下一轮" >&2
 
   # 驱动器补记本代 session id（正文是 agent 的事，指针是驱动器的事）
   NEWSID=$(grep -oE '"sessionID":"[^"]+"' "$ROUNDOUT" | head -1 | cut -d'"' -f4)
