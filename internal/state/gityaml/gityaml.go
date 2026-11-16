@@ -112,19 +112,25 @@ func (r *Repo) ListDesigns() ([]model.DesignInfo, error) {
 		topic := e.Name()
 		raw, err := os.ReadFile(filepath.Join(dir, topic, "design.md"))
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("designs/%s: missing design.md", topic)
+			// 读面 best-effort（§37 记档判据「损坏 design 卡死读面」——sim50 同日
+			// 实锤统一收口）：缺 design.md 的目录（克隆中断/手误）跳过 + 警告，
+			// 不再瘫死 work list/cruise plan 全读面。
+			fmt.Fprintf(os.Stderr, "[warn] 跳过残缺设计目录 designs/%s（缺 design.md）\n", topic)
+			continue
 		}
 		if err != nil {
-			return nil, err
+			fmt.Fprintf(os.Stderr, "[warn] 跳过不可读设计目录 designs/%s（%v）\n", topic, err)
+			continue
 		}
 		d, _, err := model.DecodeDesignDoc(raw)
 		if err != nil {
-			return nil, fmt.Errorf("designs/%s/design.md: %w", topic, err)
+			fmt.Fprintf(os.Stderr, "[warn] 跳过损坏设计文档 designs/%s/design.md（%v）——修复 frontmatter 后重读\n", topic, err)
+			continue
 		}
 		info := model.DesignInfo{Topic: topic, Design: d}
 		speakers, ok, err := latestRoundSpeakers(filepath.Join(dir, topic))
 		if err != nil {
-			return nil, err
+			fmt.Fprintf(os.Stderr, "[warn] designs/%s 轮次解析降级（%v）\n", topic, err)
 		}
 		if ok {
 			info.RoundExists = true
@@ -426,7 +432,11 @@ func (r *Repo) ListActors() ([]model.ActorFile, error) {
 		}
 		f, err := r.GetActor(strings.TrimSuffix(e.Name(), ".yaml"))
 		if err != nil {
-			return nil, err
+			// 读面 best-effort（§40 记档「再发一次即做」，sim50 实锤同日）：坏注册
+			// 记录跳过 + 响亮警告——一张坏 actor 不再瘫死 team list/context 全读面
+			//（§40 连带事故实锤过 merge 丢字段 → ValidateActor 炸 → 读面全卡）。
+			fmt.Fprintf(os.Stderr, "[warn] 跳过损坏注册记录 actors/%s（%v）——修复字段后重读\n", e.Name(), err)
+			continue
 		}
 		out = append(out, f)
 	}
@@ -486,7 +496,12 @@ func (r *Repo) ListWorkItems() ([]model.WorkItem, error) {
 		}
 		w, err := model.DecodeWorkItem(b)
 		if err != nil {
-			return nil, fmt.Errorf("work/%s: %w", e.Name(), err)
+			// 读面 best-effort（sim50 复测实锤 2026-11-16，§37/§40 记档判据触发）：
+			// 分叉两侧各自发号 → rebase 撞号把冲突标记写进卡面 → 一张坏卡瘫死
+			// todo/status/report/plan/web 全读面（§48 停摆的读面变体）。坏卡跳过 +
+			// stderr 响亮警告（可见不静默），写路径（GetWorkItem 单卡）仍 fail-loud。
+			fmt.Fprintf(os.Stderr, "[warn] 跳过损坏工作卡 work/%s（%v）——收敛/diverge 处置后修复或重建\n", e.Name(), err)
+			continue
 		}
 		out = append(out, w)
 	}

@@ -89,21 +89,35 @@ func TestListDesignsNoRounds(t *testing.T) {
 	}
 }
 
+// 2026-11-16 判据触发改判（sim50 复测实锤，档案 §37/§40 记档「真实坏文件卡死
+// 读面事故再统一」）：读面 best-effort 取代整体报错——坏 design 跳过 + 警告，
+// 其余 topic 继续可读（一张坏文件不再瘫死 work list/cruise plan 全读面）。
+// 锁随判据翻新：断言跳过（好 topic 仍在清单）而非整体 error。
 func TestListDesignsMissingDesignMD(t *testing.T) {
 	r := newDesignRepo(t)
+	writeDesign(t, r.Dir, "good", "status: draft\nowner: a\n", "b\n")
 	if err := os.MkdirAll(filepath.Join(r.Dir, ".ousheng", "designs", "broken"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.ListDesigns(); err == nil || !strings.Contains(err.Error(), "missing design.md") {
-		t.Fatalf("topic dir without design.md must error, got %v", err)
+	ds, err := r.ListDesigns()
+	if err != nil {
+		t.Fatalf("残缺 topic 目录应跳过不瘫读面: %v", err)
+	}
+	if len(ds) != 1 || ds[0].Topic != "good" {
+		t.Fatalf("好 topic 必须仍在清单: %+v", ds)
 	}
 }
 
 func TestListDesignsBadFrontmatter(t *testing.T) {
 	r := newDesignRepo(t)
+	writeDesign(t, r.Dir, "good", "status: draft\nowner: a\n", "b\n")
 	writeDesign(t, r.Dir, "bad", "status: nope\nowner: a\n", "b\n")
-	if _, err := r.ListDesigns(); err == nil || !strings.Contains(err.Error(), "invalid design status") {
-		t.Fatalf("corrupt frontmatter must error loudly, got %v", err)
+	ds, err := r.ListDesigns()
+	if err != nil {
+		t.Fatalf("坏 frontmatter 应跳过不瘫读面: %v", err)
+	}
+	if len(ds) != 1 || ds[0].Topic != "good" {
+		t.Fatalf("好 topic 必须仍在清单: %+v", ds)
 	}
 }
 
