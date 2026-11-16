@@ -7,6 +7,8 @@
 #     （兼容 v5 命名：OC_DEV_MODEL/OC_FLASH_MODEL 作 fallback）
 #   CONCURRENCY_MAX = 同机并发上限（默认 2，§42 三修③信号量）
 #   CRUISE_EXTRA   = plan 透传（如 --allow-new）
+#   OUSHENG_TOKEN_BUDGET = 本窗口 token 硬预算（cache.read 累计，默认 0=关——
+#     §50-D：deepseek 大半账单实锤后上；v0.3.6 三修已灭大头，此闸是第二道保险）
 # 2026-11-14 §46 并回 v5（pm 实栈迭代）：吸收两件——①flock 座位单实例（BUG-179 根治：
 #   同座位同 repo 只许 1 实例，防双开竞写/双 agent 同卡）②截止参数（window 外的硬截止，
 #   人到点自停）。canonical 原有退避/信号量/轮头/横幅/attach 全部保留。
@@ -19,7 +21,7 @@ EXTRA=${CRUISE_EXTRA:-}
 OC_ARGS=${OC_ARGS:-}
 OC_MODEL_CODE=${OC_MODEL_CODE:-${OC_DEV_MODEL:-}}
 OC_MODEL_WAIT=${OC_MODEL_WAIT:-${OC_FLASH_MODEL:-}}
-run=0; idle=0; planfail=0; SAME=0; GAP_EXTRA=0
+run=0; idle=0; planfail=0; SAME=0; GAP_EXTRA=0; TOK=0
 
 # --- BUG-179 根治（§46 并回）：座位级 flock 单实例 ---
 # 同座位同 repo 只许 1 实例。标准防重入：外层 flock 拿锁（fd 保持）exec 自身，
@@ -183,6 +185,16 @@ $PLAN" ) > "$ROUNDOUT" 2>>"$LOOPERR" || echo "[cruise] opencode 非零退出，�
   CTX_MAX=${OUSHENG_CTX_MAX:-150000}
   CTX=$(grep -oE '"cache":\{"read":[0-9]+' "$ROUNDOUT" 2>/dev/null | tail -1 | grep -oE '[0-9]+')
   if [ -n "$CTX" ] && [ "$CTX" -gt 0 ] 2>/dev/null; then
+    # §50-D token 预算闸：每轮累计 cache.read（=会话上下文总长），超预算即停。
+    # 计量源与 §49 水位门同源；口径=token 量不折价（模型单价差留给晨报人工判读）。
+    TOK=$((TOK+CTX))
+    BUDGET=${OUSHENG_TOKEN_BUDGET:-0}
+    echo "[cruise] token 累计 ${TOK}（本轮 ctx ${CTX}；预算 ${BUDGET}$( [ "$BUDGET" = "0" ] && echo =关 )）"
+    if [ "$BUDGET" -gt 0 ] 2>/dev/null && [ "$TOK" -gt "$BUDGET" ]; then
+      echo "[cruise] token 累计 ${TOK} > 预算 ${BUDGET}——预算尽，停（晨报 cruise report 复盘）"
+      release_slot
+      break
+    fi
     if [ "$CTX_MAX" -gt 0 ] 2>/dev/null && [ "$CTX" -gt "$CTX_MAX" ] 2>/dev/null; then
       echo "[cruise] ctx ${CTX} > ${CTX_MAX} → 换代（handover 已落盘，下轮新代）"
       "$OUSHENG" handover attach --dir "$WS" --system "$SYSTEM" --actor "$ACTOR" --session "" 2>/dev/null || true
