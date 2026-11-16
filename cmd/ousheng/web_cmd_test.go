@@ -646,8 +646,9 @@ func TestWebSyncRetry(t *testing.T) {
 		t.Fatalf("静止态真分叉：重试后 banner 必须依旧（不吞真信号）")
 	}
 	// 人拍板收口（真实 runbook = 逐卡决；fixture 数据一次性 → 机械捷径 reset，
-	// 仅证明「收口后 banner 消失」，不代表取终态手法）
-	run(dir, "pull", "-q", "--rebase", "origin", "main")
+	// 仅证明「收口后 banner 消失」，不代表取终态手法）。pull 撞冲突（两侧同名卡
+	// + activity 同文件）是预期中间态——宽容执行后 abort→reset 收口。
+	_ = exec.Command("git", "-C", dir, "pull", "-q", "--rebase", "origin", "main").Run()
 	run(dir, "rebase", "--abort")
 	run(dir, "reset", "-q", "--hard", "origin/main")
 	run(dir, "push", "-q", "origin", "main")
