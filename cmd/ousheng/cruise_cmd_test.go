@@ -174,7 +174,9 @@ func TestCruiseStatus(t *testing.T) {
 	}
 }
 
-// TestAdapterCruiseAsset：默认不装；--cruise 写 scripts/cruise-loop.sh（可执行）。
+// TestAdapterCruiseAsset：默认不装；--cruise 写 scripts/cruise-loop.sh（可执行）
+// + systemd 模板（§50-B 点火载体）；指引含 cruise ignite、不含 cron 样例
+// （§45 取消定时自启——文档/指引漂移锁）。
 func TestAdapterCruiseAsset(t *testing.T) {
 	repo, ws := seatFor(t)
 	if _, err := os.Stat(filepath.Join(repo, "scripts", "cruise-loop.sh")); err == nil {
@@ -190,9 +192,23 @@ func TestAdapterCruiseAsset(t *testing.T) {
 	if fi.Mode()&0o111 == 0 {
 		t.Fatalf("runner must be executable")
 	}
-	// doctor 不受影响（可选资产不进检查面）。
+	// systemd 模板随资产分发；StartLimit 在 [Unit] 节（A 机实锤：放 [Service]
+	// 被 systemd 静默忽略——限流失效）。
+	svc, err := os.ReadFile(filepath.Join(repo, "scripts", "ousheng-cruise@.service"))
+	if err != nil {
+		t.Fatalf("--cruise must write systemd template: %v", err)
+	}
+	s := string(svc)
+	if !strings.Contains(s, "StartLimitIntervalSec=3600") ||
+		strings.Index(s, "StartLimitIntervalSec") > strings.Index(s, "[Service]") {
+		t.Fatalf("StartLimit* must live in [Unit] section:\n%s", s)
+	}
+	// doctor 不受影响（可选资产不装不查；装了=canonical 一致 PASS——§50-C）。
 	if out := mustRun(t, repo, "doctor"); strings.Contains(out, "FAIL") {
 		t.Fatalf("optional asset must not break doctor:\n%s", out)
+	}
+	if out := mustRun(t, repo, "doctor"); !strings.Contains(out, "巡航驱动器 = canonical") {
+		t.Fatalf("installed driver must PASS canonical check:\n%s", out)
 	}
 }
 

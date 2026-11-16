@@ -8,12 +8,17 @@
 #   systemctl daemon-reload && systemctl enable --now ousheng-cruise@<actor>
 #
 # 语义：Restart=on-failure + 退避——驱动器退出码非 0（plan 连败/环境错）自动拉起；
-# 轮顶/时窗/idle 的正常停机（exit 0）不拉起，下个时窗由 cron/人工再启或改用
-# RestartForceExitStatus 定制。日志 journalctl -u ousheng-cruise@<actor> -f
+# 轮顶/时窗/idle 的正常停机（exit 0）不拉起，下个时窗人工点火（§45 启动=人：
+# §50-B 唯一入口 = ousheng cruise ignite --seat <actor> / web 驾驶舱按钮）。
+# 日志 journalctl -u ousheng-cruise@<actor> -f
 [Unit]
 Description=OuSheng cruise driver (%i)
 After=network-online.target
 Wants=network-online.target
+# 速率限制属 Unit 节（放 Service 节 systemd 报 Unknown key 静默忽略——
+# 2026-11-16 A 机实锤：StartLimitIntervalSec 在 [Service] 全舰队限流失效）。
+StartLimitIntervalSec=3600
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -21,8 +26,6 @@ EnvironmentFile=/etc/default/ousheng-cruise-%i
 ExecStart=/bin/bash -c 'exec "$CRUISE_REPO"/scripts/cruise-loop.sh $OUSHENG_CRUISE_ARGS'
 Restart=on-failure
 RestartSec=120
-StartLimitIntervalSec=3600
-StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

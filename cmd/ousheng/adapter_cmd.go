@@ -181,6 +181,8 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "gitignore     .opencode/.gitignore  %s\n", st)
 
 	// 巡航驱动器（可选资产，巡航模式 §3.4）：外层定时器驱动，默认不装。
+	// §45/§50-B：启动 = 人，唯一点火入口 = cruise ignite（驾驶舱按钮/CLI）——
+	// cron 定时样例已删（11-13/11-14 两夜定时自启事故的公共放大器）。
 	if *cruiseFlag {
 		cruisePath := filepath.Join(dir, "scripts", "cruise-loop.sh")
 		if err := os.MkdirAll(filepath.Dir(cruisePath), 0o755); err != nil {
@@ -191,10 +193,16 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "cruise        scripts/cruise-loop.sh  written（三闸见脚本头注释）\n")
-		fmt.Fprintf(stdout, "  挂载样例（二选一；宪章 .ousheng/designs/cruise/ 先立再启）：\n")
-		fmt.Fprintf(stdout, "    cron ：0 22 * * * %s/scripts/cruise-loop.sh <kanban工作区> <actor> %s 20 600 22:00-07:00\n", dir, dir)
-		fmt.Fprintf(stdout, "    手动：%s/scripts/cruise-loop.sh <kanban工作区> <actor> %s 5 300 现在-明早\n", dir, dir)
+		svcPath := filepath.Join(dir, "scripts", "ousheng-cruise@.service")
+		if err := os.WriteFile(svcPath, opencode.CruiseServiceUnit, 0o644); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "cruise        scripts/cruise-loop.sh + scripts/ousheng-cruise@.service  written\n")
+		fmt.Fprintf(stdout, "  挂载（每座位一次；宪章 .ousheng/designs/cruise/ 先立再启）：\n")
+		fmt.Fprintf(stdout, "    1. cp %s/scripts/ousheng-cruise@.service /etc/systemd/system/ && systemctl daemon-reload\n", dir)
+		fmt.Fprintf(stdout, "    2. 建 /etc/default/ousheng-cruise-<actor>：CRUISE_REPO=%s + OUSHENG_CRUISE_ARGS=\"<kanban工作区> <actor> <system> %s 20 600 22:00-07:00\"\n", dir, dir)
+		fmt.Fprintf(stdout, "    3. 点火：ousheng cruise ignite --seat <actor>（或 web 驾驶舱按钮）——唯一入口，禁 pm 会话手动巡航（§50-A 死法）\n")
 	}
 
 	// 5. AGENTS.md：机器中立协议段，标记段幂等替换，段外内容不触碰。

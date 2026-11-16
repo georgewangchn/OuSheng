@@ -51,6 +51,14 @@ var PackageV1JSON []byte
 //go:embed cruise-loop.sh
 var CruiseLoopSh []byte
 
+// CruiseServiceUnit 是 systemd 模板（档案 §34-D：监督 + journal 审计 +
+// Restart 自愈；§50-B 点火面的执行载体）。随 --cruise 写出为仓级
+// scripts/ousheng-cruise@.service，安装到 /etc/systemd/system 后由
+// `cruise ignite` 经 systemctl 拉起。
+//
+//go:embed ousheng-cruise@.service
+var CruiseServiceUnit []byte
+
 // AgentsMD 是 AGENTS.md 的受管协议段（机器中立：不含路径/身份/环境变量，
 // 机器参数只活在 .opencode/ousheng.json）。adapter install 以
 // <!-- ousheng:begin --> / <!-- ousheng:end --> 标记幂等写入/替换。

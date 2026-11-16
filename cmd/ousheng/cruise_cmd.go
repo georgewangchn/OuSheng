@@ -19,6 +19,7 @@ import (
 //
 //	ousheng cruise plan   [--actor A] [--allow-new] [--wait N]  下一活（活到即醒）
 //	ousheng cruise status [--hours N] [--stall-hours N]        巡航态 + 晨间简报
+//	ousheng cruise ignite --seat A [--stop]                    点火/停火唯一入口（§50-B）
 //
 // 铁律：绳不代牛跑——plan 只产出指令源，执行归 harness/驱动器；status 纯投影。
 // human 门不豁免：巡航遇 C2/拍板 = 挂起等天亮（status 列出），不是绕过。
@@ -38,6 +39,8 @@ func cmdCruise(args []string, stdout, stderr io.Writer) int {
 		return cruiseHeartbeat(args[1:], stdout, stderr)
 	case "dispatch":
 		return cruiseDispatch(args[1:], stdout, stderr)
+	case "ignite":
+		return cruiseIgnite(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown cruise subcommand: %s\n", args[0])
 		return 2
