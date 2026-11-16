@@ -700,6 +700,7 @@ func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 
 type detailData struct {
 	D          *context.WorkItemDetail
+	Guidance   []string
 	Me         string
 	Actions    []webAction
 	Actors     []webActorOpt
@@ -707,6 +708,56 @@ type detailData struct {
 	TypeZh     string
 	Overdue    bool
 	ContractZh string
+}
+
+// webGuidance：按状态×事实的**固定处理杠杆**（§24「状态机知识留在产品不转嫁
+// PM」补齐——pm 2026-11-16 反馈：记录没有建议、不知道怎么做）。纯规则映射：
+// 一句事实 + 编号可选项，零优先级话术（铁律 A1：方向盘刻度，非替 pm 决策；
+// 决定权恒在 pm）。来源全部是卡面既有事实，不生成语义判断。
+func webGuidance(d *context.WorkItemDetail) []string {
+	var g []string
+	openDeps := ""
+	for _, dep := range d.Deps {
+		if model.WorkItemOpen(model.WorkStatus(dep.Status)) {
+			if openDeps != "" {
+				openDeps += " "
+			}
+			openDeps += dep.ID
+		}
+	}
+	switch d.Status {
+	case model.StatusBlocked:
+		if len(d.DependsOn) == 0 {
+			g = append(g, "卡住但没写「在等什么」——先看下方描述/证据里的解除路径；可选：① 确认路径后改回执行中推进 ② 不做了就撤单 ③ 在卡面补依赖后重新卡住")
+		} else if openDeps != "" {
+			g = append(g, "在等 "+openDeps+" 完结——依赖关掉后即可继续；要提前：① 去依赖卡催办（指派/批注）② 解除或调整依赖")
+		} else {
+			g = append(g, "依赖已全部完结但仍标记卡住——大概率忘了解锁：确认后改回执行中；若真有外部等待（等窗口/等第三方），在描述写明在等什么再保持卡住")
+		}
+	case model.StatusReady:
+		if d.Assignee == "" {
+			g = append(g, "无人负责——① 下方指派框指定执行座位 ② 或留在待认领池等座位自领（巡航会领）")
+		} else {
+			g = append(g, "已指派未开工——① 去该座位点火（巡航页按钮）或在会话说一句开工 ② 人不合适就下方改派")
+		}
+	case model.StatusBacklog:
+		g = append(g, "待排期——补齐描述里的验收标准后转待开工；不做了直接撤单（ready 起查信息完备）")
+	case model.StatusDoing:
+		g = append(g, "进行中——长时间无新证据会在巡航状态曝光为空转嫌疑；真卡住就转 blocked 并写明在等什么（可被仲裁看见）")
+	case model.StatusTesting:
+		g = append(g, "待测/验收——tester 的待测池能看到它；需要你验收的部分（如上产窗口）补 evidence 或 Q: 批注")
+	case model.StatusDone:
+		if d.Progress != nil && d.Progress.Value > 0 && d.Progress.Value < 1 {
+			g = append(g, fmt.Sprintf("已完结但进度停在 %.0f%%——① 提醒执行者补报到满（progress report）② 确认是有意留尾巴后不管", d.Progress.Value*100))
+		}
+	}
+	for i := len(d.Evidence) - 1; i >= 0; i-- {
+		if n := strings.TrimSpace(d.Evidence[i].Note); strings.HasPrefix(n, "Q:") {
+			g = append(g, "证据链里有等你回答的 Q:（最新一条在下方证据区）——回复方式：在描述追加批注 / 会话里答 / 调整验收标准")
+			break
+		}
+	}
+	return g
 }
 
 type webActorOpt struct {
@@ -734,6 +785,7 @@ func (s *webServer) handleDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	dd := detailData{
 		D:        d,
+		Guidance: webGuidance(d),
 		Me:       s.me,
 		Actions:  webNextActions(d.Status),
 		Actors:   actors,
@@ -1222,7 +1274,7 @@ pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12
 {{end}}
 {{range .Suggest.Blocked}}<div class="q">
 <span class="who"><a href="/work/{{.Item.ID}}" style="color:inherit">{{.Item.ID}}</a> {{.Item.Title}}</span>
-<span class="sub">{{if ge .Days 1}}已卡 {{.Days}} 天{{else if eq .Days 0}}今天刚卡住{{else}}已卡住（时间未知）{{end}}{{if .Note}} · 最新：{{.Note}}{{end}}</span>
+<span class="sub">{{if ge .Days 1}}已卡 {{.Days}} 天{{else if eq .Days 0}}今天刚卡住{{else}}已卡住（时间未知）{{end}}{{if .Note}} · 最新：{{.Note}}{{end}} · 可做：点进详情看「💡 怎么处理」</span>
 <a href="/work/{{.Item.ID}}" style="font-size:12.5px;color:var(--acc)">看详情 →</a>
 </div>{{end}}
 {{if .Suggest.Unowned}}
@@ -1424,6 +1476,11 @@ pre.desc{background:var(--card);border:1px solid var(--line);border-radius:10px;
 <form method="post" action="/work/{{.D.ID}}/ack"><button>确认通过（以 {{.Me}} 身份）</button></form>
 </div>
 {{end}}
+
+{{if .Guidance}}<div class="warnbox" style="background:#f0f7ff;border-color:#a8c8f0">
+<div class="why" style="color:#0969da">💡 怎么处理（按状态给的固定选项——事实来自卡面，决定权在你）</div>
+{{range .Guidance}}<div style="font-size:13.5px;margin:4px 0;line-height:1.7">{{.}}</div>{{end}}
+</div>{{end}}
 
 <div class="box"><h3>流转状态</h3>
 <div class="oprow">

@@ -565,3 +565,48 @@ func TestWebSuggestTiering(t *testing.T) {
 		t.Fatalf("备忘应折叠展示（details + 计数）:\n%s", page)
 	}
 }
+
+// TestWebDetailGuidance（pm 2026-11-16 反馈锁：记录没有建议不知道怎么做）：
+// 详情页「💡 怎么处理」= 按状态×事实的固定杠杆（纯规则映射，零语义排序——
+// 铁律 A1：方向盘刻度非替 pm 决策）。blocked 无依赖→「没写在等什么」；
+// blocked 有未关依赖→「在等 <ID>」；done 进度未满→「补报」；Q:→回复指引。
+func TestWebDetailGuidance(t *testing.T) {
+	dir := t.TempDir()
+	webSetup(t, dir)
+	// T-002：blocked 无依赖（仲裁形态——A 机 T-196 同型）。
+	mustRun(t, dir, "todo", "卡住无依赖", "--system", "datax-server", "--actor", "george")
+	mustRun(t, dir, "work", "assign", "T-002", "--assignee", "george", "--role", "dev", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-002", "--status", "ready", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-002", "--status", "doing", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-002", "--status", "blocked", "--actor", "george")
+	d := webGet(t, dir, "/work/T-002")
+	for _, want := range []string{"怎么处理", "没写「在等什么」", "撤单"} {
+		if !strings.Contains(d, want) {
+			t.Fatalf("blocked-无依赖 detail 缺指引 %q", want)
+		}
+	}
+	// T-003：blocked 依赖未关的 T-004。
+	mustRun(t, dir, "todo", "卡住等他", "--system", "datax-server", "--actor", "george")
+	mustRun(t, dir, "todo", "被等的人", "--system", "datax-server", "--actor", "george")
+	mustRun(t, dir, "work", "assign", "T-003", "--assignee", "george", "--role", "dev", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-003", "--status", "ready", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-003", "--status", "doing", "--actor", "george")
+	p := filepath.Join(dir, ".ousheng", "work", "T-003.yaml")
+	b, _ := os.ReadFile(p)
+	os.WriteFile(p, []byte(strings.Replace(string(b), "status: doing", "status: doing\ndepends_on:\n    - T-004", 1)), 0o644)
+	mustRun(t, dir, "work", "update", "T-003", "--status", "blocked", "--actor", "george")
+	d = webGet(t, dir, "/work/T-003")
+	if !strings.Contains(d, "在等 T-004") || !strings.Contains(d, "催办") {
+		t.Fatalf("blocked-有依赖 detail 缺指引:\n%s", d)
+	}
+	// T-001：done 进度 70% + Q: evidence。
+	mustRun(t, dir, "work", "update", "T-001", "--status", "ready", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "doing", "--actor", "george")
+	mustRun(t, dir, "progress", "report", "T-001", "--value", "0.7", "--actor", "george", "--basis", "manual")
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x", "--note", "Q: 上产窗口定几点？", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "done", "--actor", "george")
+	d = webGet(t, dir, "/work/T-001")
+	if !strings.Contains(d, "补报") || !strings.Contains(d, "Q:") {
+		t.Fatalf("done-进度未满/Q: detail 缺指引:\n%s", d)
+	}
+}
