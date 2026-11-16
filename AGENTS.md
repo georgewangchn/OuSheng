@@ -17,14 +17,13 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. 定位：**牵�
 ## Directory map
 
 - `docs/` — design docs (Chinese)；导读见 `docs/README.md`
-  - **`OuSheng_全网操作手册.md` — 唯一权威运营入口**（PM 日常操作全在此；其余文档是设计与档案）
+- **`操作手册.md`（仓库根）— 唯一权威运营入口**（PM 日常操作全在此；其余文档是设计与档案）
   - `设计裁决与推演记录.md` — 裁决档案（AGENTS.md 的理由层，§1–§51）
   - `多人AI协作机制_方案基石.md` — design cornerstone (principles, control-theory mapping)
   - 权威方案：`OuSheng_工程本体化改造方案_v0.3.md` / `OuSheng_共识层设计方案_v0.4.md` / `OuSheng_巡航模式设计方案.md`（含 §51 绳牛裁决修正节）
   - 协议层（被 adapter 分发引用，路径不可动）：`board-protocol.md` / `context-protocol.md` / `state-store.md` / `engineering-model.md`
-  - 指南：`quick-start.md` / `多机多窗口使用指南.md`（adapter_test 一致性锁依赖）/ `reference-node.md`
-  - `archive/` — 已执行专题设计 + 历史复盘 + 宣传稿（只读存档）
-  - `superpowers/` — 早期完整设计方案与阶段计划（历史规格）
+  - 指南：`quick-start.md` / `多机多窗口使用指南.md`（adapter_test 一致性锁依赖）
+  - `archive/` — 已执行专题设计 + 历史复盘 + 宣传稿 + reference-node 示例 + `superpowers/` 早期规格（只读存档）
 - `内容/` — WeChat public account articles (Chinese dir name, easy to mistype)
 - `assets/logo/`, `assets/cover/` — brand PNGs, versioned `v1`..`v9`. **Never delete older versions** — iteration history is intentional.
 - `.workbuddy/memory/` — date-stamped work logs (local, gitignored)
@@ -114,7 +113,7 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. 定位：**牵�
 
 ## When implementing code (phase 1, v1 layer — historical rules still binding)
 
-The plan in `docs/superpowers/plans/2026-08-09-阶段1-core-lib-cli.md` defines the rules; follow them exactly:
+The plan in `docs/archive/superpowers/plans/2026-08-09-阶段1-core-lib-cli.md` defines the rules; follow them exactly:
 
 - **Language**: Go 1.22+. Module path `ousheng` (imports like `ousheng/internal/card`).
 - **v1 已知边界**：v1 card 无 actor 注册表，C2 的 approver 无法验 human 类型——v1 场景下 C2 仅为非空检查；v0.3 已在写入路径（`workspace.validateRefs`）+ converge 审计双层强制。
