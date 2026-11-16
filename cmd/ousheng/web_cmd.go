@@ -16,6 +16,7 @@ package main
 // 无智能无自动化无建议，读走 memory per-request，前台命令非常驻。
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -41,14 +42,15 @@ import (
 
 func cmdWeb(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("web")
-	addr := fs.String("addr", "127.0.0.1:7878", "listen address (loopback only)")
+	addr := fs.String("addr", "127.0.0.1:7878", "listen address (loopback; 非 loopback 须 --token，档案 §50-E)")
+	token := fs.String("token", "", "非回环绑定时的访问令牌（必填；浏览器经 /login 输入，cookie 会话）")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
 	if code := rejectExtra(fs, stderr); code != 0 {
 		return code
 	}
-	if err := validateLoopback(*addr); err != nil {
+	if err := validateWebBind(*addr, *token); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
@@ -65,11 +67,14 @@ func cmdWeb(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	mux := withNoStore(newWebMux(dir))
+	mux := withNoStore(tokenAuth(newWebMux(dir), *token))
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if !isLoopbackAddr(*addr) {
+		fmt.Fprintln(stdout, "[warn] 非 loopback 绑定：拍板面已出本机——务必限内网/安全组白名单，token 泄露即拍板权泄露（档案 §50-E）")
 	}
 	fmt.Fprintf(stdout, "ousheng web → http://%s （工作区 %s，身份 %s；Ctrl-C 退出）\n", *addr, dir, me)
 	if err := http.Serve(ln, mux); err != nil {
@@ -88,9 +93,11 @@ func withNoStore(h http.Handler) http.Handler {
 	})
 }
 
-// validateLoopback：web 只绑回环地址（档案 §24 ③）。LAN 暴露 = §23 拍板身份
-// 在传输层重新开口（远程 curl POST = 无需借用即挥舞本机 me 的拍板权）。
-func validateLoopback(addr string) error {
+// validateWebBind（§50-E 修订，替代 §24 原 loopback 硬校验）：回环绑定免
+// token（「本机进程 = 本机 human」信任假设不变）；非回环绑定必须 --token——
+// fail-closed。判据实锤：驾驶舱因 loopback 手机不可达从未启用，PM 事实上经
+// 无鉴权 opencode web 操作（更差形态）——收紧为「token 或不暴露」二选一。
+func validateWebBind(addr, token string) error {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return fmt.Errorf("invalid --addr %q: %v", addr, err)
@@ -98,7 +105,58 @@ func validateLoopback(addr string) error {
 	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
 		return nil
 	}
-	return fmt.Errorf("--addr 必须为回环地址（127.0.0.1/[::1]/localhost）——web 只绑本机（档案 §24：LAN 暴露 = 拍板身份在传输层重新开口，远程访问需另行裁决带鉴权方案）")
+	if token == "" {
+		return fmt.Errorf("--addr %q 非回环绑定必须配 --token（档案 §50-E：loopback 免 token / 非 loopback 必 token，fail-closed）", addr)
+	}
+	return nil
+}
+
+// isLoopbackAddr：启动横幅判断用。
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+// webTokenCookie 是 /login 下发的会话 cookie 名。
+const webTokenCookie = "__ousheng_tok"
+
+// tokenAuth：token 非空时全站鉴权——恒时比较（防时序侧信道），cookie 会话，
+// /login 页输入令牌。token 空（回环形态）= 直通（§24 原语义不变）。
+func tokenAuth(h http.Handler, token string) http.Handler {
+	if token == "" {
+		return h
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			if r.Method == http.MethodPost {
+				in := r.PostFormValue("token")
+				if subtle.ConstantTimeCompare([]byte(in), []byte(token)) != 1 {
+					http.Error(w, "令牌不对", http.StatusUnauthorized)
+					return
+				}
+				http.SetCookie(w, &http.Cookie{
+					Name: webTokenCookie, Value: token, Path: "/",
+					HttpOnly: true, SameSite: http.SameSiteStrictMode,
+				})
+				http.Redirect(w, r, "/", http.StatusSeeOther)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			io.WriteString(w, `<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 · 㸸绳</title></head><body style="font-family:system-ui;display:flex;justify-content:center;padding-top:4rem"><form method="post" action="/login"><input type="password" name="token" placeholder="访问令牌" autofocus> <button>进入驾驶舱</button></form></body></html>`)
+			return
+		default:
+			if c, err := r.Cookie(webTokenCookie); err == nil &&
+				subtle.ConstantTimeCompare([]byte(c.Value), []byte(token)) == 1 {
+				h.ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "需要令牌（/login）", http.StatusUnauthorized)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +178,7 @@ func newWebMux(dir string) *http.ServeMux {
 	mux.HandleFunc("POST /work/create", s.guard(s.handleCreate))
 	mux.HandleFunc("GET /cruise", s.handleCruise)
 	mux.HandleFunc("POST /cruise/pm-presence", s.guard(s.handlePresenceSet))
+	mux.HandleFunc("POST /cruise/ignite", s.guard(s.handleCruiseIgnite))
 	mux.HandleFunc("GET /design/{topic}", s.handleDesignView)
 	mux.HandleFunc("POST /design/{topic}/decide", s.guard(s.handleDecide))
 	mux.HandleFunc("POST /design/{topic}/supersede", s.guard(s.handleSupersede))
@@ -702,8 +761,33 @@ type designDetailData struct {
 // handleDesignView：方案详情（正文 + 讨论轮次全览——PM 反馈「有方案但查看不了」）。
 // handlePresenceSet：驾驶舱一键在场度（POST + guard：Origin 门/loopback——
 // 评审 🟡 修复，state-changing GET 是 CSRF 面；身份恒 = 本机 me 且 human）。
-func (s *webServer) handlePresenceSet(w http.ResponseWriter, r *http.Request) {
-	state := r.FormValue("state")
+// handleCruiseIgnite：点火/停火（§50-B 唯一入口的 web 形态——handler 直调
+// CLI 派发器，四道前置门在 cruiseIgnite 函数体内，web 面结构上绕不过）。
+// 点火是人门（§45）：按钮 = 人在点；本面不做定时/自启。
+func (s *webServer) handleCruiseIgnite(w http.ResponseWriter, r *http.Request) {
+	seat := strings.TrimSpace(r.PostFormValue("seat"))
+	action := r.PostFormValue("action")
+	if seat == "" {
+		s.fail(w, http.StatusBadRequest, "参数缺失", "seat 必填")
+		return
+	}
+	args := []string{"cruise", "ignite", "--seat", seat}
+	if action == "stop" {
+		args = append(args, "--stop")
+	}
+	code, out, errb := s.exec(args...)
+	if code != 0 {
+		msg := errb
+		if strings.TrimSpace(msg) == "" {
+			msg = out
+		}
+		s.fail(w, http.StatusBadRequest, "点火被拒", msg)
+		return
+	}
+	s.ok(w, r, "/cruise")
+}
+
+func (s *webServer) handlePresenceSet(w http.ResponseWriter, r *http.Request) {	state := r.FormValue("state")
 	if state != "present" && state != "away" {
 		s.fail(w, http.StatusBadRequest, "state 只能是 present|away", "")
 		return
@@ -1265,8 +1349,11 @@ var webCruiseTmpl = template.Must(template.New("cruise").Parse(`<!doctype html>
 <input name="title" placeholder="标题" style="width:40%">
 <input type="submit" value="建单">
 </form>
-<h2>各座位下一活</h2>
-{{range .Seats}}<h3>{{.Actor}}</h3><pre>{{.Out}}</pre>{{else}}<p class="muted">无 agent 座位</p>{{end}}
+{{if .Seats}}<h2>各座位下一活 · 点火</h2>
+{{range .Seats}}<h3>{{.Actor}}</h3><pre>{{.Out}}</pre>
+<form method="post" action="/cruise/ignite" style="display:inline"><input type="hidden" name="seat" value="{{.Actor}}"><input type="hidden" name="action" value="start"><button>点火（start）</button></form>
+<form method="post" action="/cruise/ignite" style="display:inline"><input type="hidden" name="seat" value="{{.Actor}}"><input type="hidden" name="action" value="stop"><button>停火（stop）</button></form>
+{{end}}{{else}}<h2>各座位下一活</h2><p class="muted">无 agent 座位</p>{{end}}
 <h2>座位交接快照</h2>
 {{range .Handovers}}<h3>{{.System}}/{{.Actor}} <span class="muted">{{.SavedAt}}</span></h3><pre>{{.Body}}</pre>{{else}}<p class="muted">（各座位收尾 handover save 后在此呈现）</p>{{end}}
 <p><a href="/">← 看板</a></p>

@@ -264,17 +264,60 @@ func TestWebRejectsForeignOrigin(t *testing.T) {
 	}
 }
 
-// TestWebLoopbackOnly：传输层封口——非回环绑定必拒（fail-closed）。
+// TestWebLoopbackOnly（§50-E 修订后语义）：回环免 token 直通；非回环无 token
+// 必拒（fail-closed），有 token 过校验（传输安全靠 tokenAuth + Origin 门接力）。
 func TestWebLoopbackOnly(t *testing.T) {
 	for _, addr := range []string{"0.0.0.0:8080", "192.168.1.5:80", ":9000", "junk"} {
-		if err := validateLoopback(addr); err == nil {
-			t.Fatalf("non-loopback addr %q must be rejected", addr)
+		if err := validateWebBind(addr, ""); err == nil {
+			t.Fatalf("non-loopback addr %q without token must be rejected", addr)
 		}
 	}
 	for _, addr := range []string{"127.0.0.1:7878", "localhost:80", "[::1]:9000"} {
-		if err := validateLoopback(addr); err != nil {
-			t.Fatalf("loopback addr %q must pass, got %v", addr, err)
+		if err := validateWebBind(addr, ""); err != nil {
+			t.Fatalf("loopback addr %q must pass without token, got %v", addr, err)
 		}
+	}
+	for _, addr := range []string{"0.0.0.0:8080", "192.168.1.5:80"} {
+		if err := validateWebBind(addr, "sekret"); err != nil {
+			t.Fatalf("non-loopback %q with token must pass validation, got %v", addr, err)
+		}
+	}
+}
+
+// TestWebTokenAuth（§50-E）：token 形态全站鉴权——无 cookie 401 / 错 token 401 /
+// /login 换 cookie 后放行；恒时比较（不可测时序，锁行为面）。
+func TestWebTokenAuth(t *testing.T) {
+	dir := cruiseFixture(t) // 有板可渲染（me=data，GET / 可用）
+	srv := httptest.NewServer(tokenAuth(newWebMux(dir), "sekret"))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/")
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no-cookie request must 401, got %v %v", err, resp)
+	}
+	resp, _ = http.PostForm(srv.URL+"/login", url.Values{"token": {"wrong"}})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong token must 401, got %d", resp.StatusCode)
+	}
+	nofollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, _ = nofollow.PostForm(srv.URL+"/login", url.Values{"token": {"sekret"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("login must 303, got %d", resp.StatusCode)
+	}
+	var cookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == webTokenCookie {
+			cookie = c
+		}
+	}
+	if cookie == nil {
+		t.Fatal("login must set session cookie")
+	}
+	req, _ := http.NewRequest("GET", srv.URL+"/", nil)
+	req.AddCookie(cookie)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("cookie request must pass, got %v %v", err, resp)
 	}
 }
 
