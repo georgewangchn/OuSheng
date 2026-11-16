@@ -372,8 +372,16 @@ type webDormantDesign struct {
 	Reason string // "执行单全已完结" 或 "无执行单回挂"
 }
 
-func (sg webSuggest) Count() int {
-	return len(sg.Drafts) + len(sg.C2) + len(sg.Blocked) + len(sg.Unowned) + len(sg.Overdue) + len(sg.DepCut) + len(sg.StaleProg) + len(sg.Dormant)
+// Urgent 是需要 pm 出手的急件数（拍板/C2/卡住/无主/超期/依赖被砍）。
+// StaleProg/Dormant/待认领池是备忘级传感器（§52 复盘：9 张完结进度未满把
+// 「需要你 18 件」撑爆，急件被备忘淹没——降噪 = 急/备忘分级 + 折叠）。
+func (sg webSuggest) Urgent() int {
+	return len(sg.Drafts) + len(sg.C2) + len(sg.Blocked) + len(sg.Unowned) + len(sg.Overdue) + len(sg.DepCut)
+}
+
+// Memo 是备忘级计数（不进 alert 数，折叠展示）。
+func (sg webSuggest) Memo() int {
+	return len(sg.StaleProg) + len(sg.Dormant) + sg.PoolCount
 }
 
 type webDoneCard struct {
@@ -1184,14 +1192,15 @@ pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12
 <span class="chip me">以 {{.Me}} 身份操作</span>
 {{if .SyncOK}}<span class="chip ok">✓ 数据最新 {{.SyncTime}}</span>{{else}}<span class="chip bad">⚠ 同步异常：{{.SyncLine}}</span>{{end}}
 <span class="chip">数据水位 {{.Water}}</span>
-{{if gt .Suggest.Count 0}}<a class="chip alert" href="#queue">⚡ 需要你 {{.Suggest.Count}} 件</a>{{end}}
+{{if gt .Suggest.Urgent 0}}<a class="chip alert" href="#queue">⚡ 需要你 {{.Suggest.Urgent}} 件</a>{{end}}
+{{if gt .Suggest.Memo 0}}<a class="chip" href="#queue">备忘 {{.Suggest.Memo}} 项</a>{{end}}
 </div>
 <nav class="sys"><a href="/"{{if not .CurSystem}} class="on"{{end}}>全部系统</a>{{range .Systems}}<a href="?system={{.}}"{{if eq . $.CurSystem}} class="on"{{end}}>{{.}}</a>{{end}}</nav>
 </header>
 <main>
 
 <h2 id="queue">你的下一步 · 需要你的地方</h2>
-{{if eq .Suggest.Count 0}}<div class="qempty">✓ 没有需要你出手的事项，一切顺畅。</div>{{end}}
+{{if and (eq .Suggest.Urgent 0) (eq .Suggest.Memo 0)}}<div class="qempty">✓ 没有需要你出手的事项，一切顺畅。</div>{{end}}
 {{if or .Suggest.Drafts .Suggest.C2}}
 <div class="q grp"><span class="glvl">🔴 等你拍板</span></div>
 {{end}}
@@ -1240,25 +1249,23 @@ pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12
 <span class="sub">它依赖的工单已被作废——需要重排或重新挂依赖</span>
 <a href="/work/{{.ID}}" style="font-size:12.5px;color:var(--acc)">看详情 →</a>
 </div>{{end}}
+{{if or .Suggest.StaleProg .Suggest.Dormant .Suggest.PoolCount}}
+<details class="q" style="display:block"><summary style="cursor:pointer;font-weight:600">🔵 备忘 {{.Suggest.Memo}} 项（完结单进度未满 {{len .Suggest.StaleProg}} · 方案无新动态 {{len .Suggest.Dormant}} · 待认领池 {{.Suggest.PoolCount}}）——点开看清单</summary>
 {{if gt .Suggest.PoolCount 0}}
 <div class="q"><span class="who">待认领池</span><span class="sub">另有 {{.Suggest.PoolCount}} 张无主单在待排期/待开工（看板上有红标）</span></div>
-{{end}}
-{{if .Suggest.StaleProg}}
-<div class="q grp"><span class="glvl">🔵 完结单进度未满</span></div>
 {{end}}
 {{range .Suggest.StaleProg}}<div class="q">
 <span class="who"><a href="/work/{{.ID}}" style="color:inherit">{{.ID}}</a> {{.Title}}</span>
 <span class="sub">已完结但进度停在 {{printf "%.0f" (.Progress.Value | pct100)}}%——执行者可能忘了补报到满，或有意留尾巴</span>
 <a href="/work/{{.ID}}" style="font-size:12.5px;color:var(--acc)">看详情 →</a>
 </div>{{end}}
-{{if .Suggest.Dormant}}
-<div class="q grp"><span class="glvl">🔵 已生效方案无新动态</span></div>
-{{end}}
 {{range .Suggest.Dormant}}<div class="q">
 <span class="who"><a href="/design/{{.Topic}}" style="color:inherit">方案「{{.Topic}}」</a></span>
 <span class="sub">{{.Reason}}——如已落地可不管，如需继续推进请新开执行单并回挂 related_to</span>
 <a href="/design/{{.Topic}}" style="font-size:12.5px;color:var(--acc)">看方案 →</a>
 </div>{{end}}
+</details>
+{{end}}
 {{if .Agreed}}<h2>已生效方案（如需废止，用新方案替代）</h2>
 {{range .Agreed}}{{$cur := .Topic}}<div class="q">
 <span class="who"><a href="/design/{{.Topic}}" style="color:inherit">「{{.Topic}}」</a></span><span class="sub">已生效 · {{.Design.DecidedBy}} 拍板</span>

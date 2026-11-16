@@ -543,3 +543,24 @@ func TestWebSuggestDormantDesign(t *testing.T) {
 		}
 	}
 }
+
+// TestWebSuggestTiering（pm 2026-11-16 UX 反馈锁）：急/备忘分级——完结进度未满/
+// 方案无动态/待认领池是备忘级传感器，折叠且不进「⚡ 需要你」alert 数（此前 9 张
+// StaleProg 把 18 件撑爆、急件被淹没——「一大堆信息不知道干什么」）。
+func TestWebSuggestTiering(t *testing.T) {
+	dir := t.TempDir()
+	webSetup(t, dir)
+	// T-001 → done 且进度未满（StaleProg = 备忘）。
+	mustRun(t, dir, "work", "update", "T-001", "--status", "ready", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "doing", "--actor", "george")
+	mustRun(t, dir, "progress", "report", "T-001", "--value", "0.7", "--actor", "george", "--basis", "manual")
+	mustRun(t, dir, "evidence", "add", "T-001", "--type", "manual_check", "--locator", "x", "--actor", "george")
+	mustRun(t, dir, "work", "update", "T-001", "--status", "done", "--actor", "george")
+	page := webGet(t, dir, "/")
+	if strings.Contains(page, "⚡ 需要你") {
+		t.Fatalf("备忘级事项不得进急件 alert 数:\n%s", page)
+	}
+	if !strings.Contains(page, "备忘 1 项") || !strings.Contains(page, "<details") {
+		t.Fatalf("备忘应折叠展示（details + 计数）:\n%s", page)
+	}
+}
