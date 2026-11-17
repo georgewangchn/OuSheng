@@ -247,7 +247,8 @@ func TestAgentsMDProtocolGuards(t *testing.T) {
 	}
 	s := string(b)
 	for _, want := range []string{"引用核实", "work show", "转述不是权威", "pm 写板纪律", "单写源",
-		"cruise ignite", "pm away", "纯记账轮", "sync 并推进", "清单不注入"} {
+		"cruise ignite", "pm away", "纯记账轮", "sync 并推进", "清单不注入",
+		"有任务就执行，没任务就收尾", "禁自建常驻轮询进程", "pm 单内明示令"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("agents.md 缺协议护栏 %q", want)
 		}
