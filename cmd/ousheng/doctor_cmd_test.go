@@ -264,3 +264,80 @@ func TestDoctorCruiseDriverDrift(t *testing.T) {
 		t.Fatalf("reinstall must restore:\ncode=%d\n%s", code, so)
 	}
 }
+
+// TestDoctorBoardRemoteDrift（T-226 盲区④机械锁，档案 §54）：板仓多 remote
+// 水位差 → doctor WARN；推平 → PASS；单 remote 不查（无从比较）。
+func TestDoctorBoardRemoteDrift(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git 不可用")
+	}
+	t.Setenv("HOME", t.TempDir())
+	ws := mkDoctorWorkspace(t, "data")
+	if out, err := exec.Command("git", "-C", ws, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
+		t.Skipf("git init 失败: %v %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", ws, "commit", "-q", "--allow-empty", "-m", "init").CombinedOutput(); err != nil {
+		t.Skipf("空提交失败: %v %s", err, out)
+	}
+	g := func(dir string, args ...string) {
+		c := append([]string{"-C", dir}, args...)
+		if out, err := exec.Command("git", c...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	og1 := filepath.Join(t.TempDir(), "og1")
+	og2 := filepath.Join(t.TempDir(), "og2")
+	exec.Command("git", "init", "-q", "--bare", og1).Run()
+	exec.Command("git", "init", "-q", "--bare", og2).Run()
+	g(ws, "remote", "add", "og1", og1)
+	g(ws, "remote", "add", "og2", og2)
+	g(ws, "push", "-q", "og1", "main")
+	g(ws, "push", "-q", "og2", "main")
+	// 单测环境无座位仓——doctor 只验证板仓段：直接调 boardRemoteDrift。
+	n, drifts := boardRemoteDrift(ws)
+	if n != 2 || len(drifts) != 0 {
+		t.Fatalf("两源同源应零差值: n=%d drifts=%v", n, drifts)
+	}
+	// 制造漂移：新提交只推 og1。
+	mustRun(t, ws, "todo", "新单", "--system", "lake", "--actor", "data")
+	g(ws, "push", "-q", "og1", "main")
+	_, drifts = boardRemoteDrift(ws)
+	if len(drifts) != 1 || !strings.Contains(drifts[0], "og2") {
+		t.Fatalf("og2 落后应报差值: %v", drifts)
+	}
+	g(ws, "push", "-q", "og2", "main")
+	if _, drifts = boardRemoteDrift(ws); len(drifts) != 0 {
+		t.Fatalf("推平后应零差值: %v", drifts)
+	}
+}
+
+// TestCruiseIgniteTopologyGate（档案 §54 第五道门）：板仓多 remote 水位差 → 拒点火。
+func TestCruiseIgniteTopologyGate(t *testing.T) {
+	ws, _, unitDir, etcDir := igniteFixture(t)
+	t.Setenv("OUSHENG_SYSTEMD_DIR", unitDir)
+	t.Setenv("OUSHENG_ETC_DEFAULT", etcDir)
+	fakeSystemctl(t)
+	og1 := filepath.Join(t.TempDir(), "og1")
+	og2 := filepath.Join(t.TempDir(), "og2")
+	exec.Command("git", "init", "-q", "--bare", og1).Run()
+	exec.Command("git", "init", "-q", "--bare", og2).Run()
+	g := func(dir string, args ...string) {
+		c := append([]string{"-C", dir}, args...)
+		if out, err := exec.Command("git", c...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	g(ws, "remote", "add", "og1", og1)
+	g(ws, "remote", "add", "og2", og2)
+	g(ws, "push", "-q", "og1", "main")
+	g(ws, "push", "-q", "og2", "main")
+	mustRun(t, ws, "todo", "漂移单", "--system", "lake", "--actor", "data")
+	g(ws, "push", "-q", "og1", "main") // og2 落后
+	if out := mustRunFail(t, ws, "cruise", "ignite", "--seat", "data", "--dir", ws); !strings.Contains(out, "拓扑分裂") {
+		t.Fatalf("水位差应拒点火:\n%s", out)
+	}
+	g(ws, "push", "-q", "og2", "main")
+	if out := mustRun(t, ws, "cruise", "ignite", "--seat", "data", "--dir", ws); !strings.Contains(out, "点火") {
+		t.Fatalf("推平后应放行:\n%s", out)
+	}
+}

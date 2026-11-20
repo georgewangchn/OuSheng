@@ -86,6 +86,13 @@ func cruiseIgnite(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "驱动器与 canonical 分叉（手改/fork 漂移，档案 §37）→ ousheng adapter install --cruise 重跑取回后再点火\n")
 		return 1
 	}
+	// 门 4：板仓多 remote 水位一致（T-226 盲区④，档案 §54）——拓扑分裂拒点火。
+	// 事故形态：pm 推 A 源、席位拉 B 源，各源 sync「ok」但互缺 → 席位整夜看旧板
+	// 盲跑（11-16 修过、11-20 复发 =「再发一次即做」判据触发）。fail-closed。
+	if n, drifts := boardRemoteDrift(ws); n >= 2 && len(drifts) > 0 {
+		fmt.Fprintf(stderr, "板仓多 remote 水位差（拓扑分裂，T-226 盲区④）：%s——先确认干道并推平（git push <干道> main / pull 齐平）再点火\n", strings.Join(drifts, "；"))
+		return 1
+	}
 	// 门 4：systemd 面（单元 + 参数文件；测试经 env 旋钮注入临时路径）。
 	unitDir := envOr("OUSHENG_SYSTEMD_DIR", "/etc/systemd/system")
 	etcDir := envOr("OUSHENG_ETC_DEFAULT", "/etc/default")

@@ -194,6 +194,17 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 
 	// --- 工作区级：me / repo 映射 ---
 	if ws != "" {
+		// T-226 盲区④（档案 §54，2026-11-21 pm 授权修复）：板仓多 remote 水位差
+		// ——拓扑分裂可查形态。事故：pm 推 A 源、席位拉 B 源，各源 sync「ok」但互缺
+		// → 席位整夜看旧板盲跑（11-16 修过、11-20 复发 = 「再发一次即做」判据触发）。
+		// 机械锁：多 remote 时代水位差 WARN；单 remote 无从比较不查（诚实边界）。
+		if n, drifts := boardRemoteDrift(ws); n >= 2 {
+			if len(drifts) > 0 {
+				check("WARN", "板仓多 remote 水位差（拓扑分裂嫌疑，T-226 盲区④）："+strings.Join(drifts, "；")+"——确认干道并推平（git push <干道> main / git pull）后再操作")
+			} else {
+				check("PASS", "板仓多 remote 水位一致（"+fmt.Sprint(n)+" 源同源）")
+			}
+		}
 		if _, err := os.Stat(filepath.Join(ws, ".ousheng", "project.yaml")); err == nil {
 			if raw, err := os.ReadFile(mePath(ws)); err == nil {
 				me := strings.TrimSpace(string(raw))
@@ -357,6 +368,46 @@ func globalPermissionStatus(ws string) string {
 
 // gitOut：在 dir 跑 git 子命令并返回 stdout（非 git 仓/无 upstream 等由调用方忽略）。
 func gitOut(dir string, args ...string) (string, error) {
+	return gitOutErr(dir, args...)
+}
+
+// boardRemoteDrift（T-226 盲区④机械锁）：板仓多 remote 水位差检测。
+// 返回 (remote 数, 差值描述)。空描述 = 单 remote / 全部同源 / 均无 main 分支。
+// fetch 不可达的 remote 计入差值（fail-closed：多 remote 一源失联即视为待人工确认）。
+func boardRemoteDrift(ws string) (int, []string) {
+	out, err := gitOutErr(ws, "remote")
+	if err != nil {
+		return 0, nil
+	}
+	var remotes []string
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		if r := strings.TrimSpace(l); r != "" {
+			remotes = append(remotes, r)
+		}
+	}
+	if len(remotes) < 2 {
+		return len(remotes), nil
+	}
+	var drifts []string
+	for _, r := range remotes {
+		if _, err := gitOutErr(ws, "fetch", "-q", r); err != nil {
+			drifts = append(drifts, r+": fetch 不可达（网络/权限）——人工确认")
+			continue
+		}
+		cnt, err := gitOutErr(ws, "rev-list", "--left-right", "--count", "HEAD..."+r+"/main")
+		if err != nil {
+			continue // 无 main 分支的 remote 不构成比较面
+		}
+		c := strings.Fields(strings.TrimSpace(cnt))
+		if len(c) == 2 && (c[0] != "0" || c[1] != "0") {
+			drifts = append(drifts, fmt.Sprintf("%s: 本地独有 %s / %s 独有 %s", r, c[0], r, c[1]))
+		}
+	}
+	return len(remotes), drifts
+}
+// gitOutErr：在 dir 跑 git 子命令并返回 stdout 与错误（fetch/rev-list 等带失败语义
+// 的调用走此；gitOut 保留为忽略错误的旧签名）。
+func gitOutErr(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	out, err := cmd.Output()
 	return string(out), err
