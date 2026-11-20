@@ -198,11 +198,36 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		// ——拓扑分裂可查形态。事故：pm 推 A 源、席位拉 B 源，各源 sync「ok」但互缺
 		// → 席位整夜看旧板盲跑（11-16 修过、11-20 复发 = 「再发一次即做」判据触发）。
 		// 机械锁：多 remote 时代水位差 WARN；单 remote 无从比较不查（诚实边界）。
-		if n, drifts := boardRemoteDrift(ws); n >= 2 {
+		// §55 H2 追加：remote URL 交叉——自环（remote 指本仓自身路径）/多名同址冗余。
+		if n, drifts := boardRemoteDrift(ws, true); n >= 2 {
 			if len(drifts) > 0 {
 				check("WARN", "板仓多 remote 水位差（拓扑分裂嫌疑，T-226 盲区④）："+strings.Join(drifts, "；")+"——确认干道并推平（git push <干道> main / git pull）后再操作")
 			} else {
 				check("PASS", "板仓多 remote 水位一致（"+fmt.Sprint(n)+" 源同源）")
+			}
+			if urlOut, err := gitOutErr(ws, "remote", "-v"); err == nil {
+				urls := map[string][]string{}
+				for _, l := range strings.Split(urlOut, "\n") {
+					f := strings.Fields(strings.TrimSpace(l))
+					// 行格式：name<TAB>url (fetch|push)——按 fetch 侧去重统计。
+					if len(f) >= 3 && strings.HasSuffix(f[2], "(fetch)") {
+						urls[f[1]] = append(urls[f[1]], f[0])
+					}
+				}
+				for url, names := range urls {
+					if len(names) > 1 {
+						check("WARN", "板仓 remote 冗余："+strings.Join(names, "/")+" 同址 "+url+"——合并为一名，防半更新")
+					}
+					if p := strings.TrimPrefix(url, "file://"); strings.HasPrefix(p, "/") || strings.HasPrefix(url, "/") {
+						if abs, err := filepath.Abs(p); err == nil {
+							if same, _ := filepath.EvalSymlinks(abs); same != "" {
+								if wsAbs, _ := filepath.EvalSymlinks(ws); same == wsAbs {
+									check("WARN", "板仓 remote 自环："+strings.Join(names, "/")+" 指向本仓自身路径——fetch/push 恒空转，指向干道")
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 		if _, err := os.Stat(filepath.Join(ws, ".ousheng", "project.yaml")); err == nil {
@@ -372,9 +397,11 @@ func gitOut(dir string, args ...string) (string, error) {
 }
 
 // boardRemoteDrift（T-226 盲区④机械锁）：板仓多 remote 水位差检测。
-// 返回 (remote 数, 差值描述)。空描述 = 单 remote / 全部同源 / 均无 main 分支。
-// fetch 不可达的 remote 计入差值（fail-closed：多 remote 一源失联即视为待人工确认）。
-func boardRemoteDrift(ws string) (int, []string) {
+// 返回 (remote 数, 差值描述)。空描述 = 单 remote / 全部同源 / 均无当前分支。
+// doFetch=false 为轻量形态（sync/web 每页路径——基于现有 tracking ref，毫秒级；
+// plan/ignite/doctor 用 doFetch=true 全量）。fetch 不可达的 remote 计入差值
+//（fail-closed：多 remote 一源失联即视为待人工确认；plan 层对不可达降级警告）。
+func boardRemoteDrift(ws string, doFetch bool) (int, []string) {
 	out, err := gitOutErr(ws, "remote")
 	if err != nil {
 		return 0, nil
@@ -389,14 +416,24 @@ func boardRemoteDrift(ws string) (int, []string) {
 		return len(remotes), nil
 	}
 	var drifts []string
+	// 分支动态取（pm 2026-11-21 直觉命中：硬编码 main 会在 master 分支 remote
+	// 上「无 main 跳过」漏检；detached HEAD 本身即异常态）。
+	branchOut, err := gitOutErr(ws, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil || strings.TrimSpace(branchOut) == "" || strings.TrimSpace(branchOut) == "HEAD" {
+		return len(remotes), append(drifts, "本仓 HEAD 分支异常（detached/不可解析）——人工确认")
+	}
+	branch := strings.TrimSpace(branchOut)
 	for _, r := range remotes {
-		if _, err := gitOutErr(ws, "fetch", "-q", r); err != nil {
-			drifts = append(drifts, r+": fetch 不可达（网络/权限）——人工确认")
-			continue
+		if doFetch {
+			if _, err := gitOutErr(ws, "fetch", "-q", r); err != nil {
+				drifts = append(drifts, r+": fetch 不可达（网络/权限）——人工确认")
+				continue
+			}
 		}
-		cnt, err := gitOutErr(ws, "rev-list", "--left-right", "--count", "HEAD..."+r+"/main")
+		cnt, err := gitOutErr(ws, "rev-list", "--left-right", "--count", "HEAD..."+r+"/"+branch)
 		if err != nil {
-			continue // 无 main 分支的 remote 不构成比较面
+			drifts = append(drifts, r+": 无 "+branch+" 分支——分支不一致嫌疑（T-226 拓扑面）")
+			continue
 		}
 		c := strings.Fields(strings.TrimSpace(cnt))
 		if len(c) == 2 && (c[0] != "0" || c[1] != "0") {
@@ -404,6 +441,18 @@ func boardRemoteDrift(ws string) (int, []string) {
 		}
 	}
 	return len(remotes), drifts
+}
+
+// remoteDriftHard 分离确定性差值（水位/分支）与不可达类（网络态）——plan 门
+// 拒前者、后者降级警告（§48 精神：网络抖动不停整夜）。
+func remoteDriftHard(drifts []string) []string {
+	var hard []string
+	for _, d := range drifts {
+		if !strings.Contains(d, "不可达") {
+			hard = append(hard, d)
+		}
+	}
+	return hard
 }
 // gitOutErr：在 dir 跑 git 子命令并返回 stdout 与错误（fetch/rev-list 等带失败语义
 // 的调用走此；gitOut 保留为忽略错误的旧签名）。

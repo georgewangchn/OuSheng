@@ -294,19 +294,19 @@ func TestDoctorBoardRemoteDrift(t *testing.T) {
 	g(ws, "push", "-q", "og1", "main")
 	g(ws, "push", "-q", "og2", "main")
 	// 单测环境无座位仓——doctor 只验证板仓段：直接调 boardRemoteDrift。
-	n, drifts := boardRemoteDrift(ws)
+	n, drifts := boardRemoteDrift(ws, true)
 	if n != 2 || len(drifts) != 0 {
 		t.Fatalf("两源同源应零差值: n=%d drifts=%v", n, drifts)
 	}
 	// 制造漂移：新提交只推 og1。
 	mustRun(t, ws, "todo", "新单", "--system", "lake", "--actor", "data")
 	g(ws, "push", "-q", "og1", "main")
-	_, drifts = boardRemoteDrift(ws)
+	_, drifts = boardRemoteDrift(ws, true)
 	if len(drifts) != 1 || !strings.Contains(drifts[0], "og2") {
 		t.Fatalf("og2 落后应报差值: %v", drifts)
 	}
 	g(ws, "push", "-q", "og2", "main")
-	if _, drifts = boardRemoteDrift(ws); len(drifts) != 0 {
+	if _, drifts = boardRemoteDrift(ws, true); len(drifts) != 0 {
 		t.Fatalf("推平后应零差值: %v", drifts)
 	}
 }

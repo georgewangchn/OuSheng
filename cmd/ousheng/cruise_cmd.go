@@ -86,6 +86,23 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 	} else if derr != nil {
 		fmt.Fprintf(stderr, "[warn] 分叉门降级：%v\n", derr)
 	}
+	// §55 入口自检（pm 提案：零模型 token 的机械前置检查——T-226 系事故的
+	// 最后一道曝光面）。三联门 fail-closed，网络态降级警告（§48：抖动不停整夜）。
+	if b, _ := gitOutErr(fs.Dir(), "rev-parse", "--abbrev-ref", "HEAD"); strings.TrimSpace(b) != "main" {
+		fmt.Fprintf(stderr, "板仓分支=%s 非 main（板归一后恒 main，§38）——先 git switch main 再巡航\n", strings.TrimSpace(b))
+		return 1
+	}
+	if st, _ := gitOutErr(fs.Dir(), "status", "--porcelain"); strings.Contains(st, "UU ") || strings.Contains(st, "AA ") {
+		fmt.Fprintf(stderr, "板仓有未收口的合并冲突（T-206 教训：冲突标记入库=坏卡）——先解决冲突提交后再巡航\n")
+		return 1
+	}
+	if n, drifts := boardRemoteDrift(fs.Dir(), true); n >= 2 && len(drifts) > 0 {
+		if hard := remoteDriftHard(drifts); len(hard) > 0 {
+			fmt.Fprintf(stderr, "板仓多 remote 水位差（拓扑分裂，T-226 盲区④）：%s——先推平（git push <干道> main）再巡航，禁看旧板盲跑\n", strings.Join(hard, "；"))
+			return 1
+		}
+		fmt.Fprintf(stderr, "[warn] 板仓远端 fetch 部分不可达（降级放行）：%s\n", strings.Join(drifts, "；"))
+	}
 	a := *actor
 	if a == "" {
 		a = defaultActor(fs.Dir())

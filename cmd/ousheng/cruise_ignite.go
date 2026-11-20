@@ -89,7 +89,7 @@ func cruiseIgnite(args []string, stdout, stderr io.Writer) int {
 	// 门 4：板仓多 remote 水位一致（T-226 盲区④，档案 §54）——拓扑分裂拒点火。
 	// 事故形态：pm 推 A 源、席位拉 B 源，各源 sync「ok」但互缺 → 席位整夜看旧板
 	// 盲跑（11-16 修过、11-20 复发 =「再发一次即做」判据触发）。fail-closed。
-	if n, drifts := boardRemoteDrift(ws); n >= 2 && len(drifts) > 0 {
+	if n, drifts := boardRemoteDrift(ws, true); n >= 2 && len(drifts) > 0 {
 		fmt.Fprintf(stderr, "板仓多 remote 水位差（拓扑分裂，T-226 盲区④）：%s——先确认干道并推平（git push <干道> main / pull 齐平）再点火\n", strings.Join(drifts, "；"))
 		return 1
 	}
@@ -105,6 +105,44 @@ func cruiseIgnite(args []string, stdout, stderr io.Writer) int {
 	if _, err := os.Stat(envFile); err != nil {
 		fmt.Fprintf(stderr, "参数文件缺失（%s）→ 按 scripts/ousheng-cruise@.service 头注释建 OUSHENG_CRUISE_ARGS 后再点火\n", envFile)
 		return 1
+	}
+	// §55 H3：截止参数有效性——已过期的截止必是错参数（点火即停，11-20 实锤
+	// 「22 分钟后过期」险情）。fail-closed。
+	envBody, _ := os.ReadFile(envFile)
+	var argsLine string
+	for _, l := range strings.Split(string(envBody), "\n") {
+		if strings.HasPrefix(l, "OUSHENG_CRUISE_ARGS=") {
+			argsLine = strings.Trim(strings.TrimPrefix(l, "OUSHENG_CRUISE_ARGS="), "\"")
+		}
+	}
+	if parts := strings.Fields(argsLine); len(parts) >= 9 {
+		if dl, err := time.Parse("2006-01-02 15:04", parts[7]+" "+parts[8]); err == nil && !dl.After(time.Now()) {
+			fmt.Fprintf(stderr, "截止参数 %s %s 已过期（点火即停）→ 先改 %s 的 OUSHENG_CRUISE_ARGS 截止再点火\n", parts[7], parts[8], envFile)
+			return 1
+		}
+	}
+	// §55 H4：模型路由退化警告——CODE==WAIT 且含 flash = 弱模型干编码
+	//（11-15 事故机械化；不拒——可能是 pm 有意的省钱配置，但必须可见）。
+	envOf := func(key string) string {
+		for _, l := range strings.Split(string(envBody), "\n") {
+			if strings.HasPrefix(l, key+"=") {
+				return strings.TrimSpace(strings.TrimPrefix(l, key+"="))
+			}
+		}
+		return ""
+	}
+	if code, wait := envOf("OC_MODEL_CODE"), envOf("OC_MODEL_WAIT"); code != "" && code == wait && strings.Contains(code, "flash") {
+		fmt.Fprintf(stdout, "[warn] 模型路由退化：OC_MODEL_CODE=OC_MODEL_WAIT=%s（值守模型干编码，11-15 事故形态）——确认是有意配置\n", code)
+	}
+	// §55 H1b：座位仓分支一致性——当前分支 ≠ origin 默认分支 = 巡航可能在
+	// 错代码上干活（警告不拒：dev 分支干活是合法形态，data 仓先例）。
+	if cur, _ := gitOutErr(repoDir, "rev-parse", "--abbrev-ref", "HEAD"); strings.TrimSpace(cur) != "" {
+		if def, _ := gitOutErr(repoDir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); strings.TrimSpace(def) != "" {
+			want := strings.TrimPrefix(strings.TrimSpace(def), "origin/")
+			if strings.TrimSpace(cur) != want {
+				fmt.Fprintf(stdout, "[warn] 座位仓当前分支 %s ≠ origin 默认分支 %s——巡航将在非默认分支干活，确认有意\n", strings.TrimSpace(cur), want)
+			}
+		}
 	}
 	action := "start"
 	if *stop {

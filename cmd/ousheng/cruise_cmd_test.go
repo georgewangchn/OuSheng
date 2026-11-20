@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -604,5 +605,88 @@ func TestCruiseDispatch(t *testing.T) {
 	}
 	if !strings.Contains(out, "给外部 runner 消费") {
 		t.Fatalf("有活轮必须等消费窗口（§36 Y5 灭自旋）:\n%s", out)
+	}
+}
+
+// TestCruisePlanPreFlight（§55 入口自检三联门）：板仓非 main 分支拒 /
+// unmerged 残留拒 / 多 remote 水位差拒派活。
+func TestCruisePlanPreFlight(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	// 非 main 分支：新建 feature 分支后 plan 应拒。
+	run := func(args ...string) {
+		c := append([]string{"-C", dir}, args...)
+		if out, err := exec.Command("git", c...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	run("checkout", "-q", "-b", "feature-x")
+	if out := mustRunFail(t, dir, "cruise", "plan", "--actor", "data", "--dir", dir); !strings.Contains(out, "非 main") {
+		t.Fatalf("非 main 分支应拒:\n%s", out)
+	}
+	run("checkout", "-q", "main")
+	// 多 remote 水位差：双 bare，一旧。
+	og1 := filepath.Join(t.TempDir(), "og1")
+	og2 := filepath.Join(t.TempDir(), "og2")
+	exec.Command("git", "init", "-q", "--bare", og1).Run()
+	exec.Command("git", "init", "-q", "--bare", og2).Run()
+	run("remote", "add", "og1", og1)
+	run("remote", "add", "og2", og2)
+	run("push", "-q", "og1", "main")
+	run("push", "-q", "og2", "main")
+	mustRun(t, dir, "todo", "漂移卡", "--system", "lake", "--actor", "data", "--dir", dir)
+	run("push", "-q", "og1", "main")
+	if out := mustRunFail(t, dir, "cruise", "plan", "--actor", "data", "--dir", dir); !strings.Contains(out, "拓扑分裂") {
+		t.Fatalf("水位差应拒派活:\n%s", out)
+	}
+	run("push", "-q", "og2", "main")
+	if out := mustRun(t, dir, "cruise", "plan", "--actor", "data", "--dir", dir); strings.Contains(out, "拓扑分裂") {
+		t.Fatalf("推平后应放行:\n%s", out)
+	}
+}
+
+// TestCruiseIgniteParamChecks（§55 H3/H4）：截止已过拒；模型退化警告。
+func TestCruiseIgniteParamChecks(t *testing.T) {
+	ws, _, unitDir, etcDir := igniteFixture(t)
+	t.Setenv("OUSHENG_SYSTEMD_DIR", unitDir)
+	fakeSystemctl(t)
+	envf := filepath.Join(etcDir, "ousheng-cruise-data")
+	w := func(body string) { os.WriteFile(envf, []byte(body), 0o644) }
+	// 截止已过 → 拒。
+	w("CRUISE_REPO=/x\nOUSHENG_CRUISE_ARGS=\"" + ws + " data lake /x 20 600 00:00-00:00 2020-01-01 00:00\"\n")
+	t.Setenv("OUSHENG_ETC_DEFAULT", etcDir)
+	if out := mustRunFail(t, ws, "cruise", "ignite", "--seat", "data", "--dir", ws); !strings.Contains(out, "已过期") {
+		t.Fatalf("过期截止应拒:\n%s", out)
+	}
+	// 模型退化 → 警告不拒。
+	w("CRUISE_REPO=/x\nOUSHENG_CRUISE_ARGS=\"" + ws + " data lake /x 20 600 00:00-00:00 2099-01-01 00:00\"\nOC_MODEL_CODE=deepseek/deepseek-flash\nOC_MODEL_WAIT=deepseek/deepseek-flash\n")
+	if out := mustRun(t, ws, "cruise", "ignite", "--seat", "data", "--dir", ws); !strings.Contains(out, "模型路由退化") {
+		t.Fatalf("退化配置应有警告:\n%s", out)
+	}
+	// 正常模型无警告。
+	w("CRUISE_REPO=/x\nOUSHENG_CRUISE_ARGS=\"" + ws + " data lake /x 20 600 00:00-00:00 2099-01-01 00:00\"\nOC_MODEL_CODE=deepseek/deepseek-v4-pro\nOC_MODEL_WAIT=deepseek/deepseek-flash\n")
+	if out := mustRun(t, ws, "cruise", "ignite", "--seat", "data", "--dir", ws); strings.Contains(out, "退化") {
+		t.Fatalf("正常路由不应警告:\n%s", out)
+	}
+}
+
+// TestWebHealthChip（§55 R3）：驾驶舱轻检——分支异常/水位差上 chip；正常显示 ✓。
+func TestWebHealthChip(t *testing.T) {
+	dir := cruiseFixture(t)
+	mkCruiseBoard(t, dir)
+	page := webGet(t, dir, "/")
+	if !strings.Contains(page, "自检 ✓") {
+		t.Fatalf("健康态应有自检 chip:\n%s", page[:400])
+	}
+	run := func(args ...string) {
+		c := append([]string{"-C", dir}, args...)
+		if out, err := exec.Command("git", c...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	run("checkout", "-q", "-b", "feature-y")
+	page = webGet(t, dir, "/")
+	if !strings.Contains(page, "自检：") || !strings.Contains(page, "feature-y") {
+		t.Fatalf("分支异常应上 chip:\n%s", page[:400])
 	}
 }

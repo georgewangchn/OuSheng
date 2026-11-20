@@ -367,6 +367,20 @@ type webCardBadge struct {
 	Class string
 }
 
+// webHealthChip（§55 R3）：驾驶舱头部轻检——分支（非 main）+ 多 remote 水位
+//（轻量不 fetch，基于最近 tracking ref）。毫秒级，每页刷新即自检；doctor 全检
+//（含网络）仍归人工/晨检入口。返回空 = 全过。
+func webHealthChip(dir string) string {
+	var issues []string
+	if b, _ := gitOutErr(dir, "rev-parse", "--abbrev-ref", "HEAD"); strings.TrimSpace(b) != "main" {
+		issues = append(issues, "分支="+strings.TrimSpace(b)+"（应 main）")
+	}
+	if n, drifts := boardRemoteDrift(dir, false); n >= 2 && len(drifts) > 0 {
+		issues = append(issues, "remote 水位差 "+strings.Join(remoteDriftHard(drifts), "；"))
+	}
+	return strings.Join(issues, " · ")
+}
+
 // webSuggest：「你的下一步」面板（档案 §24 追记：规则性关注聚合 = 传感器带宽，
 // 非语义性建议——固定协议严重度排序，每行 = 事实 + 可用杠杆，无重要性话术）。
 type webSuggest struct {
@@ -527,6 +541,7 @@ type boardData struct {
 	SyncTime    string
 	SyncOK      bool
 	SyncLine    string
+	HealthChip  string // §55 R3 轻检三件：分支/水位（毫秒级不 fetch）——每次刷新即自检
 	Water       string
 	CurSystem   string
 	Systems     []string
@@ -555,6 +570,7 @@ func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 		SyncTime:    time.Now().Format("15:04:05"),
 		SyncOK:      strings.Contains(syncLine, "sync收口: ok"),
 		SyncLine:    syncLine,
+		HealthChip:  webHealthChip(s.dir),
 		Water:       s.water(),
 		CurSystem:   r.URL.Query().Get("system"),
 		ConvergeOut: strings.TrimSpace(convOut),
@@ -1257,6 +1273,7 @@ pre{background:#f0f2f4;padding:12px;border-radius:8px;overflow:auto;font-size:12
 <h1>㸸绳 · {{.Project}}</h1>
 <span class="chip me">以 {{.Me}} 身份操作</span>
 {{if .SyncOK}}<span class="chip ok">✓ 数据最新 {{.SyncTime}}</span>{{else}}<span class="chip bad">⚠ 同步异常：{{.SyncLine}}</span>{{end}}
+{{if .HealthChip}}<span class="chip bad">⚠ 自检：{{.HealthChip}}</span>{{else}}<span class="chip">自检 ✓ 分支/水位</span>{{end}}
 <span class="chip">数据水位 {{.Water}}</span>
 {{if gt .Suggest.Urgent 0}}<a class="chip alert" href="#queue">⚡ 需要你 {{.Suggest.Urgent}} 件</a>{{end}}
 {{if gt .Suggest.Memo 0}}<a class="chip" href="#queue">备忘 {{.Suggest.Memo}} 项</a>{{end}}
