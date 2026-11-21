@@ -28,6 +28,8 @@ import (
 	"ousheng/internal/state/gityaml"
 	"context"
 	"time"
+	"bytes"
+	"syscall"
 )
 
 // agentSeats 数板仓注册的 agent 型座位数（§37：me 缺失判据分形——多座位=合法
@@ -474,11 +476,24 @@ func gitOutTimeout(dir string, timeout time.Duration, args ...string) (string, e
 	// 子进程（ssh/spawn）吊住，Output 会一直等到子孙退出——超时「生效但慢死」。
 	// WaitDelay：ctx 取消后 100ms 强制关管道释放调用方。
 	cmd.WaitDelay = 100 * time.Millisecond
-	out, err := cmd.Output()
-	if ctx.Err() == context.DeadlineExceeded {
-		return string(out), fmt.Errorf("git %v 超时（%v，网络半开嫌疑）", args[0], timeout)
+	// review 递归层（2026-11-21）：WaitDelay 只释放调用方，**没杀进程树**——真半开
+	// 场景每 30s 残留一个孤儿 ssh（挂 TCP），日积百级。Setpgid 独立进程组 +
+	// ctx 取消时杀整组（SIGKILL 负 pid）。
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
+	if err := cmd.Start(); err != nil {
+		return "", err
 	}
-	return string(out), err
+	go func(pid int) {
+		<-ctx.Done()
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+	}(cmd.Process.Pid)
+	err := cmd.Wait()
+	if ctx.Err() == context.DeadlineExceeded {
+		return buf.String(), fmt.Errorf("git %v 超时（%v，网络半开嫌疑）", args[0], timeout)
+	}
+	return buf.String(), err
 }
 
 func atoiSafe(s string) int {

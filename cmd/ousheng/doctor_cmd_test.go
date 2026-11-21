@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"runtime"
+	"strconv"
+	"syscall"
 )
 
 // mkDoctorWorkspace：mkWorkspace 基础上补注册 actor（doctor 查 me/座位身份注册态）。
@@ -391,5 +394,35 @@ func TestGitOutTimeout(t *testing.T) {
 	}
 	if time.Since(start) > 3*time.Second {
 		t.Fatalf("超时应及时返回，耗时 %v", time.Since(start))
+	}
+}
+
+// TestGitOutTimeoutKillsTree（review 递归层锁）：超时不仅释放调用方，还要杀
+// 进程树——假 git spawn 子 sleep 并落 pid 文件，超时后子进程必须死（防孤儿
+// ssh 累积，WaitDelay 只救调用方不救进程树）。
+func TestGitOutTimeoutKillsTree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix 进程组语义")
+	}
+	fake := t.TempDir()
+	child := filepath.Join(fake, "child.pid")
+	os.WriteFile(filepath.Join(fake, "git"), []byte("#!/bin/sh\n(sleep 10 & echo $! > "+child+") ; wait\n"), 0o755)
+	t.Setenv("OUSHENG_GIT_BIN", filepath.Join(fake, "git"))
+	_, err := gitOutTimeout(fake, 300*time.Millisecond, "fetch", "-q", "origin")
+	if err == nil || !strings.Contains(err.Error(), "超时") {
+		t.Fatalf("应超时: %v", err)
+	}
+	b, rerr := os.ReadFile(child)
+	if rerr != nil {
+		t.Skipf("子进程 pid 未及落盘（时序）: %v", rerr)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	if pid > 0 {
+		time.Sleep(300 * time.Millisecond)
+		if p, err := os.FindProcess(pid); err == nil {
+			if err := p.Signal(syscall.Signal(0)); err == nil {
+				t.Fatalf("子进程 %d 应已被进程组击杀（孤儿累积风险）", pid)
+			}
+		}
 	}
 }
