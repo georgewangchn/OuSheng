@@ -13,6 +13,8 @@ import (
 	gitadapter "ousheng/adapters/git"
 	"ousheng/internal/machine"
 	"ousheng/internal/model"
+	"context"
+	"time"
 )
 
 type flagSetWithDir struct {
@@ -72,7 +74,9 @@ var errNoRemote = errors.New("no remote configured")
 var errDiverged = errors.New("diverged from upstream")
 
 func gitPull(dir string) (string, error) {
-	cmd := exec.Command("git", "pull", "--ff-only")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // 漏洞审计🔴：网络半开防僵死
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "pull", "--ff-only")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -96,7 +100,9 @@ func gitPull(dir string) (string, error) {
 // 不 push，226 的 bug 单提交后烂在本地，全舰队不可见直至人工推送）。软失败——
 // 推送不在写路径，只随 sync 收口；失败仅提示，不阻塞索引与上下文。
 func gitPush(dir string) (string, error) {
-	cmd := exec.Command("git", "push")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // 同上
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "push")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

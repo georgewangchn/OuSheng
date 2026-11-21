@@ -26,6 +26,8 @@ import (
 	"ousheng/adapters/opencode"
 	"ousheng/internal/model"
 	"ousheng/internal/state/gityaml"
+	"context"
+	"time"
 )
 
 // agentSeats 数板仓注册的 agent 型座位数（§37：me 缺失判据分形——多座位=合法
@@ -430,8 +432,8 @@ func boardRemoteDrift(ws string, doFetch bool) (int, []string, []string) {
 	branch := strings.TrimSpace(branchOut)
 	for _, r := range remotes {
 		if doFetch {
-			if _, err := gitOutErr(ws, "fetch", "-q", r); err != nil {
-				soft = append(soft, r+": fetch 不可达（网络/权限）——人工确认")
+			if _, err := gitOutTimeout(ws, 30*time.Second, "fetch", "-q", r); err != nil {
+				soft = append(soft, r+": fetch 不可达/超时（网络/权限）——人工确认")
 				continue
 			}
 		}
@@ -457,6 +459,25 @@ func boardRemoteDrift(ws string, doFetch bool) (int, []string, []string) {
 func gitOutErr(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	out, err := cmd.Output()
+	return string(out), err
+}
+
+// gitOutTimeout（漏洞审计 2026-11-21 🔴）：网络类 git 操作（fetch/pull/push）带
+// 超时——TCP 半开（不拒连只 hang）曾可无限阻塞 plan/boardRemoteDrift → 座位僵死，
+// 自检链自己变成死锁源。超时=ContextDeadlineExceeded 按失败处理（fail-visible）。
+func gitOutTimeout(dir string, timeout time.Duration, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	gitBin := envOr("OUSHENG_GIT_BIN", "git")
+	cmd := exec.CommandContext(ctx, gitBin, append([]string{"-C", dir}, args...)...)
+	// 测试实证（TestGitOutTimeout）：ctx 杀 git 父进程后，stdout 管道仍被其
+	// 子进程（ssh/spawn）吊住，Output 会一直等到子孙退出——超时「生效但慢死」。
+	// WaitDelay：ctx 取消后 100ms 强制关管道释放调用方。
+	cmd.WaitDelay = 100 * time.Millisecond
+	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return string(out), fmt.Errorf("git %v 超时（%v，网络半开嫌疑）", args[0], timeout)
+	}
 	return string(out), err
 }
 

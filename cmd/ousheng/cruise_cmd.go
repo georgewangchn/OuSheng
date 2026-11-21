@@ -126,7 +126,7 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 			if !pd.Idle {
 				break
 			}
-			gitOutput(fs.Dir(), "pull", "--ff-only")
+			_, _ = gitOutTimeout(fs.Dir(), 30*time.Second, "pull", "--ff-only")
 			d := time.Until(deadline)
 			if d <= 0 {
 				break
@@ -879,7 +879,7 @@ func cruiseDispatch(args []string, stdout, stderr io.Writer) int {
 	for round := 1; round <= *maxRounds; round++ {
 		fmt.Fprintf(stdout, "\n[dispatch] round %d/%d\n", round, *maxRounds)
 		// 一次 pull，全座位共享（失败容忍：离线时仍用本地快照调度，大声提示）。
-		if _, perr := gitOutput(fs.Dir(), "pull", "--ff-only"); perr != nil {
+		if _, perr := gitOutTimeout(fs.Dir(), 30*time.Second, "pull", "--ff-only"); perr != nil {
 			fmt.Fprintf(stderr, "[dispatch] pull 失败（离线容忍，按本地快照调度）: %v\n", perr)
 		}
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mkDoctorWorkspace：mkWorkspace 基础上补注册 actor（doctor 查 me/座位身份注册态）。
@@ -373,5 +374,22 @@ func TestCruiseIgniteTopologyGate(t *testing.T) {
 	g(ws, "push", "-q", "-f", "og1", "main")
 	if out := mustRun(t, ws, "cruise", "ignite", "--seat", "data", "--dir", ws); !strings.Contains(out, "点火") {
 		t.Fatalf("收口后应放行:\n%s", out)
+	}
+}
+
+// TestGitOutTimeout（漏洞审计🔴锁）：网络半开（不拒连只 hang）防僵死——假 git
+// 睡 5s，超时 200ms 必须返回错误且文案可判。
+func TestGitOutTimeout(t *testing.T) {
+	fake := t.TempDir()
+	bin := filepath.Join(fake, "git")
+	os.WriteFile(bin, []byte("#!/bin/sh\nsleep 5\n"), 0o755)
+	t.Setenv("OUSHENG_GIT_BIN", bin)
+	start := time.Now()
+	_, err := gitOutTimeout(fake, 200*time.Millisecond, "fetch", "-q", "origin")
+	if err == nil || !strings.Contains(err.Error(), "超时") {
+		t.Fatalf("hang 必须超时失败: %v", err)
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatalf("超时应及时返回，耗时 %v", time.Since(start))
 	}
 }
