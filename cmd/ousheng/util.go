@@ -176,9 +176,9 @@ func gitAdapterEvidence(dir, commit string) (*model.Evidence, error) {
 // 无 remote = 单机形态不分叉。fetch 失败（网络抖动）→ error 非空：调用方 fail-open
 // 但必须大声——静默放行等于门失效（反事实：断网期积压继续滚）。
 func boardDiverged(dir string) (ahead, behind int, diverged bool, err error) {
-	fetch := exec.Command("git", "fetch", "-q", "origin")
-	fetch.Dir = dir
-	if out, ferr := fetch.CombinedOutput(); ferr != nil {
+	// F3 自检不自僵（review 抓回 🔴）：此处是 plan 每轮必经路径，bc0eaf0 的
+	// 超时层曾漏盖——半开 hang 照样僵死分叉门本身。
+	if out, ferr := gitOutTimeout(dir, 30*time.Second, "fetch", "-q", "origin"); ferr != nil {
 		s := string(out) + ferr.Error()
 		if strings.Contains(s, "does not appear to be a git repository") ||
 			strings.Contains(s, "No such remote") || strings.Contains(s, "no remote") {
