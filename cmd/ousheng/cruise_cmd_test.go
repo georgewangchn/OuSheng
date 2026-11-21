@@ -634,14 +634,32 @@ func TestCruisePlanPreFlight(t *testing.T) {
 	run("remote", "add", "og2", og2)
 	run("push", "-q", "og1", "main")
 	run("push", "-q", "og2", "main")
-	mustRun(t, dir, "todo", "漂移卡", "--system", "lake", "--actor", "data", "--dir", dir)
+	// soft-only（本地未推 og2）→ 警告放行（review 🔴1 语义：ahead 低危）。
+	mustRun(t, dir, "todo", "未推卡", "--system", "lake", "--actor", "data", "--dir", dir)
 	run("push", "-q", "og1", "main")
-	if out := mustRunFail(t, dir, "cruise", "plan", "--actor", "data", "--dir", dir); !strings.Contains(out, "拓扑分裂") {
-		t.Fatalf("水位差应拒派活:\n%s", out)
+	softSo, softSe, _ := runIn(t, dir, "cruise", "plan", "--actor", "data", "--dir", dir)
+	if out := softSo + softSe; !strings.Contains(out, "未推平") {
+		t.Fatalf("ahead-only 应警告放行（低危，stderr）:\n%s", out)
 	}
-	run("push", "-q", "og2", "main")
-	if out := mustRun(t, dir, "cruise", "plan", "--actor", "data", "--dir", dir); strings.Contains(out, "拓扑分裂") {
-		t.Fatalf("推平后应放行:\n%s", out)
+	// hard（og2 侧有本地缺的新）→ 拒派活 + 拒词含「分叉」（驱动器等待自愈兼容，review 🔴3）。
+	ws2 := filepath.Join(t.TempDir(), "ws2")
+	run("clone", "-q", og2, ws2)
+	mustRun(t, ws2, "todo", "远端新卡", "--system", "lake", "--actor", "data", "--dir", ws2)
+	c := append([]string{"-C", ws2}, "push", "-q", "origin", "main")
+	if out, err := exec.Command("git", c...).CombinedOutput(); err != nil {
+		t.Fatalf("push ws2: %v %s", err, out)
+	}
+	run("fetch", "-q", "og2")
+	if out := mustRunFail(t, dir, "cruise", "plan", "--actor", "data", "--dir", dir); !strings.Contains(out, "分叉") {
+		t.Fatalf("本地缺新应拒（含「分叉」兼容驱动器）:\n%s", out)
+	}
+	// 收口（fixture 捷径：reset 到 og2 后同步 og1——activity 同文件冲突免逐卡）
+	_ = exec.Command("git", "-C", dir, "pull", "-q", "--rebase", "og2", "main").Run()
+	run("rebase", "--abort")
+	run("reset", "-q", "--hard", "og2/main")
+	run("push", "-q", "-f", "og1", "main")
+	if out := mustRun(t, dir, "cruise", "plan", "--actor", "data", "--dir", dir); strings.Contains(out, "分叉") {
+		t.Fatalf("收口后应放行:\n%s", out)
 	}
 }
 

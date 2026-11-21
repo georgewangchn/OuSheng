@@ -375,8 +375,8 @@ func webHealthChip(dir string) string {
 	if b, _ := gitOutErr(dir, "rev-parse", "--abbrev-ref", "HEAD"); strings.TrimSpace(b) != "main" {
 		issues = append(issues, "分支="+strings.TrimSpace(b)+"（应 main）")
 	}
-	if n, drifts := boardRemoteDrift(dir, false); n >= 2 && len(drifts) > 0 {
-		issues = append(issues, "remote 水位差 "+strings.Join(remoteDriftHard(drifts), "；"))
+	if _, hard, _ := boardRemoteDrift(dir, false); len(hard) > 0 {
+		issues = append(issues, "remote 缺新 "+strings.Join(hard, "；"))
 	}
 	return strings.Join(issues, " · ")
 }

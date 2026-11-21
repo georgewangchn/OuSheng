@@ -276,7 +276,9 @@ func TestDoctorBoardRemoteDrift(t *testing.T) {
 	if out, err := exec.Command("git", "-C", ws, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
 		t.Skipf("git init 失败: %v %s", err, out)
 	}
-	if out, err := exec.Command("git", "-C", ws, "commit", "-q", "--allow-empty", "-m", "init").CombinedOutput(); err != nil {
+	commit := exec.Command("git", "-C", ws, "commit", "-q", "--allow-empty", "-m", "init")
+	commit.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := commit.CombinedOutput(); err != nil {
 		t.Skipf("空提交失败: %v %s", err, out)
 	}
 	g := func(dir string, args ...string) {
@@ -285,6 +287,10 @@ func TestDoctorBoardRemoteDrift(t *testing.T) {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
 	}
+	g(ws, "config", "user.email", "t@t")
+	g(ws, "config", "user.name", "t")
+	mustRun(t, ws, "me", "pm", "--name", "PM", "--dir", ws)
+	mustRun(t, ws, "system", "add", "lake", "--dir", ws)
 	og1 := filepath.Join(t.TempDir(), "og1")
 	og2 := filepath.Join(t.TempDir(), "og2")
 	exec.Command("git", "init", "-q", "--bare", og1).Run()
@@ -294,20 +300,35 @@ func TestDoctorBoardRemoteDrift(t *testing.T) {
 	g(ws, "push", "-q", "og1", "main")
 	g(ws, "push", "-q", "og2", "main")
 	// 单测环境无座位仓——doctor 只验证板仓段：直接调 boardRemoteDrift。
-	n, drifts := boardRemoteDrift(ws, true)
-	if n != 2 || len(drifts) != 0 {
-		t.Fatalf("两源同源应零差值: n=%d drifts=%v", n, drifts)
+	n, hard, soft := boardRemoteDrift(ws, true)
+	if n != 2 || len(hard) != 0 || len(soft) != 0 {
+		t.Fatalf("两源同源应零差值: n=%d hard=%v soft=%v", n, hard, soft)
 	}
-	// 制造漂移：新提交只推 og1。
+	// review 🔴1 语义分离：本地新提交未推 og2 → og2 仅 ahead = soft（低危未推，
+	// 归档镜像常态，非看旧板风险）。
 	mustRun(t, ws, "todo", "新单", "--system", "lake", "--actor", "data")
 	g(ws, "push", "-q", "og1", "main")
-	_, drifts = boardRemoteDrift(ws, true)
-	if len(drifts) != 1 || !strings.Contains(drifts[0], "og2") {
-		t.Fatalf("og2 落后应报差值: %v", drifts)
+	_, hard, soft = boardRemoteDrift(ws, true)
+	if len(hard) != 0 || len(soft) != 1 || !strings.Contains(soft[0], "og2") {
+		t.Fatalf("og2 仅落后本地应归 soft: hard=%v soft=%v", hard, soft)
 	}
-	g(ws, "push", "-q", "og2", "main")
-	if _, drifts = boardRemoteDrift(ws, true); len(drifts) != 0 {
-		t.Fatalf("推平后应零差值: %v", drifts)
+	// hard 形态：og2 侧新提交（clone 推 og2，ws 不拉）→ ws 缺新 = 看旧板风险。
+	ws2 := filepath.Join(t.TempDir(), "ws2")
+	g(".", "clone", "-q", og2, ws2)
+	g(ws2, "config", "user.email", "t@t")
+	g(ws2, "config", "user.name", "t")
+	mustRun(t, ws2, "todo", "远端新单", "--system", "lake", "--actor", "data", "--dir", ws2)
+	g(ws2, "push", "-q", "origin", "main")
+	g(ws, "fetch", "-q", "og2")
+	if _, hard, _ = boardRemoteDrift(ws, true); len(hard) != 1 || !strings.Contains(hard[0], "og2 独有") {
+		t.Fatalf("og2 有本地缺新应归 hard: %v", hard)
+	}
+	_ = exec.Command("git", "-C", ws, "pull", "-q", "--rebase", "og2", "main").Run()
+	g(ws, "rebase", "--abort")
+	g(ws, "reset", "-q", "--hard", "og2/main")
+	g(ws, "push", "-q", "-f", "og1", "main")
+	if _, hard, soft = boardRemoteDrift(ws, true); len(hard) != 0 && len(soft) != 0 {
+		t.Fatalf("收口后应零差值: hard=%v soft=%v", hard, soft)
 	}
 }
 
@@ -331,13 +352,26 @@ func TestCruiseIgniteTopologyGate(t *testing.T) {
 	g(ws, "remote", "add", "og2", og2)
 	g(ws, "push", "-q", "og1", "main")
 	g(ws, "push", "-q", "og2", "main")
-	mustRun(t, ws, "todo", "漂移单", "--system", "lake", "--actor", "data")
-	g(ws, "push", "-q", "og1", "main") // og2 落后
-	if out := mustRunFail(t, ws, "cruise", "ignite", "--seat", "data", "--dir", ws); !strings.Contains(out, "拓扑分裂") {
-		t.Fatalf("水位差应拒点火:\n%s", out)
+	// review 🔴1 语义分离：og2 落后本地（ahead-only）= soft 低危 → 警告放行。
+	mustRun(t, ws, "todo", "未推单", "--system", "lake", "--actor", "data")
+	g(ws, "push", "-q", "-f", "og1", "main")
+	if out := mustRun(t, ws, "cruise", "ignite", "--seat", "data", "--dir", ws); !strings.Contains(out, "未推平") {
+		t.Fatalf("ahead-only 应警告放行:\n%s", out)
 	}
-	g(ws, "push", "-q", "og2", "main")
+	// hard：og2 侧有本地缺的新（clone 推新）→ 拒点火（拒词含「分叉」）。
+	ws2 := filepath.Join(t.TempDir(), "ws2")
+	g(".", "clone", "-q", og2, ws2)
+	mustRun(t, ws2, "todo", "远端新单", "--system", "lake", "--actor", "data", "--dir", ws2)
+	g(ws2, "push", "-q", "origin", "main")
+	g(ws, "fetch", "-q", "og2")
+	if out := mustRunFail(t, ws, "cruise", "ignite", "--seat", "data", "--dir", ws); !strings.Contains(out, "分叉") {
+		t.Fatalf("本地缺新应拒点火:\n%s", out)
+	}
+	_ = exec.Command("git", "-C", ws, "pull", "-q", "--rebase", "og2", "main").Run()
+	g(ws, "rebase", "--abort")
+	g(ws, "reset", "-q", "--hard", "og2/main")
+	g(ws, "push", "-q", "-f", "og1", "main")
 	if out := mustRun(t, ws, "cruise", "ignite", "--seat", "data", "--dir", ws); !strings.Contains(out, "点火") {
-		t.Fatalf("推平后应放行:\n%s", out)
+		t.Fatalf("收口后应放行:\n%s", out)
 	}
 }

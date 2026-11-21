@@ -368,8 +368,10 @@ func cmdSync(args []string, stdout, stderr io.Writer) int {
 	// 末行收口标记（fail-closed：早退路径不打标记 = 消费方按未收口处理）
 	// §55 R2：多 remote 水位摘要（轻量不 fetch，基于刚 pull/push 后的 tracking
 	// ref；可见性不阻塞——plugin/驱动器/席位收尾全链的公共路径）。
-	if n, drifts := boardRemoteDrift(dir, false); n >= 2 && len(drifts) > 0 {
-		fmt.Fprintf(stdout, "板仓多 remote 水位差（拓扑分裂嫌疑，T-226 盲区④）：%s——推平后再操作\n", strings.Join(drifts, "；"))
+	if _, hard, soft := boardRemoteDrift(dir, false); len(hard) > 0 {
+		fmt.Fprintf(stdout, "板仓多 remote 水位分叉（remote 有本地缺的新，T-226 盲区④）：%s——先 git pull <干道> 收口\n", strings.Join(hard, "；"))
+	} else if len(soft) > 0 {
+		fmt.Fprintf(stdout, "[提示] 板仓 remote 未推平（低危）：%s\n", strings.Join(soft, "；"))
 	}
 	if notConverged != "" {
 		fmt.Fprintf(stdout, "sync收口: 未收口（%s）\n", notConverged)

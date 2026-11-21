@@ -96,12 +96,13 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "板仓有未收口的合并冲突（T-206 教训：冲突标记入库=坏卡）——先解决冲突提交后再巡航\n")
 		return 1
 	}
-	if n, drifts := boardRemoteDrift(fs.Dir(), true); n >= 2 && len(drifts) > 0 {
-		if hard := remoteDriftHard(drifts); len(hard) > 0 {
-			fmt.Fprintf(stderr, "板仓多 remote 水位差（拓扑分裂，T-226 盲区④）：%s——先推平（git push <干道> main）再巡航，禁看旧板盲跑\n", strings.Join(hard, "；"))
-			return 1
-		}
-		fmt.Fprintf(stderr, "[warn] 板仓远端 fetch 部分不可达（降级放行）：%s\n", strings.Join(drifts, "；"))
+	// review 🔴1：hard=remote 有本地缺的新（看旧板风险）拒；soft（未推/不可达）警告。
+	// review 🔴3：拒词含「分叉」——驱动器 getpan 等待自愈白名单 grep「分叉」，兼容 §48 模式。
+	if n, hard, soft := boardRemoteDrift(fs.Dir(), true); n >= 2 && len(hard) > 0 {
+		fmt.Fprintf(stderr, "板仓多 remote 水位分叉（remote 有本地缺的新，T-226 盲区④）：%s——先 git pull <干道> 收口再巡航，禁看旧板盲跑\n", strings.Join(hard, "；"))
+		return 1
+	} else if n >= 2 && len(soft) > 0 {
+		fmt.Fprintf(stderr, "[warn] 板仓 remote 未推平/部分不可达（低危，降级放行）：%s\n", strings.Join(soft, "；"))
 	}
 	a := *actor
 	if a == "" {

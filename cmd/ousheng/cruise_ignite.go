@@ -89,9 +89,11 @@ func cruiseIgnite(args []string, stdout, stderr io.Writer) int {
 	// 门 4：板仓多 remote 水位一致（T-226 盲区④，档案 §54）——拓扑分裂拒点火。
 	// 事故形态：pm 推 A 源、席位拉 B 源，各源 sync「ok」但互缺 → 席位整夜看旧板
 	// 盲跑（11-16 修过、11-20 复发 =「再发一次即做」判据触发）。fail-closed。
-	if n, drifts := boardRemoteDrift(ws, true); n >= 2 && len(drifts) > 0 {
-		fmt.Fprintf(stderr, "板仓多 remote 水位差（拓扑分裂，T-226 盲区④）：%s——先确认干道并推平（git push <干道> main / pull 齐平）再点火\n", strings.Join(drifts, "；"))
+	if n, hard, soft := boardRemoteDrift(ws, true); n >= 2 && len(hard) > 0 {
+		fmt.Fprintf(stderr, "板仓多 remote 水位分叉（remote 有本地缺的新，T-226 盲区④）：%s——先 git pull <干道> 收口再点火\n", strings.Join(hard, "；"))
 		return 1
+	} else if n >= 2 && len(soft) > 0 {
+		fmt.Fprintf(stdout, "[warn] 板仓 remote 未推平/部分不可达（低危）：%s——记得推平\n", strings.Join(soft, "；"))
 	}
 	// 门 4：systemd 面（单元 + 参数文件；测试经 env 旋钮注入临时路径）。
 	unitDir := envOr("OUSHENG_SYSTEMD_DIR", "/etc/systemd/system")
