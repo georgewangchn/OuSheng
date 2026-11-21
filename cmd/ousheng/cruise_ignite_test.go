@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ousheng/adapters/opencode"
+	"os/exec"
 )
 
 // igniteFixture：板（cruiseFixture：data 座位已注册）+ repos.yaml 映射 +
@@ -202,4 +203,39 @@ func mapToValues(m map[string]string) url.Values {
 		v.Set(k, val)
 	}
 	return v
+}
+
+// TestCruiseIgniteStopBypassesHealthGates（10 轮后实锤 🔴）：--stop 不被健康门
+// 拦——拓扑分叉时停火必须可用（fail-safe 方向：点火要健康，停止永远允许；
+// 09:2x 事故：四座带旧脚本在跑、stop 被拓扑门拒 = 想停停不下来）。
+func TestCruiseIgniteStopBypassesHealthGates(t *testing.T) {
+	ws, repo, unitDir, etcDir := igniteFixture(t)
+	_ = repo
+	t.Setenv("OUSHENG_SYSTEMD_DIR", unitDir)
+	t.Setenv("OUSHENG_ETC_DEFAULT", etcDir)
+	fakeSystemctl(t)
+	// 制造拓扑 hard：og 上有本地缺新的提交（需 n≥2 才入比较——再加 og2 同推基线）。
+	og := filepath.Join(t.TempDir(), "og")
+	og2 := filepath.Join(t.TempDir(), "og2")
+	exec.Command("git", "init", "-q", "--bare", og).Run()
+	exec.Command("git", "init", "-q", "--bare", og2).Run()
+	exec.Command("git", "-C", ws, "remote", "add", "og", og).Run()
+	exec.Command("git", "-C", ws, "remote", "add", "og2", og2).Run()
+	exec.Command("git", "-C", ws, "push", "-q", "og", "main").Run()
+	exec.Command("git", "-C", ws, "push", "-q", "og2", "main").Run()
+	ws2 := filepath.Join(t.TempDir(), "ws2")
+	exec.Command("git", "clone", "-q", og, ws2).Run()
+	exec.Command("git", "-C", ws2, "config", "user.email", "t@t").Run()
+	exec.Command("git", "-C", ws2, "config", "user.name", "t").Run()
+	mustRun(t, ws2, "todo", "远端新单", "--system", "lake", "--actor", "data", "--dir", ws2)
+	exec.Command("git", "-C", ws2, "push", "-q", "origin", "main").Run()
+	exec.Command("git", "-C", ws, "fetch", "-q", "og").Run()
+	// start 应被拓扑门拒。
+	if out := mustRunFail(t, ws, "cruise", "ignite", "--seat", "data", "--dir", ws); !strings.Contains(out, "分叉") {
+		t.Fatalf("hard 分叉应拒点火:\n%s", out)
+	}
+	// stop 必须放行（健康门豁免）。
+	if out := mustRun(t, ws, "cruise", "ignite", "--seat", "data", "--stop", "--dir", ws); !strings.Contains(out, "停火") {
+		t.Fatalf("stop 不应被健康门拦:\n%s", out)
+	}
 }

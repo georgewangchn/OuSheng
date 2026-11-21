@@ -69,6 +69,27 @@ func cruiseIgnite(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "座位 %s 常驻 %s ≠ 本机——点火只对本机座位（到该机执行；多机=每机一个入口，档案 §50-B）\n", *seat, m)
 		return 1
 	}
+	// §55 review 补（10 轮后实锤）：--stop 是停止操作，**不过健康门**——
+	// 点火要环境健康，停火永远应该允许（fail-safe 方向：拓扑分叉时最不该
+	// 拦的就是停火——09:2x 实锤：四座带着旧脚本跑着、stop 被拓扑门拒）。
+	if *stop {
+		sysctl := envOr("OUSHENG_SYSTEMCTL", "systemctl")
+		unitDir := envOr("OUSHENG_SYSTEMD_DIR", "/etc/systemd/system")
+		if _, err := os.Stat(filepath.Join(unitDir, igniteUnitFile)); err != nil {
+			fmt.Fprintf(stderr, "systemd 单元缺失（%s）→ cp <座位仓>/scripts/ousheng-cruise@.service %s && systemctl daemon-reload\n", unitDir, unitDir)
+			return 1
+		}
+		out, err := exec.Command(sysctl, "stop", "ousheng-cruise@"+*seat).CombinedOutput()
+		if len(bytes.TrimSpace(out)) > 0 {
+			fmt.Fprintf(stdout, "%s\n", strings.TrimSpace(string(out)))
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "systemctl stop 失败：%v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "cruise 停火：seat=%s（健康门豁免——停火不受环境状态拦截）\n", *seat)
+		return 0
+	}
 	// 门 2：座位仓定位（repos.yaml 映射 × ousheng.json actor 匹配）。
 	repoDir := seatRepoDir(ws, *seat)
 	if repoDir == "" {
@@ -147,9 +168,6 @@ func cruiseIgnite(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	action := "start"
-	if *stop {
-		action = "stop"
-	}
 	sysctl := envOr("OUSHENG_SYSTEMCTL", "systemctl")
 	out, err := exec.Command(sysctl, action, "ousheng-cruise@"+*seat).CombinedOutput()
 	if len(bytes.TrimSpace(out)) > 0 {
@@ -164,9 +182,6 @@ func cruiseIgnite(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "提醒：PM present 已挂 %.0f 小时——夜间请 pm away（agent 问完等 = 空等烧 token，档案 §50-G）\n", presenceStaleHours(p.Since))
 	}
 	verb := "点火"
-	if *stop {
-		verb = "停火"
-	}
 	fmt.Fprintf(stdout, "cruise %s：seat=%s（%s；参数 %s；日志 journalctl -u ousheng-cruise@%s -f）\n", verb, *seat, action, envFile, *seat)
 	return 0
 }
