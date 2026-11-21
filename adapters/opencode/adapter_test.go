@@ -166,7 +166,7 @@ func TestCruiseLoopSyntax(t *testing.T) {
 		"OUSHENG_CTX_MAX", "cache", "换代", "ctx",
 		"OUSHENG_TOKEN_BUDGET", "token 累计", "预算尽",
 		"§51", "sync 并推进", "直至完成", "顺序、批量、节奏你定",
-		"exit 1 交 systemd"} {
+		"exit 1 交 systemd", "rm -f /tmp/cruise-plan", "截止占第 8、9"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("cruise-loop.sh 缺护栏 %q", want)
 		}

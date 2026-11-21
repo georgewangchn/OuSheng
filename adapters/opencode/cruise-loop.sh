@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # cruise-loop.sh —— 巡航驱动器 v4（档案 §34 P0 代际 / §42 三修 / §46 并回 v5 / §51 绳牛裁决）
-# 用法: ./scripts/cruise-loop.sh <kanban工作区> <actor> <system> <代码仓> [轮顶=20] [wait秒=600] [时窗=22:00-07:00] [截止='YYYY-MM-DD HH:MM']
+# 用法: ./scripts/cruise-loop.sh <kanban工作区> <actor> <system> <代码仓> [轮顶=20] [wait秒=600] [时窗=22:00-07:00] [截止日=YYYY-MM-DD] [截止时刻=HH:MM]
+#（注意：截止占第 8、9 两个参数位——含空格被 shell 分为两参；缺省无截止）
 # 环境旋钮: OUSHENG_BIN / OC_BIN / OC_ARGS（全局透传）
 #   OC_MODEL_WAIT  = 值守/轻活模型（如 deepseek/deepseek-flash）——默认不传=全局默认
 #   OC_MODEL_CODE  = 编码/强推理模型（如 zai/glm-5.3）——默认不传=全局默认
@@ -31,6 +32,10 @@ if [ "${FLOCKED:-0}" != "1" ] && command -v flock >/dev/null 2>&1; then
   SEAT_LOCK="/tmp/opencode/cruise-seat-$ACTOR.lock"
   FLOCKED=1 exec flock -n "$SEAT_LOCK" "$0" "$@"
 fi
+
+# R2/R9 轮输出清理（10 轮审计 🟡，2026-11-21）：启动时清本座位历史残留
+#（A 机实测 212 文件累积——跨代轮输出从不回收）。只清本座位，不碰他座位。
+rm -f /tmp/cruise-plan."$ACTOR".* /tmp/cruise-round."$ACTOR".* /tmp/cruise-planhash."$ACTOR".* 2>/dev/null
 
 # §42 三修③：并发上限（BUG-132 定案机制化）——跨座位 mkdir 原子信号量。
 # CONCURRENCY_MAX（默认 2）：同机同时跑 opencode 轮的座位数上限；轮前取槽轮后释放，
