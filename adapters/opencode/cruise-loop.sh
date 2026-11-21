@@ -119,7 +119,7 @@ while :; do
   [ -z "$(inwin)" ] && { echo "[cruise] 时窗外 ${WIN}，停"; break; }
   [ "$(deadline_passed)" = "1" ] && { echo "[cruise] 截止 $DEADLINE 已过，停"; break; }
 
-  PLAN=$(getplan) || { echo "[cruise] plan 连败 3 次，停（systemd 会拉起；手动模式人工查 ${LOOPERR}）"; break; }
+  PLAN=$(getplan) || { echo "[cruise] plan 连败 3 次，停（exit 1 交 systemd Restart 退避拉起；手动模式人工查 ${LOOPERR}）"; release_slot; exit 1; }
 
   # §42 修④：维持轮退避——plan 文本与上轮逐字相同 = 维持空转，间隔指数拉长（封顶 2h）。
   PH="/tmp/cruise-planhash.$TAG"

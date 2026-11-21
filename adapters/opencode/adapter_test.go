@@ -165,7 +165,8 @@ func TestCruiseLoopSyntax(t *testing.T) {
 		"CONCURRENCY_MAX", "flock", "截止", "deadline_passed", `sleep "$WAIT"`, "板仓分叉", "ERROR",
 		"OUSHENG_CTX_MAX", "cache", "换代", "ctx",
 		"OUSHENG_TOKEN_BUDGET", "token 累计", "预算尽",
-		"§51", "sync 并推进", "直至完成", "顺序、批量、节奏你定"} {
+		"§51", "sync 并推进", "直至完成", "顺序、批量、节奏你定",
+		"exit 1 交 systemd"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("cruise-loop.sh 缺护栏 %q", want)
 		}
