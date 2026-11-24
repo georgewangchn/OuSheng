@@ -13,11 +13,11 @@ package migrate
 
 import (
 	"fmt"
-	"strings"
-
+	"os"
 	"ousheng/internal/card"
 	"ousheng/internal/model"
 	"ousheng/internal/state"
+	"strings"
 )
 
 // StatusNeedsResolution 标记 owner 无法解析、等待人工处理。
@@ -169,6 +169,8 @@ func actorIndex(repo state.Repository) map[string]model.Actor {
 		for _, f := range actors {
 			out[f.Actor.ID] = f.Actor
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[warn] 注册表读取失败——owner 解析缺输入（将标 needs_resolution）: %v\n", err)
 	}
 	return out
 }

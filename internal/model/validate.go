@@ -151,12 +151,42 @@ func ValidateWorkItem(w WorkItem, raw []byte) error {
 		}
 	}
 	if len(raw) > MaxWorkItemBytes {
-		return fmt.Errorf("work item exceeds %d bytes——骨架原则：证据用指针（`evidence add --type document --locator <路径/URL>`），正文与实测归外部文档；或先瘦身本条（长段描述/note 移出）", MaxWorkItemBytes)
+		return OversizedError{Size: len(raw)}
 	}
 	for _, f := range forbiddenContent {
 		if strings.Contains(string(raw), f) {
 			return fmt.Errorf("forbidden content: %q", f)
 		}
+	}
+	return nil
+}
+
+// OversizedError：尺寸门拒绝（档案 §18）。类型化以便更新路径用 errors.As 分流——
+// 超限卡只拒增长型写（档案 §57）。文案保持不变（溢出路径指引是 §18 的锁点）。
+type OversizedError struct{ Size int }
+
+func (e OversizedError) Error() string {
+	return fmt.Sprintf("work item exceeds %d bytes——骨架原则：证据用指针（`evidence add --type document --locator <路径/URL>`），正文与实测归外部文档；或先瘦身本条（长段描述/note 移出）", MaxWorkItemBytes)
+}
+
+// oversizedSlackBytes：超限卡上「状态位微变」的字节余量（status / revision 进位 /
+// assignee / progress 的变化量级）；超过即视为增长型写。
+const oversizedSlackBytes = 64
+
+// ValidateOversizedGrowth（档案 §57）：已超限的卡只拒「增长型写」——
+// ①新增 evidence 条目；②编码增长超过余量。收缩 / 等长 / 状态位微变放行。
+//
+// 为什么：卡点不变式——卡状态合法性，不卡合法写。超限是既成事实态（merge 膨胀 /
+// 手改 / 历史遗留，写路径本身进不去），此前它冻结一切写：顶格卡连 status→done
+// （revision 进位 +1 字节）都被拒，只剩 `--file` 瘦身一条路（真板 T-193「8KB
+// 满载死锁：此前任何 CLI 写入被拒」）。§18 骨架原则不变：门值不动，新证据仍须
+// 先瘦身或走指针——这里放的只是「不增长」的写。
+func ValidateOversizedGrowth(cur, next WorkItem, curRaw, nextRaw []byte) error {
+	if len(next.Evidence) > len(cur.Evidence) {
+		return OversizedError{Size: len(nextRaw)}
+	}
+	if g := len(nextRaw) - len(curRaw); g > oversizedSlackBytes {
+		return fmt.Errorf("work item exceeds %d bytes 且本次写入增长 %d 字节——骨架原则：先瘦身本条（长段描述/note 移出），证据用指针（`evidence add --type document --locator <路径/URL>`）", MaxWorkItemBytes, g)
 	}
 	return nil
 }

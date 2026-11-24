@@ -22,7 +22,7 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. 定位：**牵�
 
 - `docs/` — design docs (Chinese)；导读见 `docs/README.md`
 - **`操作手册.md`（仓库根）— 唯一权威运营入口**（PM 日常操作全在此；其余文档是设计与档案）
-  - `设计裁决与推演记录.md` — 裁决档案（AGENTS.md 的理由层，§1–§52）
+  - `设计裁决与推演记录.md` — 裁决档案（AGENTS.md 的理由层，§1–§57；**§56 起每节带 ruling 头——格式见 `铁律清单.md` 文末「裁决账本」**）
   - `铁律清单.md` — **一切产品改动的前置门**（单点权威：铁律×自查问句×破坏实例；commit 带 `铁律对照:` 行）
   - `多人AI协作机制_方案基石.md` — design cornerstone (principles, control-theory mapping)
   - 权威方案：`OuSheng_工程本体化改造方案_v0.3.md` / `OuSheng_共识层设计方案_v0.4.md` / `OuSheng_巡航模式设计方案.md`（含 §51 绳牛裁决修正节）
@@ -31,6 +31,8 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. 定位：**牵�
   - `archive/` — 已执行专题设计 + 历史复盘 + 宣传稿 + reference-node 示例 + `superpowers/` 早期规格（只读存档）
 - `内容/` — WeChat public account articles (Chinese dir name, easy to mistype)
 - `assets/logo/`, `assets/cover/` — brand PNGs, versioned `v1`..`v9`. **Never delete older versions** — iteration history is intentional.
+- `.githooks/` — 产品仓流程钩（pre-push：触 state 面的推送必过 S7 四剧本；`git config core.hooksPath .githooks` 启用，档案 §57）
+- `internal/govern/` — 治理薄本体（裁决账本校验 + 吞错 AST 锁 + 钩子行为锁；只经 go test 运行，不进二进制）
 - `.workbuddy/memory/` — date-stamped work logs (local, gitignored)
 
 ## Gitignore gotchas (high-signal)
@@ -62,7 +64,9 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. 定位：**牵�
 - **S5**：memory 与 sqlite 查询结果必须深度相等（`internal/index/sqlite/sqlite_test.go`）；改 Index 接口须同步两实现 + 等价性测试。
 - **SQLite 定位**：产品查询路径默认 memory；sqlite 仅派生索引（树内消费者 = S5 等价测试，树外 = 只读 SQL 查询面）；激活判据：真实使用证明 memory 每命令重建成为实际痛点（裁决：档案 §3）。
 - **新字段四路验证**：WorkItem 新增字段必须同时接通四条消费路径——`work show` / `work list` / `view kanban` / `context me`（WorkBrief 信道），或明文判决出局并写明理由；嵌套 aggregate（Contract、blocks 等）同罪。**新字段必须声明卡点或引导职能，四路展示不是充分辩护**（档案 §7）。机械锁：`TestWorkPlanningFields` / `TestContractSignalFourPaths`；WorkBrief 构造单点在 `internal/context` 的 `newWorkBrief`。
-- **验证命令**：`go test ./... && go vet ./...`（每次改动必跑）。
+- **实栈复核六修（2026-11-24 裁决，档案 §56，真板 11-15→11-24 取证；v0.3.7）**：①**审计流读面 best-effort**——work/actors/designs 之外的漏网面：pm.jsonl 一段冲突标记（6 行）让 `ListActivity` 整体报错、调用点吞错 → 全舰队 `cruise status`「交付 0 单」42h（锁 `TestListActivityBestEffort` / `TestCruiseStatusSurvivesCorruptActivity`）；②**present 声明 12h 有效**，过期按 away（唯一判定点 `effectivePresence`——pm status/plan·status 头行/ignite 同源；「夜离场 away」纯纪律两度失守；锁 `TestPresenceDeclarationExpires`）；③**合并未决态拒写**（`lock()` 单点——未决态下写路径的 `git add .ousheng`+commit 会把半解合并固化入库；锁 `TestWriteRejectedDuringPendingMerge`）；④**晨检入口自检**——`cruise status/report` 带板龄（落后上游/久未 fetch）+ 板仓 merge 提交 = **双写源指纹**（单写源下 main 恒线性；真板 8 天 11 次）；`git --since` 只走 `gitSinceHours`（`--since=12h` 非 git 语法——「仓夜间提交 N」行一直报错数；锁 `TestCruiseStatusBoardFreshness` / `TestCruiseStatusMergeFingerprint` / `TestGitSinceHoursIsValidGitDate`）；⑤**驱动器静止闸**——plan 输出 `state:` 指纹（我的卡/依赖卡/注册表/共识的内容哈希）+ `--until-change` 变到即醒；取代 §42④ plan 文本 cksum（attach 行每轮变 → 退避从未触发，11-21 一句话驱动器零 delta 轮仍 50%）（锁 `TestCruisePlanStateFingerprint` / `TestCruisePlanWaitUntilChange` / `TestCruiseLoopQuietGate` 真跑驱动器）；⑥**plugin 自动 attach 作用域修复**（`seatSessionId` 曾声明在事件循环体内，A 形态从未生效；行为锁 `TestPluginAutoAttachOnIdle` 真跑 bun）。**锁锁行为（铁律 E6）**：字符串在位 ≠ 行为成立。
+- **验证命令**：`go test ./... && go vet ./...`（每次改动必跑）。**流程钩**（档案 §57）：每 clone 一次 `git config core.hooksPath .githooks`——pre-push 对触及 state/workspace/index/model/sync 面的推送强制过 S7 四剧本（「剧本必跑」从纪律变钩子；判据：chaos2 断言过时红 8 天无人见）；收尾/发版跑 `scripts/check.sh`（gofmt 新引入检查 + vet + 全量测试 + 四剧本）。
+- **裁决账本与治理薄本体（2026-11-24 拍板，档案 §57；铁律 E7/E8）**：不建推理机本体（方案甲否决：双源漂移、零增益、盖不住语义类失效）。取词汇层：档案每条裁决（§56 起）带 `<!-- ruling: enforcement/locks/hook/meter/review -->` 头，`go test ./internal/govern` 校验——执行类型合法、`locks:` 必须是真实测试函数、hook 路径存在、**纪律类必配量尺与复审日（≤90 天），到期不复审即测试红**（`TestRulingLedger`——§56 头 review 2026-12-08、§57 头 review 2026-12-24，到期红是设计：测量、写 `measured:` 续期或转机制）。配套锁：`TestNoSwallowedReadErrors`（AST：读面 API 错误不得被 `_` 吞或无 else 静默）、`TestShellVarBraces`（bash 3.2 `$var` 后紧跟全角字符必须 `${var}`——§43④ 与 §57 两次实锤）、`TestPrePushHook`（真跑钩子）。**唯一剩下的纪律是「提交前跑 go test」，再往上无元规则（§57 反事实 5）**。同批拍板：8KB 尺寸门**只拒增长型写**（超限卡关单/改派/瘦身放行——写冻结是卡点不变式破口，门值不动，§18 维持）；驾驶舱常驻单元 `ousheng-web.service` 随 `adapter install --cruise` 分发（enable=人；令牌走 0600 env 文件 `OUSHENG_WEB_TOKEN`）；只读 clone 机械禁推（`git remote set-url --push origin DISABLED`）；plugin-v1 模板冻结。
 - **依赖被砍 = BLOCKED**：open 项依赖目标 cancelled → converge 硬阻塞；修在 converge 层（Index.isDone 是历史残留语义，勿动）。锁 `TestDependsOnCancelledBlocks`。
 - **跨系统交接信号（反向依赖 + blocked 地址化，档案 §25）**：`depends_on` 单向（外向），v1 卡协议已要求反向查但 v0.3 丢了。补全：①Index 加 `DependedBy(id)`（open 项发出的反向边，已关闭项不计入）；②`WorkBrief` 加 `BlockedOn`（派生：BlockersOf 的 DepID 列表）+ `WaitedOnBy`（派生：DependedBy 结果）——只在注入面（`context me`/`ActorView`/`SystemView`）填充，`workBrief` 单点保持最小构造；③`WorkItemDetail` 加 `DependedBy []WorkBrief`（work show detail 层）；④converge：blocked + 空 `depends_on` → warning `blocked without dependency (waiting on what?)`（信息缺口暴露，不额外阻塞——blocked 本身已在 blockers）。四路判决：`BlockedOn`/`WaitedOnBy` 进 `context me` + `work show`，`work list`/`view kanban` 出局。不新增存储字段（纯派生）；不新增 blocked_reason 自由文本（注入面铁律）；不新增 PM 审批队列（死法记录）。设计：`docs/archive/OuSheng_跨系统交接信号_design.md`。锁 `TestMemoryIndexDependedBy` / `TestMemoryIndexDependedByExcludesClosed` / `TestDependedByEquivalence` / `TestContextDirectionSignals` / `TestWorkShowDependedBy` / `TestBlockedWithoutDependencyWarns`。
 - **测试交接信号（tester 待测池，档案 §26）**：`testing` 态 assignee 通常仍是 dev（doing→testing 不移交），tester 的 `ActiveWork`（只含 assignee=me）看不到 → 实栈 2026-10-20 data↔test 死锁（mlake 说等 test，test 说没活，PM 口头指派才动）。修法：`MyContext` 加 `AwaitingTest []WorkBrief`（派生：我作为 tester 的 system × `status=testing` × 未被任何 tester 认领；`workBrief` 复用单点构造）。**事实投影非派活指令**——testing 承担交接/自测双语义，绳不区分（A2），由 tester 自行 `work show` 判断；假阳性成本=多看一眼，死锁成本=无法推进。四路判决：`context me`/`ActorView` 接入（`ActorView` 内嵌继承），`SystemView` 已覆盖（`WorkItemActive` 含 testing），`work show`/`view kanban` 出局，`work list` 已有 `--status testing` 不新增。不新增存储字段、不动 assignee（自动移交=替人决策，A2）、不加硬门、无推送/daemon。converge 的 testing 非 tester 角色 warning 保留但改措辞：「consider reassigning to tester (tester also sees it via awaiting_test)」——reassign 是理想路径（问责清晰），awaiting_test 是兜底（不依赖 dev 记性）。设计：`docs/archive/OuSheng_测试交接信号_design.md`。锁 `TestGetMyContext_AwaitingTest*`（5 个）+ `TestTestingNonTesterRoleWarns`（措辞）。
@@ -76,7 +80,7 @@ OuSheng (㸸绳) — multi-person AI Coding collaboration tool. 定位：**牵�
   - **PM 只做**：跨系统冲突仲裁、C2 对外契约破坏、生产权限授予、设计拍板。**不是**逐事审批人。
   - **accountable_human = 最终问责归属（F4 防 AI 无人负责），不是审批人**——agent 不逐事问 accountable_human。
   - 锁 `TestNoticeCreateDirectlyDone` / `TestConvergeNoticeNoEvidenceWarning` / `TestConvergeDependenciesResolvedStillBlockedWarns`。
-- **S7 多机回归**：`scripts/dogfood-s7.sh`（四机全流程）/ `dogfood-s7-chaos.sh`（混沌一）/ `dogfood-s7-chaos2.sh`（混沌二）/ `dogfood-s7-design.sh`（共识层）。**改 state/sync/activity 相关代码后四剧本必跑；改共识层（context/converge/design cmd）后必跑第四幕。新剧本 = 真实事故/推演复盘驱动，禁预防性编写**（场景清单：档案 §5）。
+- **S7 多机回归**：`scripts/dogfood-s7.sh`（四机全流程）/ `dogfood-s7-chaos.sh`（混沌一）/ `dogfood-s7-chaos2.sh`（混沌二）/ `dogfood-s7-design.sh`（共识层）。**改 state/sync/activity 相关代码后四剧本必跑（`.githooks/pre-push` 机械兜底，§57）；改共识层（context/converge/design cmd）后必跑第四幕。新剧本 = 真实事故/推演复盘驱动，禁预防性编写**（场景清单：档案 §5）。
 - **查看时机协议**：三时机（session 启动 sync / 遇问题查上下文 / 任务结束更新再看板），禁止每 loop 轮询。
 - fixtures：`fixtures/lakehouse/` 是五场景数据，`internal/testfix.Setup(t)` 装载；改 fixture 须跑全量测试。
 - **提交纪律**：`git add` 用显式路径，禁 `git add -A`（会把 `内容/` 未跟踪文章带进来）。Commit message 正常散文体 + trailer `Co-Authored-By: Claude <noreply@anthropic.com>`。

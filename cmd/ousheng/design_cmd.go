@@ -141,6 +141,8 @@ func designShow(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "\n-- 巡航表决投影：最新轮发言 %d 人 %s——一人可坐多系统（+ 连接），法定人数按宪章\n",
 				len(di.LatestSpeakers), strings.Join(parts, " "))
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[warn] 共识层读取失败——巡航表决投影行降级: %v\n", err)
 	}
 	return 0
 }

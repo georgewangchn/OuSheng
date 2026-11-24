@@ -1,9 +1,13 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -62,6 +66,7 @@ type planData struct {
 	React      []planItem
 	Idle       bool
 	AttachSess string // 本代 opencode session id（会话代际制，档案 §34）
+	State      string // 座位相关事实的内容指纹（驱动器静止闸，档案 §56）
 }
 
 // cruisePlan 输出某座位的下一活清单（驱动器把它拼进 opencode 的 prompt）。
@@ -71,6 +76,7 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 	allowNew := fs.Bool("allow-new", false, "include the self-proposed new-item section (default off)")
 	asJSON := fs.Bool("json", false, "output JSON")
 	waitSec := fs.Int("wait", 0, "无活时阻塞等待（秒）：每 20s pull+重查，有活或超时返回——活到即醒")
+	untilChange := fs.String("until-change", "", "静止闸（档案 §56）：state 指纹仍等于该值时继续等（与 --wait 同窗）；事实变了立即返回——变到即醒")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
@@ -123,7 +129,10 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintln(stderr, perr)
 				return 1
 			}
-			if !pd.Idle {
+			// 静止闸（§56）：有活但「座位相关事实」自上轮起轮后未变 → 不算该醒
+			//（上轮零 delta 且无人动过我的卡），继续等到变化或窗口到。
+			quiet := *untilChange != "" && pd.State == *untilChange
+			if !pd.Idle && !quiet {
 				break
 			}
 			_, _ = gitOutTimeout(fs.Dir(), 30*time.Second, "pull", "--ff-only")
@@ -150,7 +159,7 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 	if *asJSON {
 		printJSON(stdout, map[string]any{
 			"actor": a, "resume": pd.Resume, "claim": pd.Claim, "react": pd.React,
-			"idle": pd.Idle, "new": *allowNew, "attach_session": pd.AttachSess,
+			"idle": pd.Idle, "new": *allowNew, "attach_session": pd.AttachSess, "state": pd.State,
 			"presence": presenceLine(repo),
 			"charter":  "见 .ousheng/designs/cruise/（若立）——授权范围/投票规则/红线",
 		})
@@ -158,6 +167,8 @@ func cruisePlan(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "cruise plan · actor=%s（优先序：恢复>领活>反应>新提）\n", a)
 	fmt.Fprintf(stdout, "%s\n", presenceLine(repo))
+	// state 行是驱动器静止闸的机械接口（§56）——不进 prompt，不给人读。
+	fmt.Fprintf(stdout, "state: %s\n", pd.State)
 	if pd.AttachSess != "" {
 		fmt.Fprintf(stdout, "attach: %s（续同代省上下文重构：opencode run -s %s ...；换代=handover save 不带 --session）\n", pd.AttachSess, pd.AttachSess)
 	}
@@ -288,6 +299,8 @@ func buildPlan(dir, actor string) (*planData, error) {
 				}
 			}
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[warn] 审计流读取失败——「24h 内他人在此单留言」反应节降级为空: %v\n", err)
 	}
 	mySystems := map[string]bool{}
 	for _, s := range mc.Systems {
@@ -315,8 +328,90 @@ func buildPlan(dir, actor string) (*planData, error) {
 			attach = h.Session
 		}
 	}
+	state := seatStateFingerprint(dir, mc, resume, claim, react)
 	return &planData{MC: mc, Resume: resume, Claim: claim, React: react,
-		Idle: len(resume) == 0 && len(claim) == 0 && len(react) == 0, AttachSess: attach}, nil
+		Idle: len(resume) == 0 && len(claim) == 0 && len(react) == 0, AttachSess: attach, State: state}, nil
+}
+
+// stateIDRe：静止闸指纹只把安全 ID 拼进路径（ID 来自板面解码，双保险防路径穿越）。
+var stateIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// seatStateFingerprint（档案 §56）：「座位相关事实」的内容指纹——驱动器静止闸的
+// 判据：与上一轮**起轮时**相同 ⇔ 上轮零 delta 且期间无人动过任何可能让我有活干
+// 的文件。覆盖面按「下一次起轮会不会因此不同」逐类取：
+//   - 恢复/领活/反应三节所指的卡（pm 落令、排位、他座位协商留言都落在卡面）；
+//   - 我在途单的依赖目标卡（等的就是它）；
+//   - 注册表（actors/systems/assignments/roles/presence——在场度改门行为）；
+//   - 共识层 designs/（拍板/新轮次）与本域架构卡（契约指针）。
+//
+// 不含：handover 快照（只有本座位写）、他域卡、时间戳类易变输入。
+//
+// 为什么取代 §42④「plan 文本 cksum」：那把尺两头痛——attach 行每轮变 → 永不
+// 触发（11-21 真板：四座 10-11 分钟一轮、零 delta 轮 50%，退避从未生效）；他人
+// 往我的卡落 evidence 不改 plan 文本 → 该醒不醒。内容指纹是机械事实，不读语义。
+// 成本：≤ 数十个 ≤8KB 文件的读取+哈希，毫秒级（--wait 每 20s 一次可承受）。
+func seatStateFingerprint(dir string, mc *context.MyContext, lists ...[]planItem) string {
+	root := filepath.Join(dir, ".ousheng")
+	ids := map[string]bool{}
+	for _, l := range lists {
+		for _, it := range l {
+			ids[it.ID] = true
+		}
+	}
+	for _, w := range mc.ActiveWork {
+		for _, d := range w.BlockedOn {
+			ids[d] = true
+		}
+	}
+	rels := []string{"systems.yaml", "assignments.yaml", "roles.yaml", "presence.yaml"}
+	for id := range ids {
+		if stateIDRe.MatchString(id) && !strings.Contains(id, "..") {
+			rels = append(rels, "work/"+id+".yaml")
+		}
+	}
+	collect := func(sub, ext string) {
+		entries, err := os.ReadDir(filepath.Join(root, sub))
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ext) {
+				rels = append(rels, sub+"/"+e.Name())
+			}
+		}
+	}
+	collect("actors", ".yaml")
+	for _, sys := range mc.Systems {
+		rels = append(rels, "architecture/"+sys+".md")
+	}
+	if entries, err := os.ReadDir(filepath.Join(root, "designs")); err == nil {
+		for _, topic := range entries {
+			if !topic.IsDir() {
+				continue
+			}
+			rounds, err := os.ReadDir(filepath.Join(root, "designs", topic.Name()))
+			if err != nil {
+				continue
+			}
+			for _, r := range rounds {
+				if strings.HasSuffix(r.Name(), ".md") {
+					rels = append(rels, "designs/"+topic.Name()+"/"+r.Name())
+				}
+			}
+		}
+	}
+	sort.Strings(rels)
+	h := sha256.New()
+	for _, rel := range rels {
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			fmt.Fprintf(h, "%s\n<missing>\n", rel)
+			continue
+		}
+		fmt.Fprintf(h, "%s\n%d\n", rel, len(b))
+		h.Write(b)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 // svcCtxHandover 读快照清单（buildPlan 辅助，错误吞掉——代际指针缺位不致命）。
@@ -348,7 +443,10 @@ func cruiseStatus(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	since := time.Now().Add(-time.Duration(*hours) * time.Hour)
-	acts, _ := repo.ListActivity()
+	acts, aerr := repo.ListActivity()
+	if aerr != nil {
+		fmt.Fprintf(os.Stderr, "[warn] 审计流读取失败——基于审计流的读数（交付/新增/空转/战果/轮摘要）降级，不是真相: %v\n", aerr)
+	}
 
 	var delivered, created int
 	createdBy := map[string]int{}
@@ -413,16 +511,28 @@ func cruiseStatus(args []string, stdout, stderr io.Writer) int {
 	if n := createdBy["feature"] + createdBy["requirement"]; n > 0 {
 		news = fmt.Sprintf("（⚠ feature/requirement %d —— 巡航红线，晨间核查）", n)
 	}
+	// §56 晨检入口自检（F1：读数必须自带板龄；merge = 双写源指纹）。零网络。
+	fresh := boardFreshnessWarn(fs.Dir())
+	merges := boardMergeFingerprint(fs.Dir(), *hours)
 	if *asJSON {
 		printJSON(stdout, map[string]any{
 			"window_hours": *hours, "delivered": delivered, "created": created,
 			"created_by_type": createdBy, "redline_note": news, "presence": presenceLine(repo),
 			"waiting_decide": waitDecide, "waiting_ack": waitAck, "waiting_arbitration": waitArb,
-			"stalled": stalled,
+			"stalled": stalled, "board_freshness": fresh, "merge_commits": merges,
 		})
 		return 0
 	}
 	fmt.Fprintf(stdout, "== 巡航摘要（近 %dh）== %s\n", *hours, presenceLine(repo))
+	if fresh != "" {
+		fmt.Fprintf(stdout, "⚠ %s\n", fresh)
+	}
+	if len(merges) > 0 {
+		fmt.Fprintf(stdout, "⚠ 近 %dh 板仓 merge 提交 %d 次——双写源指纹（单写源下 main 恒线性；写只从一个板仓 clone 进，§48/§50-A）：\n", *hours, len(merges))
+		for _, m := range merges {
+			fmt.Fprintf(stdout, "  · %s\n", m)
+		}
+	}
 	// 宪章状态（启用链第一环——没宪章 = 巡航未启用，status 必须说）。
 	charter := "未立（.ousheng/designs/cruise/）——授权范围/投票规则/时窗未定义，巡航未启用"
 	for _, d := range snap.Designs {
@@ -432,7 +542,7 @@ func cruiseStatus(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "宪章：%s\n", charter)
 	for sys, repoDir := range machine.LoadRepoMap(fs.Dir()) {
-		out, err := gitOutput(repoDir, "log", "--oneline", fmt.Sprintf("--since=%dh", *hours))
+		out, err := gitOutput(repoDir, "log", "--oneline", gitSinceHours(*hours))
 		if err != nil {
 			continue
 		}
@@ -508,7 +618,22 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	since := time.Now().Add(-time.Duration(*hours) * time.Hour)
-	acts, _ := repo.ListActivity()
+	acts, aerr := repo.ListActivity()
+	if aerr != nil {
+		fmt.Fprintf(os.Stderr, "[warn] 审计流读取失败——基于审计流的读数（交付/新增/空转/战果/轮摘要）降级，不是真相: %v\n", aerr)
+	}
+	// closedIn：窗口内有 done/cancelled 动作的收官单（晨报逐列）；更早的收官单
+	// 折叠成计数——真板 164 行「✅ 收官」墙把在途单淹了（§56）：晨报是窗口报表，
+	// 不是全量档案。
+	closedIn := map[string]bool{}
+	for _, a := range acts {
+		if a.Action != "status_changed" || (!strings.Contains(a.Detail, "-> done") && !strings.Contains(a.Detail, "-> cancelled")) {
+			continue
+		}
+		if ts, perr := time.Parse(time.RFC3339, a.TS); perr == nil && !ts.Before(since) {
+			closedIn[a.WorkItem] = true
+		}
+	}
 
 	// 需求/缺陷清单（诚实形态：无父子字段——聚合判定已记档延后，此处是清单非归并）。
 	type itemRow struct {
@@ -535,6 +660,8 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 				humanSeat[af.Actor.ID] = true
 			}
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[warn] 注册表读取失败——human 座位过滤降级（战果表可能混入 human）: %v\n", aerr)
 	}
 	type seat struct {
 		Actor               string
@@ -712,12 +839,16 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 		}
 		printJSON(stdout, map[string]any{
 			"window_hours": *hours, "seats": sj, "items": ij, "waiting": waits,
-			"q_pm_backlog": len(qIDs),
+			"q_pm_backlog": len(qIDs), "board_freshness": boardFreshnessWarn(fs.Dir()),
 		})
 		return 0
 	}
 
 	fmt.Fprintf(stdout, "# 巡航简报（%s，近 %dh）\n\n", time.Now().Format("2006-01-02 15:04"), *hours)
+	// §56：晨报自带板龄（pm 机只读 clone 停在 9 天前曾把旧板当现况读完整个晨检）。
+	if fresh := boardFreshnessWarn(fs.Dir()); fresh != "" {
+		fmt.Fprintf(stdout, "> ⚠ %s\n\n", fresh)
+	}
 	fmt.Fprintf(stdout, "## 每座位战果\n")
 	if len(seatOrder) == 0 {
 		fmt.Fprintf(stdout, "（窗口内无 agent 座位活动）\n")
@@ -744,12 +875,46 @@ func cruiseReport(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	fmt.Fprintf(stdout, "\n## 需求/缺陷清单（FEAT/REQ/BUG）\n")
+	var openRows, recentRows, histRows []itemRow
+	for _, it := range items {
+		switch {
+		case it.Status == "进行中":
+			openRows = append(openRows, it)
+		case closedIn[it.ID]:
+			recentRows = append(recentRows, it)
+		default:
+			histRows = append(histRows, it)
+		}
+	}
 	if len(items) == 0 {
 		fmt.Fprintf(stdout, "（无）\n")
 	} else {
-		fmt.Fprintf(stdout, "| ID | 状态 | 标题 |\n|---|---|---|\n")
-		for _, it := range items {
-			fmt.Fprintf(stdout, "| %s | %s | %s |\n", it.ID, it.Status, it.Title)
+		table := func(rows []itemRow) {
+			fmt.Fprintf(stdout, "| ID | 状态 | 标题 |\n|---|---|---|\n")
+			for _, it := range rows {
+				fmt.Fprintf(stdout, "| %s | %s | %s |\n", it.ID, it.Status, it.Title)
+			}
+		}
+		if len(openRows) > 0 {
+			fmt.Fprintf(stdout, "进行中 %d：\n", len(openRows))
+			table(openRows)
+		}
+		if len(recentRows) > 0 {
+			fmt.Fprintf(stdout, "\n窗口内收官 %d：\n", len(recentRows))
+			table(recentRows)
+		}
+		if len(histRows) > 0 {
+			byPrefix := map[string]int{}
+			for _, it := range histRows {
+				byPrefix[strings.SplitN(it.ID, "-", 2)[0]]++
+			}
+			var parts []string
+			for _, p := range []string{"BUG", "FEAT", "REQ"} {
+				if byPrefix[p] > 0 {
+					parts = append(parts, fmt.Sprintf("%s %d", p, byPrefix[p]))
+				}
+			}
+			fmt.Fprintf(stdout, "\n历史收官 %d 单不逐列（%s）——`work list --status done` 可查\n", len(histRows), strings.Join(parts, " · "))
 		}
 	}
 	if len(qIDs) > 0 {
@@ -779,6 +944,73 @@ func truncRunes(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
+// boardContactStale：远端接触痕迹超过此时长 → 观测面点名（一天没碰过远端，
+// tracking ref 自身可能陈旧——pm 机只读 clone 实况：clone 停 11-15 达 9 天）。
+const boardContactStale = 24 * time.Hour
+
+// gitSinceHours：git --since 的合法写法（单一出口）。`--since=12h` 不是 git
+// 日期语法——实测被当「本月 12 日」（12h → 全量 3364 条）/ 非法日（240h → 0 条）：
+// 「仓夜间提交 N」行自 §34 起一直在报错数，无锁覆盖（§56 复核抓回）。
+func gitSinceHours(hours int) string {
+	return fmt.Sprintf("--since=%d hours ago", hours)
+}
+
+// boardFreshnessWarn（档案 §56；F1「ok 必须含新鲜度」在晨检入口的落地）：
+// 只读观测面的板龄——零网络：①本地 HEAD 是否落后上游 tracking ref（上次 fetch
+// 已知有新）；②远端接触痕迹（FETCH_HEAD / 远端跟踪 reflog）距今多久（判断
+// tracking ref 自身新不新）。返回空 = 新鲜（健康态零输出，不添噪音）。
+//
+// 观测面不 fetch：驾驶舱每次刷新都调 status，网络半开会把页面拖死（F3/F4）；
+// 全检归 doctor/ignite。新鲜度是「读者自己知道读的是不是旧板」，不是替他拉。
+func boardFreshnessWarn(dir string) string {
+	// HEAD...@{u}：左 = 本地独有（未推），右 = 上游独有（本地缺新 = 落后）。
+	if out, err := gitOutErr(dir, "rev-list", "--left-right", "--count", "HEAD...@{u}"); err == nil {
+		if c := strings.Fields(strings.TrimSpace(out)); len(c) == 2 && c[1] != "0" {
+			return fmt.Sprintf("本地板落后上游 %s 提交——以上读数是旧板（观测面不自动拉取）：先 ousheng sync / git pull", c[1])
+		}
+	}
+	if t, ok := lastRemoteContact(dir); ok && time.Since(t) > boardContactStale {
+		return fmt.Sprintf("板仓上次 fetch 在 %.0f 小时前——远端可能有新（tracking ref 自身陈旧；git fetch 后再看）", time.Since(t).Hours())
+	}
+	return ""
+}
+
+// lastRemoteContact：最近一次远端接触——fetch 写 FETCH_HEAD；clone / 带更新的
+// fetch / push -u 写远端跟踪 reflog。取两者最晚；全无 = 从未接触（单机形态不判）。
+func lastRemoteContact(dir string) (time.Time, bool) {
+	var latest time.Time
+	found := false
+	if fi, err := os.Stat(filepath.Join(dir, ".git", "FETCH_HEAD")); err == nil {
+		latest, found = fi.ModTime(), true
+	}
+	_ = filepath.Walk(filepath.Join(dir, ".git", "logs", "refs", "remotes"), func(_ string, fi os.FileInfo, err error) error {
+		if err == nil && fi.ModTime().After(latest) {
+			latest, found = fi.ModTime(), true
+		}
+		return nil
+	})
+	return latest, found
+}
+
+// boardMergeFingerprint（档案 §56）：窗口内板仓 merge 提交——双写源指纹。
+// 单写源下 sync 只 ff-only、ousheng 写路径只提交不合并 → main 恒线性；出现
+// merge = 有人从第二个 clone 写板后手工合并（§42 拍平 5 卡 / §48 全队停摆 /
+// 11-22 冲突标记入库的公共前因；真板 8 天 11 次）。只曝光不拦：合并是人的合法
+// 收口动作，但它的存在证明「单写源」纪律破了，pm 必须看见。
+func boardMergeFingerprint(dir string, hours int) []string {
+	res := []string{}
+	out, err := gitOutErr(dir, "log", "--merges", gitSinceHours(hours), "--format=%h %s", "HEAD")
+	if err != nil {
+		return res
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			res = append(res, truncRunes(l, 70))
+		}
+	}
+	return res
+}
+
 // cruiseHeartbeat：各座位心跳投影（P2，档案 §35）——最后 activity距今多久。
 // 纯投影零新存储；>N 分钟无心跳=⚠ 疑似停止。
 // 评审修正（档案 §36）：只看 agent 座位（human PM 非值班席）+ 输出排序确定。
@@ -797,18 +1029,24 @@ func cruiseHeartbeat(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	humanSeat := map[string]bool{}
-	if afs, aerr := repo.ListActors(); aerr == nil {
-		for _, af := range afs {
-			if af.Actor.Type == model.ActorHuman {
-				humanSeat[af.Actor.ID] = true
-			}
+	// 座位 = 注册表里的 agent（评审修正 §36：human 非值班席）。§56 收紧：只认
+	// 注册座位——审计流里的未注册名/已撤座位残留（真板：ousheng、data-local）
+	// 曾被当成「疑似停止」的座位永久 ⚠，警告面被幽灵占据。
+	agentSeat := map[string]bool{}
+	afs, aerr := repo.ListActors()
+	if aerr != nil {
+		fmt.Fprintln(stderr, aerr)
+		return 1
+	}
+	for _, af := range afs {
+		if af.Actor.Type == model.ActorAgent {
+			agentSeat[af.Actor.ID] = true
 		}
 	}
 	last := map[string]time.Time{}
 	for i := len(acts) - 1; i >= 0; i-- {
 		a := acts[i]
-		if humanSeat[a.Actor] {
+		if !agentSeat[a.Actor] {
 			continue
 		}
 		if _, ok := last[a.Actor]; !ok {

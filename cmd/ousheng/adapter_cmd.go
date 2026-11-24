@@ -198,11 +198,18 @@ func cmdAdapter(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "cruise        scripts/cruise-loop.sh + scripts/ousheng-cruise@.service  written\n")
+		// §57：驾驶舱常驻单元随同一批运维资产分发（板仓所在机装一次；enable = 人）。
+		webPath := filepath.Join(dir, "scripts", "ousheng-web.service")
+		if err := os.WriteFile(webPath, opencode.WebServiceUnit, 0o644); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "cruise        scripts/cruise-loop.sh + scripts/ousheng-cruise@.service + scripts/ousheng-web.service  written\n")
 		fmt.Fprintf(stdout, "  挂载（每座位一次；宪章 .ousheng/designs/cruise/ 先立再启）：\n")
-		fmt.Fprintf(stdout, "    1. cp %s/scripts/ousheng-cruise@.service /etc/systemd/system/ && systemctl daemon-reload\n", dir)
+		fmt.Fprintf(stdout, "    1. cp %s/scripts/ousheng-cruise@.service %s/scripts/ousheng-web.service /etc/systemd/system/ && systemctl daemon-reload\n", dir, dir)
 		fmt.Fprintf(stdout, "    2. 建 /etc/default/ousheng-cruise-<actor>：CRUISE_REPO=%s + OUSHENG_CRUISE_ARGS=\"<kanban工作区> <actor> <system> %s 20 600 22:00-07:00\"\n", dir, dir)
 		fmt.Fprintf(stdout, "    3. 点火：ousheng cruise ignite --seat <actor>（或 web 驾驶舱按钮）——唯一入口，禁 pm 会话手动巡航（§50-A 死法）\n")
+		fmt.Fprintf(stdout, "    4. 驾驶舱常驻（板仓所在机一次，§57）：/etc/default/ousheng-web（0600：OUSHENG_BOARD/OUSHENG_WEB_ADDR/OUSHENG_WEB_TOKEN）→ systemctl enable --now ousheng-web\n")
 	}
 
 	// 5. AGENTS.md：机器中立协议段，标记段幂等替换，段外内容不触碰。

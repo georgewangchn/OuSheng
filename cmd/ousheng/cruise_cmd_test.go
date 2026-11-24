@@ -204,6 +204,20 @@ func TestAdapterCruiseAsset(t *testing.T) {
 		strings.Index(s, "StartLimitIntervalSec") > strings.Index(s, "[Service]") {
 		t.Fatalf("StartLimit* must live in [Unit] section:\n%s", s)
 	}
+	// §57：驾驶舱常驻单元随同批资产分发——「PM 唯一写面」的前提是驾驶舱一直在。
+	websvc, err := os.ReadFile(filepath.Join(repo, "scripts", "ousheng-web.service"))
+	if err != nil {
+		t.Fatalf("--cruise must write web cockpit unit: %v", err)
+	}
+	w := string(websvc)
+	for _, want := range []string{"Restart=always", "EnvironmentFile=/etc/default/ousheng-web", "OUSHENG_WEB_TOKEN", "enable --now"} {
+		if !strings.Contains(w, want) {
+			t.Fatalf("web unit 缺 %q:\n%s", want, w)
+		}
+	}
+	if strings.Contains(w, "--token <") || strings.Contains(w, "--token sekret") {
+		t.Fatalf("令牌不得以字面量进单元文件的命令行:\n%s", w)
+	}
 	// doctor 不受影响（可选资产不装不查；装了=canonical 一致 PASS——§50-C）。
 	if out := mustRun(t, repo, "doctor"); strings.Contains(out, "FAIL") {
 		t.Fatalf("optional asset must not break doctor:\n%s", out)

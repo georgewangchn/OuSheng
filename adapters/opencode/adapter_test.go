@@ -166,7 +166,10 @@ func TestCruiseLoopSyntax(t *testing.T) {
 		"OUSHENG_CTX_MAX", "cache", "换代", "ctx",
 		"OUSHENG_TOKEN_BUDGET", "token 累计", "预算尽",
 		"§51", "sync 并推进", "直至完成", "顺序、批量、节奏你定",
-		"exit 1 交 systemd", "rm -f /tmp/cruise-plan", "截止占第 8、9"} {
+		"exit 1 交 systemd", "rm -f /tmp/cruise-plan", "截止占第 8、9",
+		// §56 静止闸：state 指纹 + 变到即醒（取代 plan 文本 cksum——attach 行每轮
+		// 变致退避从未触发，11-21 真板零 delta 轮 50%）。
+		"§56 静止闸", "state: ", "--until-change", "cruise-state.", "静止轮"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("cruise-loop.sh 缺护栏 %q", want)
 		}

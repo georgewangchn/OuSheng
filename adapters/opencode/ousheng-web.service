@@ -1,0 +1,35 @@
+# ousheng-web.service —— 驾驶舱常驻单元（档案 §57：PM 面唯一化的前提是驾驶舱可用）
+#
+# 安装（板仓所在机一次；「启动 = 人」同理——enable 是人的动作）：
+#   cp scripts/ousheng-web.service /etc/systemd/system/
+#   install -m 0600 /dev/null /etc/default/ousheng-web      # 令牌文件：仅 root 可读
+#   cat > /etc/default/ousheng-web <<EOF
+#   OUSHENG_BOARD=/data/tide/kanban
+#   OUSHENG_WEB_ADDR=0.0.0.0:7878
+#   OUSHENG_WEB_TOKEN=<自己设的令牌——泄露即换>
+#   EOF
+#   systemctl daemon-reload && systemctl enable --now ousheng-web
+#
+# 语义：常驻（Restart=always）——§50-A「PM 写板唯一面 = web 驾驶舱」只有驾驶舱
+# 一直在，才不是一句纪律：驾驶舱不可达，pm 就退回第二个 clone/会话写板 = 双写源
+# = merge（真板 8 天 11 次，§56）。停：systemctl stop ousheng-web。
+# 安全：非回环绑定二进制强制要 token（fail-closed，§50-E）；令牌走 env 文件
+# （OUSHENG_WEB_TOKEN），不进命令行（ps 不可见）、不进日志；公网暴露仍须
+# 安全组/内网白名单。板仓 .ousheng/me 必须是 human（pm）——agent 机形态下
+# 拍板/ack 会被 §23 拒（那是门在正确工作）。
+[Unit]
+Description=OuSheng web cockpit (PM write surface)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/ousheng-web
+ExecStart=/usr/local/bin/ousheng web --dir "$OUSHENG_BOARD" --addr "$OUSHENG_WEB_ADDR" --token "$OUSHENG_WEB_TOKEN"
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

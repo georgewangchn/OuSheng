@@ -59,6 +59,13 @@ var CruiseLoopSh []byte
 //go:embed ousheng-cruise@.service
 var CruiseServiceUnit []byte
 
+// WebServiceUnit 是驾驶舱常驻单元（档案 §57：PM 面唯一化的前提是驾驶舱可用——
+// 「未常驻」曾让 pm 退回第二写源）。随 --cruise 写出为仓级 scripts/ousheng-web.service，
+// 安装到 /etc/systemd/system 后由人 enable（启动 = 人，§45 同理）。
+//
+//go:embed ousheng-web.service
+var WebServiceUnit []byte
+
 // AgentsMD 是 AGENTS.md 的受管协议段（机器中立：不含路径/身份/环境变量，
 // 机器参数只活在 .opencode/ousheng.json）。adapter install 以
 // <!-- ousheng:begin --> / <!-- ousheng:end --> 标记幂等写入/替换。

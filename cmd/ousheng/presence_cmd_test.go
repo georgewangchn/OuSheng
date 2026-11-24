@@ -5,7 +5,72 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"ousheng/internal/model"
 )
+
+// TestPresenceDeclarationExpires（档案 §56）：present 声明有有效期——过期即按
+// away 行事（唯一判定点 effectivePresence：pm status / plan·status 头行同源）。
+// 判据：纯纪律「夜离场必 away」+ ignite 提醒两道都没拦住，present 挂三天两度
+// 复发（11-13→16、11-21→24）= 全队「问完等」空等烧 token。
+func TestPresenceDeclarationExpires(t *testing.T) {
+	dir := t.TempDir()
+	mustRun(t, dir, "init")
+	mustRun(t, dir, "me", "pm", "--name", "PM")
+	mustRun(t, dir, "system", "add", "lake")
+	mustRun(t, dir, "team", "add", "dev1", "--type", "agent", "--responsible-human", "pm", "--system", "lake")
+
+	// 新鲜声明（11h）：仍是 present。
+	oldNow := model.Now
+	model.Now = func() string { return time.Now().Add(-11 * time.Hour).Format(time.RFC3339) }
+	mustRun(t, dir, "pm", "present")
+	model.Now = oldNow
+	out := mustRun(t, dir, "pm", "status")
+	if !strings.Contains(out, "问完等") || strings.Contains(out, "有效期") {
+		t.Fatalf("11h 内的 present 声明应生效:\n%s", out)
+	}
+	// 过期声明（13h）：声明原文仍在（pm 的手不被卡），生效态回到悲观默认 away。
+	model.Now = func() string { return time.Now().Add(-13 * time.Hour).Format(time.RFC3339) }
+	mustRun(t, dir, "pm", "present")
+	model.Now = oldNow
+	out = mustRun(t, dir, "pm", "status")
+	for _, want := range []string{"PM present", "13 小时", "按 away 行事", "挂起转下一活"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("过期 present 应按 away 行事且显式说明（缺 %q）:\n%s", want, out)
+		}
+	}
+	// plan/status 头行同源：agent 与 pm 看到的是同一个生效态。
+	out = mustRun(t, dir, "cruise", "plan", "--actor", "dev1")
+	if !strings.Contains(out, "声明过期按 away 行事") || !strings.Contains(out, "不空等") || strings.Contains(out, "问完等") {
+		t.Fatalf("plan 头行应随生效态走 away:\n%s", out)
+	}
+	out = mustRun(t, dir, "cruise", "status")
+	if !strings.Contains(out, "声明过期按 away 行事") {
+		t.Fatalf("status 头行应显式过期:\n%s", out)
+	}
+	// 重新声明即恢复（pm 在场的一步动作）。
+	mustRun(t, dir, "pm", "present")
+	out = mustRun(t, dir, "pm", "status")
+	if !strings.Contains(out, "问完等") || strings.Contains(out, "声明已") {
+		t.Fatalf("重新声明应恢复 present:\n%s", out)
+	}
+	// 声明缺有效时间戳（手改坏了 since）：无法证明新鲜 = 不是 present（C1 不确定即拒，
+	// 不能因为解析不了时间戳就永久 present——那是 fail-open 的过期绕过）。
+	path := filepath.Join(dir, ".ousheng", "presence.yaml")
+	if err := os.WriteFile(path, []byte("schema_version: 1\nactor: pm\nstate: present\nsince: 不是时间\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = mustRun(t, dir, "pm", "status")
+	for _, want := range []string{"PM present", "缺有效时间戳", "按 away 行事"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("坏时间戳的 present 应按 away（缺 %q）:\n%s", want, out)
+		}
+	}
+	if out := mustRun(t, dir, "cruise", "plan", "--actor", "dev1"); strings.Contains(out, "问完等") {
+		t.Fatalf("plan 头行同源按 away:\n%s", out)
+	}
+}
 
 // TestPresenceCmd：present/away 声明 + 非人拒绝 + 缺省悲观默认。
 func TestPresenceCmd(t *testing.T) {

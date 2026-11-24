@@ -569,7 +569,19 @@ func (r *Repo) UpdateWorkItem(w model.WorkItem, expectRevision int, acts []model
 		return model.WorkItem{}, err
 	}
 	if err := model.ValidateWorkItem(w, raw); err != nil {
-		return model.WorkItem{}, err
+		// §57：尺寸门对「已超限卡的非增长写」放行（关单/改派/瘦身）——状态合法
+		// 的写不被容量冻结；其余校验失败一律拒。
+		var oversize model.OversizedError
+		if !errors.As(err, &oversize) {
+			return model.WorkItem{}, err
+		}
+		curRaw, cerr := model.EncodeWorkItem(cur)
+		if cerr != nil {
+			return model.WorkItem{}, cerr
+		}
+		if gerr := model.ValidateOversizedGrowth(cur, w, curRaw, raw); gerr != nil {
+			return model.WorkItem{}, gerr
+		}
 	}
 	if err := r.commitWork(w, acts, raw, msg); err != nil {
 		return model.WorkItem{}, err
@@ -806,9 +818,22 @@ func (r *Repo) ListActivity() ([]model.Activity, error) {
 	sort.Strings(files)
 	var out []model.Activity
 	for _, f := range files {
-		acts, err := model.LoadActivityFile(f)
+		acts, bad, err := model.ScanActivityFile(f)
 		if err != nil {
 			return nil, err
+		}
+		// 读面 best-effort（2026-11-24 实栈复核实锤，§56）：work/actors/designs
+		// 三读面 11-16 已跳坏，审计流当时漏网——板仓 pm.jsonl 带两段未解冲突
+		// 标记入库，一行坏行让 ListActivity 整体报错，而调用点（status/report/
+		// plan/converge 审计输入）一律吞错 → 全舰队「交付 0 单｜无座位活动」
+		// 静默归零 42 小时。跳坏 + 响亮警告（可见不静默）；写路径（append）不读不降级。
+		if len(bad) > 0 {
+			// 进程内每文件只警告一次：plan --wait 每 20s 重建快照，反复警告即刷屏
+			// （CLI 单命令进程 = 每命令一次，可见性不损）。
+			if _, done := activityWarned.LoadOrStore(f, struct{}{}); !done {
+				fmt.Fprintf(os.Stderr, "[warn] 审计流 %s 跳过 %d 条坏行（首个 第%d行：%s）%s——审计读面不完整，修复后重读\n",
+					strings.TrimPrefix(filepath.ToSlash(f), filepath.ToSlash(r.Dir)+"/"), len(bad), bad[0].Line, bad[0].Reason, conflictMarkHint(bad))
+			}
 		}
 		out = append(out, acts...)
 	}
@@ -817,6 +842,20 @@ func (r *Repo) ListActivity() ([]model.Activity, error) {
 	// 跨文件同秒是真并发，序不可知也不必知。
 	sort.SliceStable(out, func(i, j int) bool { return out[i].TS < out[j].TS })
 	return out, nil
+}
+
+// activityWarned：审计坏行警告的进程内去重表（文件路径 → 已警告）。
+var activityWarned sync.Map
+
+// conflictMarkHint：坏行若是 git 冲突标记，给出确定性的处置指针——这是实栈
+// 形态（merge 未收口即提交：11-16 T-206 卡面、11-22 pm.jsonl 审计流两例）。
+func conflictMarkHint(bad []model.BadLine) string {
+	for _, b := range bad {
+		if strings.HasPrefix(b.Raw, "<<<<<<< ") || strings.HasPrefix(b.Raw, "======= ") || strings.HasPrefix(b.Raw, ">>>>>>> ") || b.Raw == "=======" {
+			return "——疑似合并冲突标记入库（合并未收口即提交）：人工清理该冲突段"
+		}
+	}
+	return ""
 }
 
 // --- Lock（进程互斥 + 陈锁检测，语义与 v1 store 一致）---
@@ -833,9 +872,42 @@ func (r *Repo) lock() (func(), error) {
 			return nil, fmt.Errorf("workspace locked: %w", err)
 		}
 	}
+	if err := assertNoPendingMerge(r.Dir); err != nil {
+		os.Remove(lp)
+		return nil, err
+	}
 	fmt.Fprintf(f, "%d", os.Getpid())
 	f.Close()
 	return func() { os.Remove(lp) }, nil
+}
+
+// assertNoPendingMerge（档案 §56）：板仓合并未决态（MERGE_HEAD / CHERRY_PICK_HEAD /
+// REBASE_HEAD 在）拒写——全部写路径的唯一收口点就是 lock()。
+//
+// 机理：写路径的提交形态是 `git add .ousheng` + `git commit`（无 pathspec）。
+// 未决态下 git add 会把人尚未收口的冲突文件标成「已解决」（冲突标记还在内容
+// 里），commit 直接落成 merge 提交——一笔无关写（如建新卡）就把半解合并固化
+// 入库。11-16 T-206 卡面 / 11-22 pm.jsonl 两例冲突标记入库的同型机制；座位机
+// 正是「人逐卡收口 × 座位持续写」的并发场（锁 TestWriteRejectedDuringPendingMerge
+// 实证：修复前未决态建卡成功）。
+//
+// 定位：状态合法性门（B1）+ fail-closed（B2）——收口是人的动作（逐卡拍板，§16/§42
+// 禁批量取终态），绳不代人完成合并；拒词带下一步。读面与 sync 不经 lock，不受影响。
+func assertNoPendingMerge(dir string) error {
+	gd, err := gitRun(dir, "rev-parse", "--git-dir")
+	if err != nil {
+		return nil // 非 git 仓（纯目录工作区）：无合并态可言
+	}
+	gd = strings.TrimSpace(gd)
+	if !filepath.IsAbs(gd) {
+		gd = filepath.Join(dir, gd)
+	}
+	for _, ref := range []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REBASE_HEAD"} {
+		if _, err := os.Stat(filepath.Join(gd, ref)); err == nil {
+			return fmt.Errorf("板仓处于合并未决态（%s 存在）——先完成冲突收口并提交（逐卡人拍板，禁批量取终态，§16/§42）再写：未决态写入会把半解冲突标记固化入库", ref)
+		}
+	}
+	return nil
 }
 
 func isStaleLock(path string) bool {

@@ -376,9 +376,20 @@ cd "$QA"; $BIN sync >/dev/null
 printf 'hax: true\n' >> .ousheng/work/REQ-CMS-003.yaml
 git add -A; git commit -qm "qa: 手滑（直接编辑 YAML）"; git push -q
 if (cd "$QA" && $BIN converge >/tmp/c5out 2>&1); then
-  die "损坏 YAML 竟然通过 strict decode"
+  # 读面 best-effort（档案 §50 补 / sim50，2026-11-16 裁决）：单张坏卡不再瘫死
+  # converge——跳过 + stderr 响亮点名、退出码 0；strict decode 的硬拒留在单卡
+  # 路径。原断言「converge 必须失败」自那次裁决起过时、红了 8 天无人跑（§56
+  # 复核抓回）——这里按裁决语义改写，场景意图不变：损坏不扩散成静默错误。
+  grep -q '跳过损坏工作卡 work/REQ-CMS-003.yaml' /tmp/c5out \
+    || die "converge 跳过了坏卡却没响亮点名（静默降级）: $(head -1 /tmp/c5out)"
+  note "读面跳坏 + 响亮警告（预期，损坏不扩散成静默错误）: $(grep '跳过损坏' /tmp/c5out | head -1)"
 else
-  note "strict decode 拒绝（预期，损坏不扩散成静默错误）: $(head -1 /tmp/c5out)"
+  die "converge 不应再因单张坏卡整体失败（读面 best-effort，档案 §50 补）: $(head -1 /tmp/c5out)"
+fi
+if (cd "$QA" && $BIN work show REQ-CMS-003 >/dev/null 2>&1); then
+  die "损坏 YAML 竟然通过 strict decode（单卡路径必须硬拒）"
+else
+  note "strict decode 拒绝单卡读写（预期）"
 fi
 cd "$PM"
 if $BIN sync >/dev/null 2>&1; then :; else note "PM sync 拉到损坏状态：git 层已同步、索引拒读响亮失败（正好是故障现场）"; fi

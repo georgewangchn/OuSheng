@@ -267,6 +267,7 @@ IN_PROGRESS
 | **索引一致性** | memory 与 sqlite 查询结果深度相等（S5 等价测试硬约束）；SQLite 只是可重建的派生索引 |
 | **依赖白名单** | `yaml.v3`、纯 Go `sqlite`、MCP SDK；不用 JSON Schema 库，不用 go-git |
 | **写入安全** | Git + YAML 唯一事实源；CAS revision 防并发写丢；strict decode 拒收手改，git 审计兜底 |
+| **裁决自治理** | 绳先拴自己：产品仓每条设计裁决必须声明执行类型（门 / 悲观默认 / 量尺 / 锁 / 钩）；纯纪律裁决带复审日，到期测试即红——实栈复盘发现纯文字裁决四连复发后上（[档案 §57](docs/设计裁决与推演记录.md)） |
 
 <details>
 <summary><b>没有 opencode？终端五条（等价路径）</b></summary>

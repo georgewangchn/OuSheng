@@ -124,18 +124,20 @@ func main() {
 	)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "read_board",
-		Description: "Read cards from the OuSheng board. Returns card summaries. Use filters to narrow by id, owner, status, or contract kind.",
+		Name: "read_board",
+		Description: "Read v1 CARDS from the board store (v1 card schema: id/owner/task + status proposed|agreed|live|verified|deprecated). " +
+			"For v0.3 work items (title/type/system/assignee/evidence) use query_work_items / get_work_item instead. " +
+			"Returns card summaries. Use filters to narrow by id, owner, status, or contract kind.",
 	}, readBoard)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "write_board",
-		Description: "Write or update a card on the OuSheng board. Accepts card YAML + expected version (CAS). New cards pass expected_version=0.",
+		Description: "Write or update a v1 CARD (v1 card schema: id/owner/task/status/version). Accepts card YAML + expected version (CAS). New cards pass expected_version=0. NOT for work items: title/type/system/assignee YAML fails strict decoding here — use create_work_item / update_work_item / report_bug.",
 	}, writeBoard)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "converge",
-		Description: "Run convergence check on the board. Returns CONVERGED (all verified), IN_PROGRESS (still working), or STUCK (cycle/broken dependency).",
+		Description: "Run convergence check on the v1 card board. Returns CONVERGED (all verified), IN_PROGRESS (still working), or STUCK (cycle/broken dependency). (v0.3 work items: run `ousheng converge` via shell.)",
 	}, converge)
 
 	registerV03Tools(server)

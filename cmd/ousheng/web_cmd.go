@@ -43,13 +43,14 @@ import (
 func cmdWeb(args []string, stdout, stderr io.Writer) int {
 	fs := newFS("web")
 	addr := fs.String("addr", "127.0.0.1:7878", "listen address (loopback; 非 loopback 须 --token，档案 §50-E)")
-	token := fs.String("token", "", "非回环绑定时的访问令牌（必填；浏览器经 /login 输入，cookie 会话）")
+	token := fs.String("token", "", "非回环绑定时的访问令牌（必填；浏览器经 /login 输入，cookie 会话；可用 env OUSHENG_WEB_TOKEN 代——常驻单元不让令牌进命令行，§57）")
 	if err := parseLoose(fs.FlagSet, args); err != nil {
 		return usageErr(stderr, err)
 	}
 	if code := rejectExtra(fs, stderr); code != 0 {
 		return code
 	}
+	*token = webToken(*token, *addr)
 	if err := validateWebBind(*addr, *token); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -91,6 +92,19 @@ func withNoStore(h http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		h.ServeHTTP(w, r)
 	})
+}
+
+// webToken（档案 §57）：非回环绑定的令牌来源——显式 --token 优先，其次 env
+// OUSHENG_WEB_TOKEN（驾驶舱常驻单元的令牌走 0600 的 env 文件，不进命令行——ps 不可见）。
+// 回环绑定不吃 env：「回环免 token」不因环境里碰巧有个变量而变。
+func webToken(flagToken, addr string) string {
+	if flagToken != "" {
+		return flagToken
+	}
+	if isLoopbackAddr(addr) {
+		return ""
+	}
+	return os.Getenv("OUSHENG_WEB_TOKEN")
 }
 
 // validateWebBind（§50-E 修订，替代 §24 原 loopback 硬校验）：回环绑定免
@@ -594,6 +608,8 @@ func (s *webServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 				bd.Agreed = append(bd.Agreed, d)
 			}
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[warn] 共识层读取失败——待拍板面板降级为空: %v\n", err)
 	}
 	c, err := ctxService(s.dir)
 	if err != nil {
@@ -812,6 +828,8 @@ func (s *webServer) handleDetail(w http.ResponseWriter, r *http.Request) {
 		for _, af := range afs {
 			actors = append(actors, webActorOpt{ID: af.Actor.ID, Type: string(af.Actor.Type)})
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[warn] 注册表读取失败——派活选项降级为空: %v\n", err)
 	}
 	dd := detailData{
 		D:        d,
@@ -909,6 +927,19 @@ func parseCruiseStatusJSON(s *webServer, hours int) *cruiseStatusParsed {
 	return &cruiseStatusParsed{waitDecide: raw.WaitingDecide, waitAck: raw.WaitingAck}
 }
 
+// hideStateLine：plan 的 `state:` 指纹行是驱动器静止闸的机械接口（档案 §56——
+// 「不进 prompt，不给人读」），驾驶舱呈现层不显示；其余行原样。
+func hideStateLine(planOut string) string {
+	var keep []string
+	for _, l := range strings.Split(planOut, "\n") {
+		if strings.HasPrefix(l, "state: ") {
+			continue
+		}
+		keep = append(keep, l)
+	}
+	return strings.TrimSpace(strings.Join(keep, "\n"))
+}
+
 // handleCruise：巡航视图（巡航模式 §3.3 二期——PM 晨间简报的 web 面）。
 // 复用 CLI 派发器（一语义一实现）：status 原文 + 各座位 plan 摘要（只读）。
 func (s *webServer) handleCruise(w http.ResponseWriter, r *http.Request) {
@@ -924,8 +955,10 @@ func (s *webServer) handleCruise(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			_, out, _ := s.exec("cruise", "plan", "--actor", af.Actor.ID)
-			seats = append(seats, seatPlan{Actor: af.Actor.ID, Out: strings.TrimSpace(out)})
+			seats = append(seats, seatPlan{Actor: af.Actor.ID, Out: hideStateLine(out)})
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[warn] 注册表读取失败——座位 plan 摘要降级为空: %v\n", err)
 	}
 	_, statusOut, _ := s.exec("cruise", "status")
 	// 座位交接快照（§37 F3）：各座位 handover 正文——pm 晨间「这座位最后说了
@@ -957,6 +990,8 @@ func (s *webServer) handleCruise(w http.ResponseWriter, r *http.Request) {
 				Body:    strings.TrimSpace(body),
 			})
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[warn] 交接快照清单读取失败——座位快照区降级为空: %v\n", err)
 	}
 	// 驾驶舱操作面（P4）：挂起三类 + 快速建单——写路径全部复用既有 POST
 	// handler（decide/ack/create + guard），本页只做聚合呈现，无新写语义。

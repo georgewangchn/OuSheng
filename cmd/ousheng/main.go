@@ -21,7 +21,7 @@ import (
 	"ousheng/internal/state/gityaml"
 )
 
-const cliVersion = "0.3.6"
+const cliVersion = "0.3.7"
 
 // 构建元数据：车队部署时用 -ldflags 注入（-X main.buildCommit=... -X main.buildDate=...），
 // 验收「这台机器跑的是哪个提交」；不带 ldflags 的本地 go build 显示 dev。
@@ -265,6 +265,8 @@ func cmdConverge(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		kn.DesignDecided = decided
+	} else {
+		fmt.Fprintf(os.Stderr, "[warn] 审计流读取失败——「拍板无 design_decided activity」审计缺输入（可能假阳/假阴）: %v\n", err)
 	}
 	layer := assembleDocLayer(fs.Dir(), snap)
 	kn.DocRefs = layer.refs
@@ -279,7 +281,7 @@ func cmdConverge(args []string, stdout, stderr io.Writer) int {
 	if files, err := filepath.Glob(filepath.Join(fs.Dir(), ".ousheng", "work", "*.yaml")); err == nil {
 		for _, f := range files {
 			if fi, err := os.Stat(f); err == nil && fi.Size() > int64(model.MaxWorkItemBytes) {
-				res.Warnings = append(res.Warnings, fmt.Sprintf("%s 超限（%dB > %d）= 写冻结：证据改用指针，正文移外部文档",
+				res.Warnings = append(res.Warnings, fmt.Sprintf("%s 超限（%dB > %d）= 只拒增长型写（关单/改派/瘦身放行；新证据拒）：证据改用指针，正文移外部文档，先瘦身本条",
 					strings.TrimSuffix(filepath.Base(f), ".yaml"), fi.Size(), model.MaxWorkItemBytes))
 			}
 		}
@@ -288,8 +290,29 @@ func cmdConverge(args []string, stdout, stderr io.Writer) int {
 	for _, b := range res.Blockers {
 		fmt.Fprintf(stdout, "  - %s\n", b)
 	}
+	// §57 备忘折叠：「done 但 progress 未满」是同一类陈旧上报（真板 18 条 warning
+	// 里占 11 条，长期无人清），逐条列出会把缺信息/依赖/文档陈旧等可动作项淹没。
+	// 折叠成一行计数+清单；converge.Check 的结构面不变（只动呈现）。
+	var memo, rest []string
 	for _, w := range res.Warnings {
+		if strings.Contains(w, ": done but progress reported ") {
+			memo = append(memo, w)
+		} else {
+			rest = append(rest, w)
+		}
+	}
+	for _, w := range rest {
 		fmt.Fprintf(stdout, "  ! %s\n", w)
+	}
+	if len(memo) > 0 {
+		parts := make([]string, 0, len(memo))
+		for _, w := range memo {
+			f := strings.Fields(w) // "<ID>: done but progress reported 95%"
+			if len(f) >= 2 {
+				parts = append(parts, strings.TrimSuffix(f[0], ":")+" "+f[len(f)-1])
+			}
+		}
+		fmt.Fprintf(stdout, "  ! 备忘 %d 单 done 但 progress 未满 100%%（陈旧上报，`progress report <id> --value 1` 清）：%s\n", len(memo), strings.Join(parts, " "))
 	}
 	if len(res.Cycle) > 0 {
 		fmt.Fprintf(stdout, "  cycle: %v\n", res.Cycle)

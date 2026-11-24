@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -207,5 +208,55 @@ func TestWorkItemSummarize(t *testing.T) {
 	s := w.Summarize()
 	if s.ID != "BUG-017" || s.System != "datax-backend" || s.Assignee != "backend-agent" {
 		t.Fatalf("bad summary: %+v", s)
+	}
+}
+
+// TestValidateOversizedGrowth（档案 §57）：超限卡只拒「增长型写」——
+// ①新增 evidence 条目拒；②编码增长超余量拒；③收缩/等长/状态位微变放行。
+// 卡点不变式：卡状态合法性，不卡合法写——此前顶格卡连 status→done（revision
+// 进位 +1 字节）都被拒 = 写冻结死锁（真板 T-193 实锤）。§18 门值不动。
+func TestValidateOversizedGrowth(t *testing.T) {
+	cur, _ := DecodeWorkItem([]byte(validWorkItem))
+	cur.Title = strings.Repeat("长", 3000)
+	curRaw, _ := EncodeWorkItem(cur)
+	if len(curRaw) <= MaxWorkItemBytes {
+		t.Fatalf("test setup: cur must be oversized, got %d", len(curRaw))
+	}
+	// ① 新增 evidence：拒（哪怕只多一条极短的）。
+	next := cur
+	next.Evidence = append(append([]Evidence{}, cur.Evidence...), Evidence{Type: "manual_check", Locator: "x"})
+	nextRaw, _ := EncodeWorkItem(next)
+	var oe OversizedError
+	if err := ValidateOversizedGrowth(cur, next, curRaw, nextRaw); !errors.As(err, &oe) {
+		t.Fatalf("超限卡新增 evidence 必须拒（骨架原则）: %v", err)
+	}
+	// ② 增长超余量（改长描述）：拒，报错带下一步。
+	next = cur
+	next.Title = cur.Title + strings.Repeat("长", 100)
+	nextRaw, _ = EncodeWorkItem(next)
+	if err := ValidateOversizedGrowth(cur, next, curRaw, nextRaw); err == nil || !strings.Contains(err.Error(), "瘦身") {
+		t.Fatalf("超限卡继续增长必须拒并指引瘦身: %v", err)
+	}
+	// ③ 状态位微变（关单 + revision 进位）：放行。
+	next = cur
+	next.Status = StatusDone
+	next.Revision = cur.Revision + 1
+	if next.Revision < 10 {
+		next.Revision = 100 // 保证进位多 1-2 字节
+	}
+	nextRaw, _ = EncodeWorkItem(next)
+	if err := ValidateOversizedGrowth(cur, next, curRaw, nextRaw); err != nil {
+		t.Fatalf("超限卡的状态合法写（关单）必须放行——写冻结是卡点不变式的破口: %v", err)
+	}
+	// ④ 瘦身：放行（这是解冻的唯一正道，不能被门卡住）。
+	next = cur
+	next.Title = "短"
+	nextRaw, _ = EncodeWorkItem(next)
+	if err := ValidateOversizedGrowth(cur, next, curRaw, nextRaw); err != nil {
+		t.Fatalf("瘦身写必须放行: %v", err)
+	}
+	// 尺寸门本体仍是可识别的类型化错误（更新路径据此分流）。
+	if err := ValidateWorkItem(cur, curRaw); !errors.As(err, &oe) || !strings.Contains(err.Error(), "骨架原则") {
+		t.Fatalf("尺寸门错误应可被 errors.As 识别且保留溢出路径文案: %v", err)
 	}
 }

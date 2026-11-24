@@ -78,10 +78,14 @@ export default Plugin.define({
 
     // 订阅事件流（v2：ctx.event.subscribe 替代 v1 Hooks.event 回调）
     const controller = new AbortController()
+    // 代际指针的 sid 捕获位——**必须在事件循环之外**声明：session.created 捕获、
+    // 之后某次 session.idle 才补记 attach，两件事分属不同迭代。声明在循环体内
+    // = 每个事件重置，idle 时恒为空（b512376 引入，A 形态自动 attach 从未生效，
+    // 2026-11-24 实栈复核实锤；行为锁 TestPluginAutoAttachOnIdle）。
+    let seatSessionId = ""
     void (async () => {
       for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
         // 时机①：session 启动 —— 拉取 + 刷新 + 我的上下文 + 捕获 sid（代际制）
-        let seatSessionId = ""
         if (event.type === "session.created") {
           const props = (event as any).properties || {}
           seatSessionId = props.sessionID || props.id || ""

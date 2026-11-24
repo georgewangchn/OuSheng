@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cruise-loop.sh —— 巡航驱动器 v4（档案 §34 P0 代际 / §42 三修 / §46 并回 v5 / §51 绳牛裁决）
+# cruise-loop.sh —— 巡航驱动器 v4（档案 §34 P0 代际 / §42 三修 / §46 并回 v5 / §51 绳牛裁决 / §56 静止闸）
 # 用法: ./scripts/cruise-loop.sh <kanban工作区> <actor> <system> <代码仓> [轮顶=20] [wait秒=600] [时窗=22:00-07:00] [截止日=YYYY-MM-DD] [截止时刻=HH:MM]
 #（注意：截止占第 8、9 两个参数位——含空格被 shell 分为两参；缺省无截止）
 # 环境旋钮: OUSHENG_BIN / OC_BIN / OC_ARGS（全局透传）
@@ -22,7 +22,7 @@ EXTRA=${CRUISE_EXTRA:-}
 OC_ARGS=${OC_ARGS:-}
 OC_MODEL_CODE=${OC_MODEL_CODE:-${OC_DEV_MODEL:-}}
 OC_MODEL_WAIT=${OC_MODEL_WAIT:-${OC_FLASH_MODEL:-}}
-run=0; idle=0; planfail=0; SAME=0; GAP_EXTRA=0; TOK=0
+run=0; idle=0; planfail=0; SAME=0; TOK=0
 
 # --- BUG-179 根治（§46 并回）：座位级 flock 单实例 ---
 # 同座位同 repo 只许 1 实例。标准防重入：外层 flock 拿锁（fd 保持）exec 自身，
@@ -35,7 +35,7 @@ fi
 
 # R2/R9 轮输出清理（10 轮审计 🟡，2026-11-21）：启动时清本座位历史残留
 #（A 机实测 212 文件累积——跨代轮输出从不回收）。只清本座位，不碰他座位。
-rm -f /tmp/cruise-plan."$ACTOR".* /tmp/cruise-round."$ACTOR".* /tmp/cruise-planhash."$ACTOR".* 2>/dev/null
+rm -f /tmp/cruise-plan."$ACTOR".* /tmp/cruise-round."$ACTOR".* /tmp/cruise-planhash."$ACTOR".* /tmp/cruise-state."$ACTOR".* 2>/dev/null
 
 # §42 三修③：并发上限（BUG-132 定案机制化）——跨座位 mkdir 原子信号量。
 # CONCURRENCY_MAX（默认 2）：同机同时跑 opencode 轮的座位数上限；轮前取槽轮后释放，
@@ -95,20 +95,22 @@ print('1' if datetime.datetime.now()>d else '')"
 }
 
 # 取 plan 输出（重试 3 次退避——一次网络抖动不该停掉整夜）。
+# 用法: getplan <wait秒> [追加参数…]——§56 静止闸传 --until-change <state>。
 # §48（2026-11-15 全队停摆实锤）：分叉态=安全失败但**必须可见且可等待收口**——
 # 不得静默退出（systemd exit 0 不重拉 → 全队躺平无人知）。分叉时进等待模式：
 # ERROR 告警 + 每 300s 重试，收口后自动恢复；窗/截止到才真停。
 getplan() {
+  local w=$1; shift
   local tries=0 out
   while [ $tries -lt 3 ]; do
-    out=$("$OUSHENG" cruise plan --dir "$WS" --actor "$ACTOR" --wait "$WAIT" $EXTRA 2>"$PLANERR") && { echo "$out"; return 0; }
+    out=$("$OUSHENG" cruise plan --dir "$WS" --actor "$ACTOR" --wait "$w" $EXTRA "$@" 2>"$PLANERR") && { echo "$out"; return 0; }
     if grep -q "分叉" "$PLANERR" 2>/dev/null; then
       echo "[cruise] ERROR 板仓分叉——等待收口（每 300s 重试；收口=人 pull --rebase 逐卡决后自动恢复；本行是告警不是退出）" >&2
       while :; do
         sleep 300
         [ -z "$(inwin)" ] && { echo "[cruise] 时窗外 ${WIN}，停" >&2; return 1; }
         [ "$(deadline_passed)" = "1" ] && { echo "[cruise] 截止 ${DEADLINE} 已过，停" >&2; return 1; }
-        out=$("$OUSHENG" cruise plan --dir "$WS" --actor "$ACTOR" --wait "$WAIT" $EXTRA 2>"$PLANERR") && { echo "[cruise] 分叉已收口——恢复派活" >&2; echo "$out"; return 0; }
+        out=$("$OUSHENG" cruise plan --dir "$WS" --actor "$ACTOR" --wait "$w" $EXTRA "$@" 2>"$PLANERR") && { echo "[cruise] 分叉已收口——恢复派活" >&2; echo "$out"; return 0; }
       done
     fi
     tries=$((tries+1)); echo "[cruise] plan 失败($tries/3)：$(tail -1 "$PLANERR")" >&2
@@ -124,23 +126,34 @@ while :; do
   [ -z "$(inwin)" ] && { echo "[cruise] 时窗外 ${WIN}，停"; break; }
   [ "$(deadline_passed)" = "1" ] && { echo "[cruise] 截止 $DEADLINE 已过，停"; break; }
 
-  PLAN=$(getplan) || { echo "[cruise] plan 连败 3 次，停（exit 1 交 systemd Restart 退避拉起；手动模式人工查 ${LOOPERR}）"; release_slot; exit 1; }
+  PLAN=$(getplan "$WAIT") || { echo "[cruise] plan 连败 3 次，停（exit 1 交 systemd Restart 退避拉起；手动模式人工查 ${LOOPERR}）"; release_slot; exit 1; }
 
-  # §42 修④：维持轮退避——plan 文本与上轮逐字相同 = 维持空转，间隔指数拉长（封顶 2h）。
-  PH="/tmp/cruise-planhash.$TAG"
-  PH_NOW=$(printf '%s' "$PLAN" | cksum | cut -d' ' -f1)
-  PH_OLD=$(cat "$PH" 2>/dev/null || echo "")
-  if [ -n "$PH_OLD" ] && [ "$PH_NOW" = "$PH_OLD" ]; then
+  # §56 静止闸（取代 §42④「plan 文本逐字同」退避——那把尺两头痛：attach 行每轮
+  # 变 → 永不触发（11-21 真板：四座 10-11 分钟一轮、零 delta 轮 50%，退避从未
+  # 生效）；他人往我的卡落 evidence 不改 plan 文本 → 该醒不醒）。
+  # state = 座位相关事实的内容指纹（plan 的 state: 行）：与上一轮**起轮时**相同
+  # = 上轮零 delta 且期间无人动过与我相关的卡/注册表/共识 → 不重起一轮空转，
+  # 改为「变到即醒」阻塞等待（零模型 token：plan 每 20s pull+重查，变了立即返回）；
+  # 超时仍起一轮保活探测，间隔按 SAME 指数拉长（封顶 2h）。这是 spawn 闸不是
+  # 工作方式——起不起 session 是驱动器的事，session 里干什么仍是模型的。
+  STATE=$(printf '%s\n' "$PLAN" | grep -oE '^state: [0-9a-f]+' | head -1 | cut -d' ' -f2)
+  STATEF="/tmp/cruise-state.$TAG"
+  QUIET_GAP=0
+  if [ -n "$STATE" ] && [ "$STATE" = "$(cat "$STATEF" 2>/dev/null)" ]; then
     SAME=$((SAME+1))
-    if [ "$SAME" -ge 2 ]; then
-      GAP_EXTRA=$((WAIT * (1 << (SAME-2))))
-      [ "$GAP_EXTRA" -gt 7200 ] && GAP_EXTRA=7200
-      echo "[cruise] 维持轮退避 #${SAME}：plan 与前轮同 → 本轮后加睡 ${GAP_EXTRA}s"
-    fi
+    QUIET_GAP=$((WAIT * (1 << (SAME-1)))); [ "$QUIET_GAP" -gt 7200 ] && QUIET_GAP=7200
+    echo "[cruise] 静止轮 #${SAME}：座位相关事实自上轮未变——等待变化（每 20s 探测，最长 ${QUIET_GAP}s；变了即醒，超时起一轮保活探测）"
+    NP=$(getplan "$QUIET_GAP" --until-change "$STATE") && {
+      PLAN="$NP"
+      STATE=$(printf '%s\n' "$PLAN" | grep -oE '^state: [0-9a-f]+' | head -1 | cut -d' ' -f2)
+    }
   else
-    SAME=0; GAP_EXTRA=0
+    SAME=0
   fi
-  printf '%s' "$PH_NOW" > "$PH"
+  printf '%s' "$STATE" > "$STATEF"
+  # 静止等待可能很长（封顶 2h）——起轮前复查时窗/截止，不在窗外起轮。
+  [ -z "$(inwin)" ] && { echo "[cruise] 时窗外 ${WIN}，停"; break; }
+  [ "$(deadline_passed)" = "1" ] && { echo "[cruise] 截止 ${DEADLINE} 已过，停"; break; }
 
   if echo "$PLAN" | grep -q "cruise: idle"; then
     idle=$((idle+1))
@@ -213,11 +226,7 @@ while :; do
   # §47（2026-11-14 flash 连轴实锤）：轮后基线睡眠——有活轮结束必睡 WAIT 秒。
   # v2/v3 canonical 一直缺这段（有活时 plan --wait 不生效，轮间零间隔），glm 慢轮
   # 靠轮自身时长掩盖；flash 快速轮暴露为连轴自旋/空转（BUG-173 座位补丁 vs
-  # adapter install 覆盖的拉锯实锤）。维持轮退避（GAP_EXTRA）时睡更长代替之。
-  if [ "$GAP_EXTRA" -gt 0 ]; then
-    echo "[cruise] 退避加睡 ${GAP_EXTRA}s（维持轮 #${SAME}）"
-    sleep "$GAP_EXTRA"
-  else
-    sleep "$WAIT"
-  fi
+  # adapter install 覆盖的拉锯实锤）。静止轮的更长等待在 §56 静止闸以「变到即醒」
+  # 实现，不再是轮后盲睡。
+  sleep "$WAIT"
 done

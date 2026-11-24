@@ -32,7 +32,7 @@ func runCLIRaw(args []string) (string, string, int) {
 
 func TestCLIVersion(t *testing.T) {
 	out, _, code := runCLIRaw([]string{"version"})
-	if code != 0 || !strings.Contains(out, "ousheng 0.3.6") {
+	if code != 0 || !strings.Contains(out, "ousheng 0.3.7") {
 		t.Fatalf("version wrong: %q %d", out, code)
 	}
 }
@@ -448,8 +448,8 @@ func TestCLIConvergeExposesOversizedItem(t *testing.T) {
 		t.Fatalf("test setup: %d bytes, need > 8192", fi.Size())
 	}
 	out := runCLI(t, dir, "converge")
-	if !strings.Contains(out, "BUG-900 超限") || !strings.Contains(out, "写冻结") {
-		t.Fatalf("converge 应曝光超限项（写冻结）:\n%s", out)
+	if !strings.Contains(out, "BUG-900 超限") || !strings.Contains(out, "只拒增长型写") {
+		t.Fatalf("converge 应曝光超限项（只拒增长型写，§57）:\n%s", out)
 	}
 }
 

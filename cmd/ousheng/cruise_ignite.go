@@ -8,15 +8,19 @@ package main
 //
 //	ousheng cruise ignite --seat <actor> [--stop]
 //
-// 四道前置（全 fail-closed，任何一道不过即拒）：
+// 前置门全 fail-closed，任何一道不过即拒（序号 = 代码顺序）：
 //  1. 座位归属：registry.machine = 本机（跨机座位拒——点火是本机执行位操作，
 //     多机 = 每机一个入口，天然分布式，同 dispatch 判例）；
 //  2. 座位仓定位：repos.yaml 映射 × 仓内 .opencode/ousheng.json actor 匹配；
 //  3. 驱动器 canonical 门：scripts/cruise-loop.sh 与内嵌资产逐字节一致——
 //     分叉驱动拒绝点火（§37「驱动器=协议资产」从纪律升为门）；
-//  4. systemd 面：ousheng-cruise@.service 单元 + /etc/default/ousheng-cruise-<seat>
+//  4. 拓扑门（§54）：板仓多 remote 水位——remote 有本地缺的新即拒（席位看旧板）；
+//  5. systemd 面：ousheng-cruise@.service 单元 + /etc/default/ousheng-cruise-<seat>
 //     参数文件齐备（systemd = 监督 + journal 审计 + Restart 自愈，§34-D；裸 nohup
-//     无监督形态不点火——那是 §34 复盘前的「驱动器单进程无监督」死法）。
+//     无监督形态不点火——那是 §34 复盘前的「驱动器单进程无监督」死法）；
+//  6. 截止有效（§55）：参数文件里的截止已过 = 点火即停的错参数。
+//     （另两道只警告不拒：模型路由退化 / 座位仓非默认分支。）
+// --stop 短路：停火永远应该允许，只认座位归属 + systemd 面（§55 补七）。
 //
 // 启动仍 = 人（§45）：按钮/命令是人按的；本命令不做定时、不做自启、不代跑。
 // 幂等：座位 flock 在驱动器内（§46 BUG-179 根治），重复 start = systemd no-op /
@@ -35,6 +39,7 @@ import (
 
 	"ousheng/adapters/opencode"
 	"ousheng/internal/machine"
+	"ousheng/internal/model"
 	"ousheng/internal/state/gityaml"
 )
 
@@ -177,9 +182,14 @@ func cruiseIgnite(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "systemctl %s 失败：%v\n", action, err)
 		return 1
 	}
-	// 非门提醒：在场度过夜 = agent 空等烧 token（11-13→16 实锤：present 挂三天）。
-	if p := repo.LoadPresence(); p.State == "present" && presenceStaleHours(p.Since) > 12 {
-		fmt.Fprintf(stdout, "提醒：PM present 已挂 %.0f 小时——夜间请 pm away（agent 问完等 = 空等烧 token，档案 §50-G）\n", presenceStaleHours(p.Since))
+	// 非门提醒：present 是新鲜度敏感事实（§56 有效期 %dh）——点火时把在场度
+	// 摆到台面上：有效期内提醒「离场 away」，已过期提示「按 away 行事」。
+	if p := repo.LoadPresence(); p.State == "present" {
+		if state, stale := effectivePresence(p); state == model.PresencePresent {
+			fmt.Fprintf(stdout, "提醒：PM present 已挂 %.0f 小时（%d 小时内有效）——夜间离场请 pm away（agent 问完等 = 空等烧 token，档案 §50-G）\n", stale, presenceValidHours)
+		} else {
+			fmt.Fprintf(stdout, "提醒：PM present 已挂 %.0f 小时——声明已失效（超过 %d 小时有效期），agent 按 away 行事；夜间请 pm away、在场请重新声明（档案 §56）\n", stale, presenceValidHours)
+		}
 	}
 	verb := "点火"
 	fmt.Fprintf(stdout, "cruise %s：seat=%s（%s；参数 %s；日志 journalctl -u ousheng-cruise@%s -f）\n", verb, *seat, action, envFile, *seat)

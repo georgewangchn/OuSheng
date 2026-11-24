@@ -164,24 +164,57 @@ func WriteActivityJSONL(w io.Writer, a Activity) error {
 	return err
 }
 
-// LoadActivityFile 读取一个 jsonl 文件为 Activity 列表（坏行报错，不静默丢弃）。
-func LoadActivityFile(path string) ([]Activity, error) {
+// BadLine 是读面跳过的一条坏行（审计流 best-effort 的告警原料，档案 §56）。
+type BadLine struct {
+	Line   int    // 1-based
+	Reason string // 解码失败原因
+	Raw    string // 坏行原文（冲突标记识别用；截断防巨行）
+}
+
+// ScanActivityFile 读取一个 jsonl 文件为 Activity 列表——坏行跳过并返回
+// （file:行号），不静默丢弃：调用方负责响亮警告。
+//
+// best-effort 的理由（2026-11-24 实栈实锤）：审计流是投影输入不是事实源
+// （D2），而 ListActivity 的调用点（status/report/plan/converge 审计输入）
+// 一律把 activity 当非致命输入吞错——「坏行报错」的设计意图在调用点退化成
+// 「整体静默归零」：一行冲突标记让全舰队 cruise status 报「交付 0 单」。
+// 跳坏 + 响亮警告 = 与 work/actors/designs 三读面同一纪律（D4）。
+func ScanActivityFile(path string) ([]Activity, []BadLine, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var out []Activity
+	var bad []BadLine
 	for i, line := range splitLines(b) {
 		if len(line) == 0 {
 			continue
 		}
 		var a Activity
 		if err := jsonUnmarshal(line, &a); err != nil {
-			return nil, fmt.Errorf("%s:%d: %w", path, i+1, err)
+			raw := []rune(string(line))
+			if len(raw) > 40 {
+				raw = append(raw[:40], '…') // 按 rune 截断（字节截断会切碎汉字）
+			}
+			bad = append(bad, BadLine{Line: i + 1, Reason: err.Error(), Raw: string(raw)})
+			continue
 		}
 		out = append(out, a)
 	}
-	return out, nil
+	return out, bad, nil
+}
+
+// LoadActivityFile 读取一个 jsonl 文件为 Activity 列表（严格形态：遇坏行报错）。
+// 读面走 ScanActivityFile（best-effort）；本函数留给需要「全有或全无」语义的调用方。
+func LoadActivityFile(path string) ([]Activity, error) {
+	acts, bad, err := ScanActivityFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(bad) > 0 {
+		return nil, fmt.Errorf("%s:%d: %s", path, bad[0].Line, bad[0].Reason)
+	}
+	return acts, nil
 }
 
 // Now 返回 RFC3339 时间戳（单一出口，测试可替换）。
