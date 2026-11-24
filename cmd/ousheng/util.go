@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -19,7 +20,24 @@ import (
 
 type flagSetWithDir struct {
 	*flag.FlagSet
-	dir *string
+	dir       *string
+	freshDone bool // 板龄自检只做一次（Dir() 每命令被调多次）
+}
+
+// Dir 返回工作区目录，并在首次调用时做一次板龄自检（档案 §58 P2）：
+// 凡使用工作区的命令都必经这里——所以「落后上游的板上读数是旧的 / 写入会与
+// 远端错开」这句提示由构造覆盖全部入口，不靠人往清单里加。例外见
+// entryFreshnessExempt（必须写理由）；覆盖面由 TestEntryFreshnessCoverage 审计。
+func (f *flagSetWithDir) Dir() string {
+	if !f.freshDone {
+		f.freshDone = true
+		if _, exempt := entryFreshnessExempt[f.Name()]; !exempt {
+			if behind := boardBehind(*f.dir); behind != "" {
+				fmt.Fprintf(os.Stderr, "[warn] %s\n", entryFreshMsg(behind))
+			}
+		}
+	}
+	return *f.dir
 }
 
 func newFlagSet(name string) *flag.FlagSet {

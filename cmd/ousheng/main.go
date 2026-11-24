@@ -424,8 +424,6 @@ func envWorkspaceDir() string {
 	return "."
 }
 
-func (f *flagSetWithDir) Dir() string { return *f.dir }
-
 func loadIndex(dir string) (index.Index, error) {
 	idx, _, err := loadSnapshot(dir)
 	return idx, err

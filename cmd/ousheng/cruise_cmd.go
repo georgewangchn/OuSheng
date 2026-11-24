@@ -955,6 +955,71 @@ func gitSinceHours(hours int) string {
 	return fmt.Sprintf("--since=%d hours ago", hours)
 }
 
+// boardBehind：确定性板龄信号——本地 HEAD 落后上游 tracking ref（上次 fetch 已知
+// 有新）。零网络。返回落后条数（"" = 无此信号：已齐 / 无上游 / 非 git 仓）。
+// 公共前置（fs.Dir()）与晨检入口共用（一语义一实现）。
+// HEAD...@{u}：左 = 本地独有（未推），右 = 上游独有（本地缺新 = 落后）。
+func boardBehind(dir string) string {
+	// 零进程预判：公共前置在每个命令里都跑，测试夹具又被调数千次——没配上游的
+	// 工作区（单机形态 / 测试夹具）读两个文件即可判定，省掉一次 git 进程
+	//（实测全量测试多花 ~40s）。任何读不到 / 看不懂的形态一律回落 git（保守）。
+	if known, has := hasUpstreamFast(dir); known && !has {
+		return ""
+	}
+	out, err := gitOutErr(dir, "rev-list", "--left-right", "--count", "HEAD...@{u}")
+	if err != nil {
+		return ""
+	}
+	if c := strings.Fields(strings.TrimSpace(out)); len(c) == 2 && c[1] != "0" {
+		return c[1]
+	}
+	return ""
+}
+
+var (
+	gitBranchHeadRe  = regexp.MustCompile(`\Aref: refs/heads/(\S+)\s*\z`)
+	gitBranchSectRe  = regexp.MustCompile(`^\s*\[\s*branch\s+"([^"]+)"\s*\]\s*$`)
+	gitBranchKeyRe   = regexp.MustCompile(`^\s*remote\s*=\s*(\S+)`)
+	gitBranchSectAny = regexp.MustCompile(`^\s*\[\s*branch\s`)
+)
+
+// hasUpstreamFast：读 .git/HEAD 得当前分支，读 .git/config 看该分支是否配了
+// `remote`（即有上游）。known=false = 形态不明（.git 是文件 / HEAD 游离 /
+// 分支节出现引号转义等），调用方回落 git。
+func hasUpstreamFast(dir string) (known, has bool) {
+	head, err := os.ReadFile(filepath.Join(dir, ".git", "HEAD"))
+	if err != nil {
+		return true, false // 非 git 仓 / .git 不是目录（worktree）——后者 git 也会判无上游或自解
+	}
+	m := gitBranchHeadRe.FindSubmatch(head)
+	if m == nil {
+		return false, false // detached HEAD：交给 git
+	}
+	branch := string(m[1])
+	if strings.ContainsAny(branch, `"`) {
+		return false, false
+	}
+	cfg, err := os.ReadFile(filepath.Join(dir, ".git", "config"))
+	if err != nil {
+		return false, false
+	}
+	inBranch, matched := false, false
+	for _, line := range strings.Split(string(cfg), "\n") {
+		if gitBranchSectAny.MatchString(line) {
+			sm := gitBranchSectRe.FindStringSubmatch(line)
+			inBranch = sm != nil && sm[1] == branch
+			if sm == nil {
+				return false, false // 引号转义等复杂节名——看不懂，交给 git
+			}
+			continue
+		}
+		if inBranch && gitBranchKeyRe.MatchString(line) {
+			matched = true
+		}
+	}
+	return true, matched
+}
+
 // boardFreshnessWarn（档案 §56；F1「ok 必须含新鲜度」在晨检入口的落地）：
 // 只读观测面的板龄——零网络：①本地 HEAD 是否落后上游 tracking ref（上次 fetch
 // 已知有新）；②远端接触痕迹（FETCH_HEAD / 远端跟踪 reflog）距今多久（判断
@@ -963,11 +1028,8 @@ func gitSinceHours(hours int) string {
 // 观测面不 fetch：驾驶舱每次刷新都调 status，网络半开会把页面拖死（F3/F4）；
 // 全检归 doctor/ignite。新鲜度是「读者自己知道读的是不是旧板」，不是替他拉。
 func boardFreshnessWarn(dir string) string {
-	// HEAD...@{u}：左 = 本地独有（未推），右 = 上游独有（本地缺新 = 落后）。
-	if out, err := gitOutErr(dir, "rev-list", "--left-right", "--count", "HEAD...@{u}"); err == nil {
-		if c := strings.Fields(strings.TrimSpace(out)); len(c) == 2 && c[1] != "0" {
-			return fmt.Sprintf("本地板落后上游 %s 提交——以上读数是旧板（观测面不自动拉取）：先 ousheng sync / git pull", c[1])
-		}
+	if behind := boardBehind(dir); behind != "" {
+		return fmt.Sprintf("本地板落后上游 %s 提交——以上读数是旧板（观测面不自动拉取）：先 ousheng sync / git pull", behind)
 	}
 	if t, ok := lastRemoteContact(dir); ok && time.Since(t) > boardContactStale {
 		return fmt.Sprintf("板仓上次 fetch 在 %.0f 小时前——远端可能有新（tracking ref 自身陈旧；git fetch 后再看）", time.Since(t).Hours())

@@ -13,6 +13,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -607,6 +608,92 @@ func TestWebTokenFromEnv(t *testing.T) {
 	}
 	if got := webToken("", "127.0.0.1:7878"); got != "" {
 		t.Fatalf("回环绑定不应吃 env 令牌: %q", got)
+	}
+}
+
+// captureProcessStderr：接管 os.Stderr（公共前置的提示直写进程 stderr——与 gityaml
+// 读面警告同款），跑 fn，返回捕获内容。
+func captureProcessStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		done <- buf.String()
+	}()
+	fn()
+	os.Stderr = old
+	w.Close()
+	return <-done
+}
+
+// TestEntryFreshnessDefaultOn（§58 P2）：入口板龄自检由构造覆盖——任何经 fs.Dir()
+// 取工作区的命令（读面 / 写面 / agent 注入面）在落后上游的板上都提示；健康态零输出；
+// 自带自检的入口（cruise status）不重复；拉齐后静默。
+func TestEntryFreshnessDefaultOn(t *testing.T) {
+	ws := cruiseFixture(t)
+	mkCruiseBoard(t, ws)
+	ws2 := twoClones(t, ws)
+	run := func(args ...string) string {
+		return captureProcessStderr(t, func() { runCLIRaw(append(args, "--dir", ws)) })
+	}
+	if out := run("work", "list"); strings.Contains(out, "落后上游") {
+		t.Fatalf("健康 clone 不应有板龄提示（噪音=狼来了）:\n%s", out)
+	}
+	mustRun(t, ws2, "work", "create", "--id", "T-777", "--type", "task", "--title", "远端新单",
+		"--system", "lake", "--description", "d", "--actor", "data")
+	gitOK(t, ws2, "push", "-q", "origin", "main")
+	gitOK(t, ws, "fetch", "-q", "origin")
+	// 读面 / agent 注入面 / 写面 / 审计面——四类入口都走默认。
+	for _, args := range [][]string{
+		{"work", "list"},
+		{"context", "me", "--actor", "data"},
+		{"evidence", "add", "T-001", "--type", "manual_check", "--locator", "x", "--actor", "data"},
+		{"converge"},
+	} {
+		if out := run(args...); !strings.Contains(out, "[warn] 本地板落后上游 1 提交") {
+			t.Fatalf("%v：落后板上必须有板龄提示（默认接，覆盖由构造得出）:\n%q", args, out)
+		}
+	}
+	// 措辞不得误触驱动器的等待白名单（§48 以「分叉」识别等待模式）。
+	if out := run("converge"); strings.Contains(out, "分叉") {
+		t.Fatalf("公共前置提示不得含「分叉」:\n%s", out)
+	}
+	// 自带自检的入口不经公共前置重复提示（它的板龄在 stdout）。
+	if out := run("cruise", "status"); strings.Contains(out, "落后上游") {
+		t.Fatalf("豁免入口不应重复提示:\n%s", out)
+	}
+	// 上面那笔测试写入在 ws 落了本地提交——与 ws2 的新单分叉，pull --ff-only 必败：
+	// 这正是「落后板上写入」的真实危害（§48）。撤掉它再验证「拉齐后静默」。
+	gitOK(t, ws, "reset", "-q", "--hard", "HEAD~1")
+	gitOK(t, ws, "pull", "-q", "--ff-only")
+	if out := run("work", "list"); strings.Contains(out, "落后上游") {
+		t.Fatalf("拉齐后不应再提示:\n%s", out)
+	}
+}
+
+// TestHasUpstreamFast：公共前置的零进程预判——没配上游（单机 / 夹具）读文件即判；
+// 有上游回落 git 仍能给数；形态不明（非 git 目录按「无上游」处理，与 git 行为一致）。
+func TestHasUpstreamFast(t *testing.T) {
+	ws := cruiseFixture(t)
+	if known, has := hasUpstreamFast(ws); !known || has {
+		t.Fatalf("无 remote 的工作区应判定「已知无上游」: %v %v", known, has)
+	}
+	if boardBehind(ws) != "" {
+		t.Fatalf("无上游不应产生板龄信号")
+	}
+	twoClones(t, ws)
+	if known, has := hasUpstreamFast(ws); !known || !has {
+		t.Fatalf("配了上游的 clone 应判定「有上游」: %v %v", known, has)
+	}
+	if known, has := hasUpstreamFast(t.TempDir()); !known || has {
+		t.Fatalf("非 git 目录按无上游处理: %v %v", known, has)
 	}
 }
 
