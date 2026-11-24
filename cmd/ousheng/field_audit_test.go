@@ -376,14 +376,11 @@ func TestCLIHelperProcess(t *testing.T) {
 	os.Exit(run(args, os.Stdout, os.Stderr))
 }
 
-// TestCruiseLoopQuietGate（§56，驱动器行为锁——真跑 cruise-loop.sh + stub opencode）：
-// §51 证伪面：一句话 prompt 之后驱动器仍是「10 分钟一轮、一半零 delta」。静止闸
-// 必须做到：①事实未变 → 轮间隔按阶梯拉开（不再等间隔起空轮）；②事实变了 →
-// 下一个探测点即醒（不是睡满退避窗）。
-//
-// 时间线（WAIT=1s，轮顶 4）：r1 →(睡1+静止等1)→ r2 →(睡1，期间卡面被改 → 不静止)
-// → r3 →(睡1+静止等1)→ r4。
-func TestCruiseLoopQuietGate(t *testing.T) {
+// runDriverOnce：真跑一份驱动器脚本（轮顶 4、WAIT=1s、stub opencode），返回各轮
+// 起跑时刻（毫秒）与 journal。poke=true 时在第 2 轮起跑 300ms 后往我在途卡落一笔
+// 「pm 排位令」（事实变化）。行为锁与缺陷回放共用（§58）。
+func runDriverOnce(t *testing.T, script string, poke bool) (ms []int64, journal string) {
+	t.Helper()
 	for _, bin := range []string{"bash", "python3"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			t.Skipf("%s 不可用", bin)
@@ -405,9 +402,9 @@ func TestCruiseLoopQuietGate(t *testing.T) {
 	os.WriteFile(oc, []byte("#!/bin/sh\n"+
 		"python3 -c 'import time; print(int(time.time()*1000))' >> \""+stamp+"\"\n"+
 		"echo '{\"sessionID\":\"sid-stub\",\"cache\":{\"read\":1000}}'\n"), 0o755)
-	// 驱动器：内嵌资产落盘；座位 flock / 并发槽改到私有目录（多测试并行不互撞）。
+	// 驱动器：座位 flock / 并发槽改到私有目录（多测试并行不互撞）。
 	sh := filepath.Join(box, "cruise-loop.sh")
-	body := strings.ReplaceAll(string(opencode.CruiseLoopSh), "/tmp/opencode/cruise-seat-", filepath.Join(box, "seat-"))
+	body := strings.ReplaceAll(script, "/tmp/opencode/cruise-seat-", filepath.Join(box, "seat-"))
 	body = strings.ReplaceAll(body, "/tmp/cruise-sem.", filepath.Join(box, "sem-"))
 	os.WriteFile(sh, []byte(body), 0o755)
 
@@ -419,11 +416,13 @@ func TestCruiseLoopQuietGate(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	// 第 2 轮起跑后 300ms 落一笔「pm 排位令」到我在途卡——事实变了，必须即醒。
 	card := filepath.Join(ws, ".ousheng", "work", "T-001.yaml")
 	poked := make(chan struct{})
 	go func() {
 		defer close(poked)
+		if !poke {
+			return
+		}
 		for i := 0; i < 400; i++ { // ≤ 20s
 			if b, err := os.ReadFile(stamp); err == nil && strings.Count(string(b), "\n") >= 2 {
 				time.Sleep(300 * time.Millisecond)
@@ -446,19 +445,29 @@ func TestCruiseLoopQuietGate(t *testing.T) {
 		t.Fatalf("驱动器超时未退:\n%s", jour.String())
 	}
 	<-poked
-	j := jour.String()
+	st, _ := os.ReadFile(stamp)
+	for _, f := range strings.Fields(string(st)) {
+		v, _ := strconv.ParseInt(f, 10, 64)
+		ms = append(ms, v)
+	}
+	return ms, jour.String()
+}
+
+// TestCruiseLoopQuietGate（§56，驱动器行为锁——真跑 cruise-loop.sh + stub opencode）：
+// §51 证伪面：一句话 prompt 之后驱动器仍是「10 分钟一轮、一半零 delta」。静止闸
+// 必须做到：①事实未变 → 轮间隔按阶梯拉开（不再等间隔起空轮）；②事实变了 →
+// 下一个探测点即醒（不是睡满退避窗）。
+//
+// 时间线（WAIT=1s，轮顶 4）：r1 →(睡1+静止等1)→ r2 →(睡1，期间卡面被改 → 不静止)
+// → r3 →(睡1+静止等1)→ r4。
+func TestCruiseLoopQuietGate(t *testing.T) {
+	ms, j := runDriverOnce(t, string(opencode.CruiseLoopSh), true)
 	// 两次静止等待；事实变化后 SAME 归零，阶梯从 #1 重启（变化后不该沿用旧退避）。
 	if strings.Count(j, "静止轮 #1") != 2 {
 		t.Fatalf("驱动器 journal 应有两次静止等待（r2 前、r4 前）:\n%s", j)
 	}
-	st, _ := os.ReadFile(stamp)
-	fields := strings.Fields(string(st))
-	if len(fields) != 4 {
-		t.Fatalf("应恰好 4 轮（轮顶）: %d\n%s", len(fields), j)
-	}
-	ms := make([]int64, 4)
-	for i, f := range fields {
-		ms[i], _ = strconv.ParseInt(f, 10, 64)
+	if len(ms) != 4 {
+		t.Fatalf("应恰好 4 轮（轮顶）: %d\n%s", len(ms), j)
 	}
 	d21, d32, d43 := ms[1]-ms[0], ms[2]-ms[1], ms[3]-ms[2]
 	// ① 事实未变：睡 1s + 静止等 1s（旧形态等间隔 ≈1s）。
@@ -469,6 +478,58 @@ func TestCruiseLoopQuietGate(t *testing.T) {
 	// 而不是再付一次静止等待（≥2s）。
 	if d32 >= 1700 {
 		t.Fatalf("事实变化应即醒（r3-r2=%dms，应 ≈ 基线睡眠 1s）:\n%s", d32, j)
+	}
+}
+
+// TestLockReplayDriverQuietGate（档案 §58 缺陷回放）：把「静止等待被拆掉」这个
+// 缺陷形态（等价于 §42④ 退避从未触发时的行为：事实没变也等间隔重起空轮）施加到
+// 驱动器副本上——行为锁的判据（轮间隔 ≥ 基线睡眠 + 静止等待）必须变红。
+// 锚点对不上 = 驱动器已变形 → 响亮失败，逼着重做回放。
+func TestLockReplayDriverQuietGate(t *testing.T) {
+	src := string(opencode.CruiseLoopSh)
+	anchor := `--until-change "$STATE"`
+	if strings.Count(src, anchor) != 1 {
+		t.Fatalf("回放锚点失效（驱动器已变形）——按新形态重做缺陷回放: %d", strings.Count(src, anchor))
+	}
+	sabotaged := strings.Replace(src, anchor, "", 1)
+	ms, j := runDriverOnce(t, sabotaged, false)
+	if len(ms) != 4 {
+		t.Fatalf("回放未跑完 4 轮:\n%s", j)
+	}
+	for i := 1; i < len(ms); i++ {
+		if d := ms[i] - ms[i-1]; d >= 1800 {
+			t.Fatalf("回放未复现缺陷（第 %d 轮间隔 %dms，缺陷形态应 ≈ 基线睡眠 1s 等间隔）:\n%s", i+1, d, j)
+		}
+	}
+	if strings.Contains(j, "静止轮") && strings.Contains(j, "最长") {
+		// 静止轮仍会打印「等待变化」，但 plan 不再阻塞——日志在、行为没了：正是
+		// 「字符串锁 / 日志在位 ≠ 行为成立」的驱动器版。
+		t.Logf("缺陷形态下 journal 仍有「静止轮」字样——日志在位不代表闸在工作:\n%s", j)
+	}
+}
+
+// TestConvergeFoldsProgressMemo（§57 拍板）：「done 但 progress 未满」同类备忘折叠成
+// 一行（真板 18 条 warning 占 11 条）——可动作项不被淹没，清单仍可见。
+func TestConvergeFoldsProgressMemo(t *testing.T) {
+	dir := cruiseFixture(t)
+	for _, id := range []string{"T-801", "T-802", "T-803"} {
+		mustRun(t, dir, "work", "create", "--id", id, "--type", "task", "--title", "备忘记账 "+id,
+			"--system", "lake", "--description", "d", "--actor", "data")
+		mustRun(t, dir, "work", "assign", id, "--assignee", "data", "--role", "dev", "--actor", "data")
+		for _, st := range []string{"ready", "doing"} {
+			mustRun(t, dir, "work", "update", id, "--status", st, "--actor", "data")
+		}
+		mustRun(t, dir, "evidence", "add", id, "--type", "manual_check", "--locator", "x", "--actor", "data")
+		mustRun(t, dir, "work", "update", id, "--status", "done", "--actor", "data")
+	}
+	mustRun(t, dir, "progress", "report", "T-801", "--value", "0.9", "--actor", "data", "--basis", "manual")
+	mustRun(t, dir, "progress", "report", "T-802", "--value", "0.6", "--actor", "data", "--basis", "manual")
+	so, _, _ := runIn(t, dir, "converge")
+	if strings.Count(so, "done but progress reported") != 0 {
+		t.Fatalf("备忘类不应逐条列出:\n%s", so)
+	}
+	if !strings.Contains(so, "备忘 2 单") || !strings.Contains(so, "T-801 90%") || !strings.Contains(so, "T-802 60%") {
+		t.Fatalf("备忘应折叠成一行计数+清单:\n%s", so)
 	}
 }
 
@@ -546,31 +607,6 @@ func TestWebTokenFromEnv(t *testing.T) {
 	}
 	if got := webToken("", "127.0.0.1:7878"); got != "" {
 		t.Fatalf("回环绑定不应吃 env 令牌: %q", got)
-	}
-}
-
-// TestConvergeFoldsProgressMemo（§57 拍板）：「done 但 progress 未满」同类备忘折叠成
-// 一行（真板 18 条 warning 占 11 条）——可动作项不被淹没，清单仍可见。
-func TestConvergeFoldsProgressMemo(t *testing.T) {
-	dir := cruiseFixture(t)
-	for _, id := range []string{"T-801", "T-802", "T-803"} {
-		mustRun(t, dir, "work", "create", "--id", id, "--type", "task", "--title", "备忘记账 "+id,
-			"--system", "lake", "--description", "d", "--actor", "data")
-		mustRun(t, dir, "work", "assign", id, "--assignee", "data", "--role", "dev", "--actor", "data")
-		for _, st := range []string{"ready", "doing"} {
-			mustRun(t, dir, "work", "update", id, "--status", st, "--actor", "data")
-		}
-		mustRun(t, dir, "evidence", "add", id, "--type", "manual_check", "--locator", "x", "--actor", "data")
-		mustRun(t, dir, "work", "update", id, "--status", "done", "--actor", "data")
-	}
-	mustRun(t, dir, "progress", "report", "T-801", "--value", "0.9", "--actor", "data", "--basis", "manual")
-	mustRun(t, dir, "progress", "report", "T-802", "--value", "0.6", "--actor", "data", "--basis", "manual")
-	so, _, _ := runIn(t, dir, "converge")
-	if strings.Count(so, "done but progress reported") != 0 {
-		t.Fatalf("备忘类不应逐条列出:\n%s", so)
-	}
-	if !strings.Contains(so, "备忘 2 单") || !strings.Contains(so, "T-801 90%") || !strings.Contains(so, "T-802 60%") {
-		t.Fatalf("备忘应折叠成一行计数+清单:\n%s", so)
 	}
 }
 
